@@ -19,11 +19,13 @@ Released under the MIT License.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
+from pathlib import Path
 import signal
 import sys
 import time
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 Gio: Any = None
 GLib: Any = None
@@ -64,6 +66,7 @@ def load_pygobject() -> None:
 LOGIND_BUS_NAME = "org.freedesktop.login1"
 LOGIND_OBJECT_PATH = "/org/freedesktop/login1"
 LOGIND_MANAGER_IFACE = "org.freedesktop.login1.Manager"
+LOGIND_SESSION_IFACE = "org.freedesktop.login1.Session"
 
 POWER_BUS_NAME = "net.hadess.PowerProfiles"
 POWER_OBJECT_PATH = "/net/hadess/PowerProfiles"
@@ -74,12 +77,37 @@ UPOWER_OBJECT_PATH = "/org/freedesktop/UPower"
 UPOWER_IFACE = "org.freedesktop.UPower"
 DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
 
+BACKLIGHT_SYSFS_ROOT = Path("/sys/class/backlight")
+BACKLIGHT_OFF_DELAY_SECONDS = 3.0
+BACKLIGHT_VERIFY_ATTEMPTS = 10
+BACKLIGHT_VERIFY_INTERVAL_SECONDS = 0.05
+
 # Mapping from our CLI profile modes to net.hadess.PowerProfiles profile strings
 PROFILE_MAP: Dict[str, str] = {
     "run-cool": "power-saver",
     "run-balanced": "balanced",
     "run-hot": "performance",
 }
+
+
+@dataclass
+class BacklightDeviceState:
+    """Snapshot and teardown state for one kernel screen-backlight device."""
+
+    name: str
+    brightness_path: Path
+    verification_path: Path
+    original_brightness: int
+    original_actual_brightness: int
+    maximum_brightness: int
+    changed: bool = False
+
+    @property
+    def restore_brightness(self) -> int:
+        """Return a visible restoration target even if startup brightness was zero."""
+        if self.original_brightness > 0:
+            return self.original_brightness
+        return max(1, self.maximum_brightness // 10)
 
 
 # ==============================================================================
@@ -98,12 +126,18 @@ class LidCloseManager:
         suspend_after_minutes: Optional[int],
         no_inhibit_auto_suspend: bool,
         ignore_lid: bool,
+        do_not_touch_backlight: bool = False,
+        started_monotonic: Optional[float] = None,
     ):
         # Configuration parameters from CLI arguments
         self.mode: str = mode
         self.suspend_after_minutes: Optional[int] = suspend_after_minutes
         self.no_inhibit_auto_suspend: bool = no_inhibit_auto_suspend
         self.ignore_lid: bool = ignore_lid
+        self.do_not_touch_backlight: bool = do_not_touch_backlight
+        self.started_monotonic: float = (
+            time.monotonic() if started_monotonic is None else started_monotonic
+        )
 
         # State tracking variables for clean teardown and narrative reporting
         self.original_power_profile: Optional[str] = None
@@ -112,13 +146,22 @@ class LidCloseManager:
         self.lid_was_closed_during_session: bool = False
         self.current_lid_closed_state: bool = False
         self.suspend_timer_id: Optional[int] = None
+        self.backlight_timer_id: Optional[int] = None
+        self.backlight_devices: List[BacklightDeviceState] = []
+        self.backlight_powered_down: bool = False
+        self.backlight_restore_attempted: bool = False
+        self.backlight_restore_verified: bool = False
         self.shutdown_reason: str = "Unknown / Undefined"
         self.goal_achieved: bool = False
         self.deviations: List[str] = []
+        self.exit_code: int = 0
+        self.teardown_complete: bool = False
+        self.shutdown_narrative_printed: bool = False
 
         # D-Bus connection and proxy placeholders
         self.bus: Optional[Gio.DBusConnection] = None
         self.logind_proxy: Optional[Gio.DBusProxy] = None
+        self.logind_session_proxy: Optional[Gio.DBusProxy] = None
         self.power_proxy: Optional[Gio.DBusProxy] = None
         self.upower_proxy: Optional[Gio.DBusProxy] = None
         self.mainloop: Optional[GLib.MainLoop] = None
@@ -181,6 +224,269 @@ class LidCloseManager:
                 f"power-profiles-daemon proxy unreachable ({exc}). "
                 "Power mode switching will be disabled."
             )
+
+    # --------------------------------------------------------------------------
+    # SCREEN BACKLIGHT MANAGEMENT
+    # --------------------------------------------------------------------------
+
+    @staticmethod
+    def _read_backlight_value(path: Path, description: str) -> int:
+        """Read and validate a non-negative integer from a backlight sysfs file."""
+        try:
+            raw_value = path.read_text(encoding="ascii").strip()
+        except OSError as exc:
+            raise RuntimeError(f"Could not read {description} at {path}: {exc}") from exc
+
+        try:
+            value = int(raw_value)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Invalid integer for {description} at {path}: {raw_value!r}"
+            ) from exc
+        if value < 0:
+            raise RuntimeError(f"Negative {description} at {path}: {value}")
+        return value
+
+    def _discover_backlight_devices(self) -> List[BacklightDeviceState]:
+        """Snapshot every kernel screen-backlight device before mutation."""
+        try:
+            device_paths = sorted(
+                path for path in BACKLIGHT_SYSFS_ROOT.iterdir() if path.is_dir()
+            )
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not enumerate screen backlights under {BACKLIGHT_SYSFS_ROOT}: {exc}"
+            ) from exc
+
+        if not device_paths:
+            raise RuntimeError(
+                f"No screen-backlight devices were found under {BACKLIGHT_SYSFS_ROOT}"
+            )
+
+        devices: List[BacklightDeviceState] = []
+        for device_path in device_paths:
+            brightness_path = device_path / "brightness"
+            actual_path = device_path / "actual_brightness"
+            verification_path = actual_path if actual_path.is_file() else brightness_path
+            maximum = self._read_backlight_value(
+                device_path / "max_brightness", "maximum brightness"
+            )
+            requested = self._read_backlight_value(
+                brightness_path, "requested brightness"
+            )
+            actual = self._read_backlight_value(
+                verification_path, "actual brightness"
+            )
+            if maximum <= 0:
+                raise RuntimeError(
+                    f"Backlight {device_path.name!r} reports invalid maximum brightness {maximum}"
+                )
+            if requested > maximum or actual > maximum:
+                raise RuntimeError(
+                    f"Backlight {device_path.name!r} reports brightness outside 0..{maximum} "
+                    f"(requested={requested}, actual={actual})"
+                )
+            devices.append(
+                BacklightDeviceState(
+                    name=device_path.name,
+                    brightness_path=brightness_path,
+                    verification_path=verification_path,
+                    original_brightness=requested,
+                    original_actual_brightness=actual,
+                    maximum_brightness=maximum,
+                )
+            )
+        return devices
+
+    def prepare_backlight_control(self) -> None:
+        """Discover devices and bind the supported logind session control API."""
+        if self.do_not_touch_backlight or not self.mode.startswith("run"):
+            return
+        if not self.logind_proxy or not self.bus:
+            self._fatal_error(
+                "Cannot prepare screen-backlight control: logind is not initialized."
+            )
+
+        try:
+            devices = self._discover_backlight_devices()
+            result = self.logind_proxy.call_sync(
+                "GetSessionByPID",
+                GLib.Variant("(u)", (os.getpid(),)),
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
+            )
+            session_path = result.unpack()[0]
+            if not isinstance(session_path, str) or not session_path.startswith("/"):
+                raise RuntimeError(
+                    f"logind returned an invalid session object path: {session_path!r}"
+                )
+            self.logind_session_proxy = Gio.DBusProxy.new_sync(
+                self.bus,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                LOGIND_BUS_NAME,
+                session_path,
+                LOGIND_SESSION_IFACE,
+                None,
+            )
+            self.backlight_devices = devices
+        except Exception as exc:
+            self._fatal_error(f"Failed to prepare screen-backlight control: {exc}")
+
+        device_summary = ", ".join(
+            f"{device.name}={device.original_actual_brightness}/{device.maximum_brightness}"
+            for device in self.backlight_devices
+        )
+        print(f"[INFO] Screen-backlight state recorded: {device_summary}.")
+
+    def _set_backlight_brightness(
+        self, device: BacklightDeviceState, brightness: int
+    ) -> None:
+        """Set one device through the caller's logind session boundary."""
+        if not self.logind_session_proxy:
+            raise RuntimeError("logind session proxy is not initialized")
+        if brightness < 0 or brightness > device.maximum_brightness:
+            raise RuntimeError(
+                f"Brightness {brightness} for {device.name!r} is outside "
+                f"0..{device.maximum_brightness}"
+            )
+        try:
+            self.logind_session_proxy.call_sync(
+                "SetBrightness",
+                GLib.Variant("(ssu)", ("backlight", device.name, brightness)),
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"logind could not set backlight {device.name!r} to {brightness}: {exc}"
+            ) from exc
+
+    def _verify_backlight(
+        self,
+        device: BacklightDeviceState,
+        expected_on: bool,
+    ) -> int:
+        """Poll actual brightness briefly and require the requested on/off state."""
+        last_value: Optional[int] = None
+        for attempt in range(BACKLIGHT_VERIFY_ATTEMPTS):
+            last_value = self._read_backlight_value(
+                device.verification_path, "actual brightness"
+            )
+            if (last_value > 0) == expected_on:
+                return last_value
+            if attempt + 1 < BACKLIGHT_VERIFY_ATTEMPTS:
+                time.sleep(BACKLIGHT_VERIFY_INTERVAL_SECONDS)
+        expected = "nonzero (on)" if expected_on else "zero (off)"
+        raise RuntimeError(
+            f"Backlight {device.name!r} did not verify as {expected}; "
+            f"last observed value was {last_value}"
+        )
+
+    def _on_backlight_power_down(self) -> bool:
+        """GLib timer callback: turn off and verify all discovered backlights."""
+        self.backlight_timer_id = None
+        try:
+            for device in self.backlight_devices:
+                # Mark the device before crossing D-Bus: a transport failure can
+                # be ambiguous about whether logind applied the mutation.
+                device.changed = True
+                self._set_backlight_brightness(device, 0)
+                self._verify_backlight(device, expected_on=False)
+            self.backlight_powered_down = True
+            print("[OK] Screen backlight turned off and verified after three seconds.")
+        except Exception as exc:
+            message = f"Screen-backlight power-down failed: {exc}"
+            self._warn(message)
+            self.deviations.append(message)
+            self.shutdown_reason = message
+            self.goal_achieved = False
+            self.exit_code = 1
+            self.restore_backlights()
+            if self.mainloop:
+                self.mainloop.quit()
+        return False
+
+    def schedule_backlight_power_down(self) -> None:
+        """Schedule default power-down relative to process start, not setup end."""
+        if self.do_not_touch_backlight or not self.mode.startswith("run"):
+            return
+        if not self.backlight_devices or not self.logind_session_proxy:
+            self._fatal_error("Screen-backlight control was not prepared before scheduling.")
+
+        remaining_seconds = max(
+            0.0,
+            self.started_monotonic + BACKLIGHT_OFF_DELAY_SECONDS - time.monotonic(),
+        )
+        delay_milliseconds = max(1, int(round(remaining_seconds * 1000)))
+        try:
+            self.backlight_timer_id = GLib.timeout_add(
+                delay_milliseconds, self._on_backlight_power_down
+            )
+        except Exception as exc:
+            self._fatal_error(f"Failed to schedule screen-backlight power-down: {exc}")
+        print(
+            "[INFO] Screen backlight will turn off three seconds after process startup."
+        )
+
+    def restore_backlights(self) -> bool:
+        """Restore every touched device and verify it is on before returning."""
+        changed_devices = [device for device in self.backlight_devices if device.changed]
+        if not changed_devices:
+            return True
+
+        self.backlight_restore_attempted = True
+        restoration_ok = True
+        for device in changed_devices:
+            try:
+                target = device.restore_brightness
+                self._set_backlight_brightness(device, target)
+                observed = self._verify_backlight(device, expected_on=True)
+                device.changed = False
+                print(
+                    f"[OK] Restored backlight {device.name!r} to {target}; "
+                    f"verified on at {observed}."
+                )
+            except Exception as exc:
+                restoration_ok = False
+                message = f"Failed to restore and verify backlight {device.name!r}: {exc}"
+                self._warn(message)
+                self.deviations.append(message)
+
+        self.backlight_restore_verified = restoration_ok
+        if not restoration_ok:
+            self.exit_code = 1
+        return restoration_ok
+
+    def teardown(self) -> None:
+        """Run the idempotent handled-exit cleanup path in safety-first order."""
+        if self.teardown_complete:
+            return
+        if self.backlight_timer_id is not None:
+            try:
+                GLib.source_remove(self.backlight_timer_id)
+            except Exception as exc:
+                self._warn(f"Could not cancel screen-backlight timer: {exc}")
+                self.deviations.append(f"Could not cancel screen-backlight timer: {exc}")
+                self.exit_code = 1
+            self.backlight_timer_id = None
+        if self.suspend_timer_id is not None:
+            try:
+                GLib.source_remove(self.suspend_timer_id)
+            except Exception as exc:
+                self._warn(f"Could not cancel suspend timer: {exc}")
+                self.deviations.append(f"Could not cancel suspend timer: {exc}")
+                self.exit_code = 1
+            self.suspend_timer_id = None
+
+        # Brightness persists independently of this process, so restore and
+        # verify it before releasing automatically scoped inhibitors.
+        self.restore_backlights()
+        self.release_inhibitor_fds()
+        self.restore_power_profile()
+        self.teardown_complete = True
 
     # --------------------------------------------------------------------------
     # POWER PROFILE MANAGEMENT
@@ -253,6 +559,7 @@ class LidCloseManager:
                     -1,
                     None,
                 )
+                self.active_power_profile = self.original_power_profile
                 print(f"[INFO] Restored system power profile to original state: '{self.original_power_profile}'.")
             except Exception as exc:
                 self._warn(f"Failed to restore original power profile '{self.original_power_profile}': {exc}")
@@ -555,8 +862,15 @@ class LidCloseManager:
                 print(f"  • Unconditional Timeout   : {self.suspend_after_minutes} minute(s) after lid close")
             else:
                 print("  • Unconditional Timeout   : Disabled")
+            backlight_str = (
+                "UNTOUCHED (--do-not-touch-backlight active)"
+                if self.do_not_touch_backlight
+                else "OFF after 3 seconds; restored and verified ON at exit"
+            )
+            print(f"  • Screen Backlight        : {backlight_str}")
         else:
             print("  • Inhibition Locks        : None (immediate one-shot operation)")
+            print("  • Screen Backlight        : Unchanged (operation exits before delay)")
 
         print("  • Expected Lifecycle      : ", end="")
         if self.mode.startswith("run"):
@@ -575,6 +889,10 @@ class LidCloseManager:
         Prints a detailed final status report explaining achievement of goals,
         any operational deviations, and the final state of locks and power profiles.
         """
+        if self.shutdown_narrative_printed:
+            return
+        self.shutdown_narrative_printed = True
+
         print("\n" + "=" * 80)
         print("                  BURNBAG — SHUTDOWN & TEARDOWN NARRATIVE                   ")
         print("=" * 80)
@@ -592,6 +910,20 @@ class LidCloseManager:
 
         print("  • Final System State      : ")
         print("        - D-Bus Inhibitors  : All inhibitor locks released (OS safety defaults restored)")
+
+        if self.do_not_touch_backlight:
+            backlight_status = "Untouched by explicit operator request"
+        elif not self.mode.startswith("run"):
+            backlight_status = "Unchanged (one-shot operation)"
+        elif self.backlight_restore_attempted and self.backlight_restore_verified:
+            backlight_status = "On (restoration verified)"
+        elif self.backlight_restore_attempted:
+            backlight_status = "RESTORATION FAILED"
+        elif self.backlight_powered_down:
+            backlight_status = "RESTORATION NOT ATTEMPTED"
+        else:
+            backlight_status = "Unchanged (three-second timer did not fire)"
+        print(f"        - Screen Backlight  : {backlight_status}")
 
         # Explain active power profile status
         final_prof = self.original_power_profile if self.original_power_profile else "Unknown"
@@ -617,8 +949,8 @@ class LidCloseManager:
         sys.stderr.write(f"\n[{timestamp}] [FATAL ERROR] {message}\n")
         self.shutdown_reason = f"Fatal Error: {message}"
         self.goal_achieved = False
-        self.release_inhibitor_fds()
-        self.restore_power_profile()
+        self.exit_code = 1
+        self.teardown()
         self.print_shutdown_narrative()
         sys.exit(1)
 
@@ -627,11 +959,12 @@ class LidCloseManager:
 # MAIN ORCHESTRATOR FUNCTION
 # ==============================================================================
 
-def main() -> None:
+def main() -> int:
     """
     Parses arguments, initializes D-Bus monitoring, installs POSIX signal handlers,
     and runs the appropriate mode lifecycle.
     """
+    process_started_at = time.monotonic()
     parser = argparse.ArgumentParser(
         prog="burnbag",
         description="Fedora 44 / GNOME Clamshell & Power Profile Control Utility ('burnbag')",
@@ -677,6 +1010,15 @@ def main() -> None:
         ),
     )
 
+    parser.add_argument(
+        "--do-not-touch-backlight",
+        action="store_true",
+        help=(
+            "Do not turn the screen backlight off after three seconds or "
+            "restore it during teardown."
+        ),
+    )
+
     args = parser.parse_args()
 
     # Validate logical constraints on CLI options
@@ -704,6 +1046,8 @@ def main() -> None:
         suspend_after_minutes=args.suspend_after_minutes,
         no_inhibit_auto_suspend=args.no_inhibit_auto_suspend,
         ignore_lid=args.ignore_lid,
+        do_not_touch_backlight=args.do_not_touch_backlight,
+        started_monotonic=process_started_at,
     )
 
     # State reporting before doing any work
@@ -718,24 +1062,12 @@ def main() -> None:
             manager.execute_immediate_action()
         finally:
             manager.print_shutdown_narrative()
-        sys.exit(0)
+        return manager.exit_code
 
     # --------------------------------------------------------------------------
     # PERSISTENT 'RUN*' MODE LIFECYCLE
     # --------------------------------------------------------------------------
 
-    # 1. Set requested power profile
-    target_prof = PROFILE_MAP.get(args.mode, None)
-    manager.save_and_set_power_profile(target_prof)
-
-    # 2. Acquire D-Bus inhibitor locks
-    manager.acquire_inhibitor_fds_wrap = manager.acquire_inhibitor_locks()
-
-    # 3. Register UPower listener for physical lid events
-    manager.setup_upower_signal_listener()
-    manager.check_initial_lid_state()
-
-    # 4. Set up POSIX signal handling for clean exit on Ctrl-C / SIGTERM
     def sig_handler(signum: int, frame: Any) -> None:
         sig_name = "SIGINT (Ctrl-C)" if signum == signal.SIGINT else "SIGTERM"
         print(f"\n[EVENT] Received interrupt signal: {sig_name}.")
@@ -744,28 +1076,58 @@ def main() -> None:
         if manager.mainloop:
             manager.mainloop.quit()
 
-    signal.signal(signal.SIGINT, sig_handler)
-    signal.signal(signal.SIGTERM, sig_handler)
-
-    # 5. Execute GLib Event MainLoop
-    manager.mainloop = GLib.MainLoop()
-    wait_target = "lid events" if args.ignore_lid else "lid cycle"
-    print(f"[INFO] Entering persistent event loop. Waiting for {wait_target} or interrupt...")
     try:
+        # 1. Snapshot screen-backlight state and bind the caller's logind
+        # session. The opt-out returns before either discovery or D-Bus setup.
+        manager.prepare_backlight_control()
+
+        # 2. Set requested power profile.
+        target_prof = PROFILE_MAP.get(args.mode, None)
+        manager.save_and_set_power_profile(target_prof)
+
+        # 3. Acquire D-Bus inhibitor locks.
+        manager.acquire_inhibitor_locks()
+
+        # 4. Register UPower listener for physical lid events.
+        manager.setup_upower_signal_listener()
+        manager.check_initial_lid_state()
+
+        # 5. Set up POSIX signal handling for clean exit on Ctrl-C / SIGTERM.
+        signal.signal(signal.SIGINT, sig_handler)
+        signal.signal(signal.SIGTERM, sig_handler)
+
+        # 6. Execute GLib Event MainLoop. The timer is measured from process
+        # start, so slow setup powers down as soon as the loop can dispatch.
+        manager.mainloop = GLib.MainLoop()
+        manager.schedule_backlight_power_down()
+        wait_target = "lid events" if args.ignore_lid else "lid cycle"
+        print(
+            f"[INFO] Entering persistent event loop. "
+            f"Waiting for {wait_target} or interrupt..."
+        )
         manager.mainloop.run()
-    except Exception as exc:
-        manager._warn(f"Unhandled exception in main event loop: {exc}")
-        manager.deviations.append(f"Main loop terminated unexpectedly: {exc}")
+    except KeyboardInterrupt:
+        manager.shutdown_reason = "User termination signal received (SIGINT / Ctrl-C)"
+        manager.goal_achieved = True
+    except SystemExit:
+        # _fatal_error has already recorded the failure and run teardown.
+        raise
+    except BaseException as exc:
+        manager._warn(f"Unhandled exception in persistent lifecycle: {exc}")
+        manager.deviations.append(
+            f"Persistent lifecycle terminated unexpectedly: {exc}"
+        )
         manager.shutdown_reason = f"Unhandled exception: {exc}"
+        manager.goal_achieved = False
+        manager.exit_code = 1
     finally:
-        # Guarantee inhibitor cleanup and profile restoration on any exit path
-        if manager.suspend_timer_id is not None:
-            GLib.source_remove(manager.suspend_timer_id)
-            manager.suspend_timer_id = None
-        manager.release_inhibitor_fds()
-        manager.restore_power_profile()
+        # Explicit brightness and profile mutations require cleanup; unlike
+        # inhibitor FDs, the kernel cannot restore them after process death.
+        manager.teardown()
         manager.print_shutdown_narrative()
+
+    return manager.exit_code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

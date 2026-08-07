@@ -10,7 +10,7 @@ burnbag \- ephemeral clamshell mode, power profile, and sleep inhibition for Lin
 .B burnbag
 is a desktop\-agnostic systems utility for Fedora and RHEL family Linux distributions that temporarily inhibits
 .B systemd-logind
-lid\-switch and idle\-suspend events, manages
+lid\-switch and idle\-suspend events, controls screen backlights, manages
 .B power\-profiles\-daemon
 performance profiles, and monitors hardware lid state via
 .BR UPower .
@@ -20,6 +20,12 @@ Unlike static configuration overrides,
 relies on ephemeral D\-Bus inhibitor file descriptors. Holding these file descriptors open blocks the operating system from suspending when the laptop lid is shut. Upon normal exit, interrupt (\fBSIGINT\fR/\fBSIGTERM\fR), or process death (\fBSIGKILL\fR), the kernel releases the file descriptors, instructing
 .B systemd-logind
 to automatically drop all inhibitor locks and restore normal OS safety defaults.
+.PP
+Persistent run modes use the caller\(aqs
+.B org.freedesktop.login1.Session.SetBrightness
+interface to turn every discovered kernel screen backlight off three seconds after process startup. On every handled exit, burnbag restores the recorded brightness and verifies that the backlight reports a nonzero value before terminating.
+.PP
+Explicit backlight and power\-profile restoration can run after normal completion, handled SIGINT/SIGTERM, and caught application errors. It cannot run after SIGKILL, sudden power loss, or equivalent process destruction. Inhibitor file descriptors remain kernel\-released in those cases.
 .PP
 .B burnbag
 provides narrative console logging on startup and exit, detailing intended system mutations, operational deviations, and the final shutdown state of D\-Bus locks and power profiles.
@@ -69,6 +75,9 @@ Do not acquire inhibitor locks for background system idle timers. The laptop wil
 .B \-\-ignore\-lid
 Keep a run mode active when the lid opens instead of ending after the first observed close/open cycle. Opening the lid still cancels an active suspend countdown; a later closure starts a fresh countdown. Without this option, lid-open termination remains enabled by default.
 .TP
+.B \-\-do\-not\-touch\-backlight
+Leave screen backlights untouched. Without this non-default opt-out, persistent run modes snapshot every kernel screen backlight, turn it off three seconds after process startup, verify it is off, and restore and verify a nonzero brightness before handled exit.
+.TP
 .BR \-h ", " \-\-help
 Display syntax, mode descriptions, and usage examples, then exit.
 .SH SAFETY & EPHEMERAL INHIBITION
@@ -105,6 +114,12 @@ Stay active across repeated lid cycles while retaining a 20\-minute closed-lid s
 .B burnbag run\-cool \-\-ignore\-lid \-\-suspend\-after\-minutes 20
 .RE
 .PP
+Run in power\-saver mode without changing the screen backlight:
+.PP
+.RS 4
+.B burnbag run\-cool \-\-do\-not\-touch\-backlight
+.RE
+.PP
 Restore normal system defaults immediately:
 .PP
 .RS 4
@@ -116,17 +131,25 @@ Restore normal system defaults immediately:
 Successful execution, complete lid cycle observed, or clean termination via interrupt (\fBSIGINT\fR/\fBSIGTERM\fR).
 .TP
 .B 1
-Fatal error encountered (e.g., missing
+Fatal error or unverified required state encountered (e.g., missing
 .B python3\-gobject
-dependencies, D\-Bus connection failure, or unsupported hibernation request).
+dependencies, D\-Bus connection failure, unsupported hibernation request, or backlight mutation/restoration failure).
 .SH INSTALLATION
 From a source checkout, install prerequisites, the executable, and this manual page with:
 .PP
 .B ./install.sh
 .PP
-For a repository\-local development install under the ignored .local tree, use:
+For a repository\-local development install, use:
 .PP
 .B ./install.sh \-\-mode dev
+.PP
+Interactive dev mode reports a competing burnbag command and asks whether bare invocations should prefer the checkout. When accepted, it installs a managed launcher under $HOME/.local/bin and verifies effective command lookup. That directory must already precede the installed command on PATH because an installer cannot change its parent shell environment.
+.PP
+Non\-interactive callers select checkout resolution explicitly with:
+.PP
+.B ./install.sh \-\-mode dev \-\-dev\-command local
+.PP
+or set BURNBAG_DEV_LAUNCHER_MODE=local. Use \-\-dev\-command system to remove the managed user launcher and retain the other PATH result. Use \-\-user\-home with an explicit operator home when automation supplies an isolated assistant HOME.
 .SH SYSTEM REQUIREMENTS
 Requires the distribution /usr/bin/python3 (Python 3.9+),
 .BR python3\-gobject ,

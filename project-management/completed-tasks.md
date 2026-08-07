@@ -4,6 +4,33 @@ Record completed work with newest entries at the top. Use dated bullets and
 include concise outcomes, owners, ISO 8601 completion timestamps, validation
 evidence, important decisions or risk acceptances, and follow-up records.
 
+- `BB-2026-08-07-03` — Add default delayed backlight control with an explicit
+  opt-out and verified restoration.
+  - Owner: Codex
+  - Started: 2026-08-07T11:48:08-07:00
+  - Completed: 2026-08-07T11:59:13-07:00
+  - Outcome: persistent `run*` modes now snapshot all kernel screen-backlight
+    devices, turn them off three seconds after process startup, verify the off
+    state, and restore and verify a nonzero brightness through one idempotent
+    handled-exit teardown. `--do-not-touch-backlight` bypasses discovery and
+    mutation. Mutation, verification, compensation, restoration, and setup
+    failures are explicit and return nonzero.
+  - Documentation: added the durable
+    [backlight lifecycle specification](../docs/specifications/backlight-lifecycle.md)
+    and updated help, startup/shutdown narratives, generated README, man page,
+    comments, options, examples, failure status, and hard-kill limitations.
+  - Validation: 18 focused lifecycle, lid, and installer tests passed under
+    Python 3.9.21, system Python 3.12.13, and pyenv Python 3.14. Generated docs
+    were reproducible; compilation, help, prerequisite/install checks, Bash
+    syntax, ShellCheck, man warnings, credential scan, whitespace, and diff
+    checks passed.
+  - Risk acceptance: no live D-Bus backlight mutation was performed because it
+    changes workstation hardware state. Real Fedora/RHEL logind policy, driver
+    behavior, three-second timing, visual power-down, and verified restoration
+    remain for operator testing.
+  - Follow-up: `burnbag-ECR-2026-002` remains open and unsubmitted to request
+    language-invariant FieldManual guidance for reversible host-state changes.
+
 - `BB-2026-08-07-02` — Add opt-in `--ignore-lid` run-mode behavior.
   - Owner: Codex
   - Started: 2026-08-07T09:41:12-07:00

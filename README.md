@@ -1,6 +1,6 @@
 # burnbag
 
-**Ephemeral clamshell mode, power profile, and sleep inhibition for Linux laptops, featuring configurable safety timeouts.**
+**Ephemeral clamshell mode, backlight control, power profiles, and sleep inhibition for Linux laptops.**
 
 `burnbag` is a desktop-agnostic, ephemeral D-Bus control utility for Fedora and Red Hat Enterprise Linux family systems running GNOME or standard systemd/freedesktop stacks. It allows a laptop (such as a ThinkPad T480) to continue operating with its lid closed—whether docked on a desk or thrown into a backpack—while managing performance profiles and enforcing optional safety countdowns.
 
@@ -16,8 +16,9 @@ In intelligence and government work, a burn bag is where classified documents go
 
 Unlike traditional lid-close scripts that permanently mutate `/etc/systemd/logind.conf` or set permanent `gsettings` overrides, `burnbag` uses **ephemeral D-Bus inhibitor file descriptors** (`org.freedesktop.login1.Manager.Inhibit`).
 
-* **Crash & Kill Immune:** Holding the returned Unix file descriptor open maintains the sleep/lid prohibition. If `burnbag` terminates normally, crashes, or is killed (`SIGINT`, `SIGTERM`, `SIGKILL`), the kernel closes the file descriptors, signaling `systemd-logind` to immediately drop the inhibitor locks and restore standard OS safety defaults.
-* **Power Profile Restoration:** `burnbag` queries `net.hadess.PowerProfiles` on startup to save your active power state. When the script exits or a lid cycle completes, it restores your original profile automatically.
+* **Crash & Kill Immune Inhibitors:** Holding the returned Unix file descriptor open maintains the sleep/lid prohibition. If `burnbag` terminates normally, crashes, or is killed (`SIGINT`, `SIGTERM`, `SIGKILL`), the kernel closes the file descriptors, signaling `systemd-logind` to immediately drop the inhibitor locks and restore standard OS sleep behavior.
+* **Default Backlight Control:** Persistent `run*` modes record every kernel screen-backlight device, turn the backlight off three seconds after process startup, verify it is off, and restore and verify a nonzero brightness before every handled exit. `--do-not-touch-backlight` explicitly opts out.
+* **Explicit State Restoration:** On normal completion, handled `SIGINT`/`SIGTERM`, or a caught application error, `burnbag` restores the recorded backlight and power profile. `SIGKILL`, sudden power loss, and equivalent process destruction cannot run userspace teardown; unlike inhibitor FDs, explicit brightness and profile changes cannot be promised restoration in those cases.
 * **Narrative Verification:** Prints an explicit startup narrative before touching system state, and a structured teardown report upon exit detailing whether goals were achieved and any deviations observed.
 
 ---
@@ -50,12 +51,23 @@ Install prerequisites, the executable, and the manual page under `/usr/local`:
 
 The installer requests `sudo` only when package or system-file installation requires it. Use `./install.sh --help` for staging and prefix options.
 
-For a repository-local development install, create live links under the ignored `.local/` tree:
+For a repository-local development install, run:
 
 ```bash
 ./install.sh --mode dev
-.local/bin/burnbag --help
+command -v burnbag
 ```
+
+In an interactive terminal, dev mode reports any competing `burnbag` command and asks whether bare invocations should prefer this checkout. If accepted, it installs a managed launcher at `~/.local/bin/burnbag` and verifies that command lookup selects it. The user bin directory must already precede the installed command on `PATH`; the installer cannot change its parent shell's environment.
+
+Non-interactive dev installs leave command resolution unchanged unless policy is explicit:
+
+```bash
+./install.sh --mode dev --dev-command local
+BURNBAG_DEV_LAUNCHER_MODE=local ./install.sh --mode dev
+```
+
+Use `--dev-command system` to remove burnbag's managed user launcher and restore the other `PATH` result. Dev mode refuses to replace an unmanaged user launcher unless `--force` is explicit. When an automation environment supplies an isolated assistant `HOME`, pass `--user-home /absolute/operator/home`.
 
 ---
 
@@ -82,6 +94,7 @@ burnbag <MODE> [OPTIONS]
 * `--suspend-after-minutes <MIN>`: Unconditionally suspend after `MIN` minutes of continuous lid closure. If the lid is opened before the timer expires, the timer is cancelled.
 * `--no-inhibit-auto-suspend`: Allow standard OS background idle timers to suspend the system normally while lid-switch sleep remains blocked.
 * `--ignore-lid`: Keep a `run*` mode active when the lid opens. Lid opening still cancels an active suspend countdown; a later closure starts a fresh countdown. Without this option, the first observed close/open cycle ends the program.
+* `--do-not-touch-backlight`: Leave the screen backlight untouched. Without this opt-out, persistent `run*` modes turn every discovered backlight off three seconds after process startup and restore and verify it as on before handled exit.
 * `-h`, `--help`: Display syntax and usage help.
 
 ---
@@ -111,4 +124,9 @@ burnbag normal
 **5. Stay active across repeated lid close/open cycles until interrupted or a timeout expires:**
 ```bash
 burnbag run-cool --ignore-lid --suspend-after-minutes 20
+```
+
+**6. Keep the screen backlight under desktop control instead of burnbag control:**
+```bash
+burnbag run-cool --do-not-touch-backlight
 ```

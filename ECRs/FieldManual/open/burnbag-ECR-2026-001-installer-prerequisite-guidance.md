@@ -30,7 +30,9 @@ language-invariant contract for a project's prerequisite and installation
 entry points. Projects can consequently expose setup commands that select a
 different runtime than the system package manager, block non-runtime commands
 such as help, require unnecessary privilege, or use inconsistent meanings for
-development installation.
+development installation. They can also report a successful development
+install without establishing or verifying which executable a subsequent bare
+command will run.
 
 In burnbag, an environment-selected Python could not import a native binding
 that the operating-system package manager had correctly installed for the
@@ -49,6 +51,11 @@ covering:
   semantics when those modes exist;
 - a non-mutating prerequisite or readiness check;
 - deterministic runtime and package-manager ownership;
+- explicit command-resolution outcomes when development and installed copies
+  can coexist, including the boundary that an installer cannot modify its
+  parent shell's current environment;
+- interactive conflict selection and explicit non-interactive policy where a
+  workflow optionally publishes a user-facing development launcher;
 - visible privilege, network, and external-state transitions;
 - safe repeated execution, staging, and partial-failure behavior; and
 - documentation that distinguishes similarly named but unrelated packages.
@@ -61,6 +68,11 @@ covering:
   environment, or any other particular implementation.
 - Development mode is described as project-declared local setup and is kept
   distinct from a user or system deployment.
+- An installer that offers to change command resolution protects unmanaged
+  targets, reports competing commands, verifies the resulting lookup, and
+  does not claim that a non-activated directory controls the parent shell.
+- Non-interactive automation leaves command resolution unchanged by default
+  or selects the intended behavior through an explicit project-owned option.
 - Readiness checks are non-mutating and report the selected runtime, package
   source, scope, and actionable mismatch where those facts matter.
 - The guidance cross-links runtime/package environments, local operator state,
@@ -71,6 +83,8 @@ covering:
 
 - Supplying a universal executable installer or package-manager wrapper.
 - Requiring every project to support every installation scope or mode.
+- Requiring a global development shim, shell-profile mutation, environment
+  activation tool, or one universal command-resolution strategy.
 - Replacing language-specific packaging or platform deployment standards.
 - Standardizing TheKnowledge's heavier environment bootstrap as a FieldManual
   requirement.
@@ -92,6 +106,9 @@ conventions into universal requirements.
   repository-local development modes, demonstrating reusable semantics but
   also showing why FieldManual guidance should be lighter and
   implementation-neutral.
+- A burnbag development install created a valid link beneath the checkout but
+  left an existing system installation first in effective command lookup,
+  while still reporting the development launcher as successfully installed.
 
 ## Source Tracking
 
@@ -101,6 +118,8 @@ After first transport, maintain this section as an append-only history.
 
 - 2026-08-07 — burnbag began adding a canonical prerequisite check and
   installer with explicit standard and repository-local development modes.
+- 2026-08-07 — burnbag began repairing development launcher selection after
+  observing that a checkout-local link alone did not affect command lookup.
 
 ### Transport And Receipt Log
 
@@ -108,7 +127,10 @@ After first transport, maintain this section as an append-only history.
 
 ### Discussion And Amendments
 
-None.
+- 2026-08-07 — Expanded the unsubmitted revision 1 draft to cover observable
+  command-resolution outcomes, safe launcher conflicts, and explicit
+  interactive versus automation behavior. No submitted text was changed
+  because the ECR has not yet been transported.
 
 ### Target Disposition
 
