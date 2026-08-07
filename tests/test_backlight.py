@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 from pathlib import Path
 import shutil
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import burnbag
 
@@ -53,10 +55,17 @@ class FakeDBusProxyFlags:
 class FakeDBusProxyFactory:
     return_proxy: object = None
     calls: list[tuple[object, ...]] = []
+    proxies: dict[tuple[str, str], object] = {}
 
     @classmethod
     def new_sync(cls, *arguments: object) -> object:
         cls.calls.append(arguments)
+        object_path = arguments[4]
+        interface_name = arguments[5]
+        if isinstance(object_path, str) and isinstance(interface_name, str):
+            selected = cls.proxies.get((object_path, interface_name))
+            if selected is not None:
+                return selected
         return cls.return_proxy
 
 
@@ -76,9 +85,34 @@ class FakeResult:
         return self.value
 
 
+class FakeProperty:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def unpack(self) -> object:
+        return self.value
+
+
+class FakePropertyProxy:
+    def __init__(self, properties: dict[str, object]) -> None:
+        self.properties = properties
+
+    def get_cached_property(self, name: str) -> FakeProperty | None:
+        if name not in self.properties:
+            return None
+        return FakeProperty(self.properties[name])
+
+
 class FakeManagerProxy:
     def __init__(self) -> None:
         self.calls: list[tuple[str, FakeVariant]] = []
+        self.responses: dict[str, FakeResult | Exception] = {
+            "GetSessionByPID": FakeResult(
+                ("/org/freedesktop/login1/session/_test",)
+            ),
+            "GetSession": FakeResult(("/org/freedesktop/login1/session/_test",)),
+            "GetUser": FakeResult(("/org/freedesktop/login1/user/_test",)),
+        }
 
     def call_sync(
         self,
@@ -89,7 +123,10 @@ class FakeManagerProxy:
         _cancellable: object,
     ) -> FakeResult:
         self.calls.append((method, parameters))
-        return FakeResult(("/org/freedesktop/login1/session/_test",))
+        response = self.responses[method]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class FakeMainLoop:
@@ -100,10 +137,25 @@ class FakeMainLoop:
         self.quit_called = True
 
 
-class FakeSessionProxy:
+class FakeSessionProxy(FakePropertyProxy):
     """Apply SetBrightness requests to disposable sysfs-shaped files."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        active: bool = True,
+        remote: bool = False,
+        uid: int | None = None,
+    ) -> None:
+        session_uid = os.geteuid() if uid is None else uid
+        super().__init__(
+            {
+                "User": (session_uid, f"/org/freedesktop/login1/user/_{session_uid}"),
+                "Active": active,
+                "Remote": remote,
+            }
+        )
         self.root = root
         self.fail_zero_for: set[str] = set()
         self.fail_positive_for: set[str] = set()
@@ -163,6 +215,7 @@ class BacklightTests(unittest.TestCase):
         FakeGLib.removed = []
         FakeDBusProxyFactory.calls = []
         FakeDBusProxyFactory.return_proxy = None
+        FakeDBusProxyFactory.proxies = {}
 
     def tearDown(self) -> None:
         burnbag.GLib = self.original_glib
@@ -249,10 +302,116 @@ class BacklightTests(unittest.TestCase):
         self.assertEqual(parameters.signature, "(u)")
         self.assertEqual(len(manager.backlight_devices), 1)
         self.assertIs(manager.logind_session_proxy, session_proxy)
+        self.assertEqual(manager.logind_session_source, "process PID")
         self.assertEqual(len(FakeDBusProxyFactory.calls), 1)
         self.assertEqual(
             FakeDBusProxyFactory.calls[0][5], burnbag.LOGIND_SESSION_IFACE
         )
+
+    def test_prepare_falls_back_to_user_primary_display_when_pid_has_no_session(self) -> None:
+        self.add_device("panel0", brightness=42)
+        manager, session_proxy = self.make_manager()
+        manager_proxy = FakeManagerProxy()
+        manager_proxy.responses["GetSessionByPID"] = RuntimeError(
+            "org.freedesktop.login1.NoSessionForPID"
+        )
+        manager.bus = object()
+        manager.logind_proxy = manager_proxy
+
+        user_path = "/org/freedesktop/login1/user/_test"
+        display_path = "/org/freedesktop/login1/session/_display"
+        manager_proxy.responses["GetUser"] = FakeResult((user_path,))
+        FakeDBusProxyFactory.proxies = {
+            (user_path, burnbag.LOGIND_USER_IFACE): FakePropertyProxy(
+                {"Display": ("2", display_path)}
+            ),
+            (display_path, burnbag.LOGIND_SESSION_IFACE): session_proxy,
+        }
+
+        with mock.patch.dict(os.environ, {"XDG_SESSION_ID": ""}, clear=False):
+            manager.prepare_backlight_control()
+
+        self.assertEqual(
+            [method for method, _parameters in manager_proxy.calls],
+            ["GetSessionByPID", "GetUser"],
+        )
+        self.assertIs(manager.logind_session_proxy, session_proxy)
+        self.assertEqual(manager.logind_session_path, display_path)
+        self.assertEqual(manager.logind_session_source, "user primary display")
+
+    def test_prepare_uses_inherited_session_id_before_user_display(self) -> None:
+        self.add_device("panel0", brightness=42)
+        manager, session_proxy = self.make_manager()
+        manager_proxy = FakeManagerProxy()
+        manager_proxy.responses["GetSessionByPID"] = RuntimeError("no PID session")
+        inherited_path = "/org/freedesktop/login1/session/_inherited"
+        manager_proxy.responses["GetSession"] = FakeResult((inherited_path,))
+        manager.bus = object()
+        manager.logind_proxy = manager_proxy
+        FakeDBusProxyFactory.proxies = {
+            (inherited_path, burnbag.LOGIND_SESSION_IFACE): session_proxy,
+        }
+
+        with mock.patch.dict(os.environ, {"XDG_SESSION_ID": "7"}, clear=False):
+            manager.prepare_backlight_control()
+
+        self.assertEqual(
+            [method for method, _parameters in manager_proxy.calls],
+            ["GetSessionByPID", "GetSession"],
+        )
+        self.assertEqual(manager.logind_session_source, "inherited XDG_SESSION_ID")
+
+    def test_remote_pid_session_is_rejected_in_favor_of_local_display(self) -> None:
+        self.add_device("panel0", brightness=42)
+        manager, local_session_proxy = self.make_manager()
+        manager_proxy = FakeManagerProxy()
+        pid_path = "/org/freedesktop/login1/session/_remote"
+        user_path = "/org/freedesktop/login1/user/_test"
+        display_path = "/org/freedesktop/login1/session/_display"
+        manager_proxy.responses["GetSessionByPID"] = FakeResult((pid_path,))
+        manager_proxy.responses["GetUser"] = FakeResult((user_path,))
+        manager.bus = object()
+        manager.logind_proxy = manager_proxy
+        FakeDBusProxyFactory.proxies = {
+            (pid_path, burnbag.LOGIND_SESSION_IFACE): FakeSessionProxy(
+                self.sysfs_root, remote=True
+            ),
+            (user_path, burnbag.LOGIND_USER_IFACE): FakePropertyProxy(
+                {"Display": ("2", display_path)}
+            ),
+            (display_path, burnbag.LOGIND_SESSION_IFACE): local_session_proxy,
+        }
+
+        with mock.patch.dict(os.environ, {"XDG_SESSION_ID": ""}, clear=False):
+            manager.prepare_backlight_control()
+
+        self.assertEqual(manager.logind_session_path, display_path)
+        self.assertEqual(manager.logind_session_source, "user primary display")
+
+    def test_resolution_rejects_other_uid_and_summarizes_attempts(self) -> None:
+        manager, _session_proxy = self.make_manager()
+        manager_proxy = FakeManagerProxy()
+        manager_proxy.responses["GetSessionByPID"] = RuntimeError("no PID session")
+        user_path = "/org/freedesktop/login1/user/_test"
+        display_path = "/org/freedesktop/login1/session/_other_user"
+        manager_proxy.responses["GetUser"] = FakeResult((user_path,))
+        manager.bus = object()
+        manager.logind_proxy = manager_proxy
+        FakeDBusProxyFactory.proxies = {
+            (user_path, burnbag.LOGIND_USER_IFACE): FakePropertyProxy(
+                {"Display": ("9", display_path)}
+            ),
+            (display_path, burnbag.LOGIND_SESSION_IFACE): FakeSessionProxy(
+                self.sysfs_root, uid=os.geteuid() + 1
+            ),
+        }
+
+        with mock.patch.dict(os.environ, {"XDG_SESSION_ID": ""}, clear=False):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Attempts: process PID: .*user primary display: .*not effective UID",
+            ):
+                manager._resolve_logind_session_proxy()
 
     def test_startup_zero_restores_to_visible_fallback(self) -> None:
         device_path = self.add_device("panel0", brightness=0, maximum=200)
@@ -375,6 +534,17 @@ class BacklightTests(unittest.TestCase):
             "UNTOUCHED (--do-not-touch-backlight active)", opt_out_output.getvalue()
         )
         self.assertIn("Untouched by explicit operator request", opt_out_output.getvalue())
+
+    def test_fatal_error_is_reported_as_shutdown_deviation(self) -> None:
+        manager, _proxy = self.make_manager(do_not_touch_backlight=True)
+
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    manager._fatal_error("injected setup failure")
+
+        self.assertIn("Fatal error: injected setup failure", manager.deviations)
+        self.assertNotIn("None (execution proceeded exactly", output.getvalue())
 
 
 if __name__ == "__main__":

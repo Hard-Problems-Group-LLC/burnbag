@@ -67,6 +67,7 @@ LOGIND_BUS_NAME = "org.freedesktop.login1"
 LOGIND_OBJECT_PATH = "/org/freedesktop/login1"
 LOGIND_MANAGER_IFACE = "org.freedesktop.login1.Manager"
 LOGIND_SESSION_IFACE = "org.freedesktop.login1.Session"
+LOGIND_USER_IFACE = "org.freedesktop.login1.User"
 
 POWER_BUS_NAME = "net.hadess.PowerProfiles"
 POWER_OBJECT_PATH = "/net/hadess/PowerProfiles"
@@ -162,6 +163,8 @@ class LidCloseManager:
         self.bus: Optional[Gio.DBusConnection] = None
         self.logind_proxy: Optional[Gio.DBusProxy] = None
         self.logind_session_proxy: Optional[Gio.DBusProxy] = None
+        self.logind_session_path: Optional[str] = None
+        self.logind_session_source: Optional[str] = None
         self.power_proxy: Optional[Gio.DBusProxy] = None
         self.upower_proxy: Optional[Gio.DBusProxy] = None
         self.mainloop: Optional[GLib.MainLoop] = None
@@ -298,6 +301,152 @@ class LidCloseManager:
             )
         return devices
 
+    @staticmethod
+    def _validate_dbus_object_path(value: Any, description: str) -> str:
+        """Reject empty or root sentinel paths before proxy construction."""
+        if not isinstance(value, str) or not value.startswith("/") or value == "/":
+            raise RuntimeError(f"Invalid {description}: {value!r}")
+        return value
+
+    @staticmethod
+    def _cached_proxy_property(proxy: Any, name: str, description: str) -> Any:
+        """Read one synchronously cached property from a newly created proxy."""
+        try:
+            value = proxy.get_cached_property(name)
+        except Exception as exc:
+            raise RuntimeError(f"Could not read {description}: {exc}") from exc
+        if value is None:
+            raise RuntimeError(f"Required {description} is unavailable")
+        try:
+            return value.unpack()
+        except Exception as exc:
+            raise RuntimeError(f"Could not unpack {description}: {exc}") from exc
+
+    def _new_logind_proxy(self, object_path: str, interface_name: str) -> Any:
+        """Construct a synchronous logind proxy on the established system bus."""
+        if not self.bus:
+            raise RuntimeError("system D-Bus connection is not initialized")
+        return Gio.DBusProxy.new_sync(
+            self.bus,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            LOGIND_BUS_NAME,
+            object_path,
+            interface_name,
+            None,
+        )
+
+    def _validated_session_proxy(self, session_path: str, source: str) -> Any:
+        """Bind only an active, local session owned by the effective user."""
+        session_path = self._validate_dbus_object_path(
+            session_path, f"logind session path from {source}"
+        )
+        proxy = self._new_logind_proxy(session_path, LOGIND_SESSION_IFACE)
+        user_value = self._cached_proxy_property(
+            proxy, "User", f"session user for {source}"
+        )
+        if not isinstance(user_value, tuple) or len(user_value) != 2:
+            raise RuntimeError(
+                f"Invalid session user property for {source}: {user_value!r}"
+            )
+        session_uid = user_value[0]
+        if not isinstance(session_uid, int) or session_uid != os.geteuid():
+            raise RuntimeError(
+                f"Session from {source} belongs to UID {session_uid!r}, "
+                f"not effective UID {os.geteuid()}"
+            )
+
+        active = self._cached_proxy_property(
+            proxy, "Active", f"session active state for {source}"
+        )
+        remote = self._cached_proxy_property(
+            proxy, "Remote", f"session remote state for {source}"
+        )
+        if active is not True:
+            raise RuntimeError(f"Session from {source} is not active")
+        if remote is not False:
+            raise RuntimeError(f"Session from {source} is remote")
+
+        self.logind_session_path = session_path
+        self.logind_session_source = source
+        return proxy
+
+    def _resolve_logind_session_proxy(self) -> Any:
+        """Resolve a safe brightness session across common launcher scopes."""
+        if not self.logind_proxy:
+            raise RuntimeError("logind manager proxy is not initialized")
+
+        failures: List[str] = []
+
+        # Prefer the process-owned session. This is exact when burnbag was
+        # launched directly from a login shell, but logind legitimately cannot
+        # resolve PIDs owned by tmux servers or user-service scopes.
+        try:
+            result = self.logind_proxy.call_sync(
+                "GetSessionByPID",
+                GLib.Variant("(u)", (os.getpid(),)),
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
+            )
+            session_path = result.unpack()[0]
+            return self._validated_session_proxy(session_path, "process PID")
+        except Exception as exc:
+            failures.append(f"process PID: {exc}")
+
+        # A tmux server may retain the graphical session ID in its environment
+        # even though its current PID is outside logind's process accounting.
+        inherited_session_id = os.environ.get("XDG_SESSION_ID", "").strip()
+        if inherited_session_id:
+            try:
+                result = self.logind_proxy.call_sync(
+                    "GetSession",
+                    GLib.Variant("(s)", (inherited_session_id,)),
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    None,
+                )
+                session_path = result.unpack()[0]
+                return self._validated_session_proxy(
+                    session_path, "inherited XDG_SESSION_ID"
+                )
+            except Exception as exc:
+                failures.append(f"inherited XDG_SESSION_ID: {exc}")
+
+        # User.Display is logind's authoritative primary graphical session and
+        # is the safe fallback for user services and detached shell scopes.
+        try:
+            result = self.logind_proxy.call_sync(
+                "GetUser",
+                GLib.Variant("(u)", (os.geteuid(),)),
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
+            )
+            user_path = self._validate_dbus_object_path(
+                result.unpack()[0], "logind user path"
+            )
+            user_proxy = self._new_logind_proxy(user_path, LOGIND_USER_IFACE)
+            display_value = self._cached_proxy_property(
+                user_proxy, "Display", "user primary display session"
+            )
+            if not isinstance(display_value, tuple) or len(display_value) != 2:
+                raise RuntimeError(
+                    f"Invalid user Display property: {display_value!r}"
+                )
+            session_path = display_value[1]
+            return self._validated_session_proxy(
+                session_path, "user primary display"
+            )
+        except Exception as exc:
+            failures.append(f"user primary display: {exc}")
+
+        failure_summary = "; ".join(failures)
+        raise RuntimeError(
+            "Could not resolve an active local logind display session for "
+            f"effective UID {os.geteuid()}. Attempts: {failure_summary}"
+        )
+
     def prepare_backlight_control(self) -> None:
         """Discover devices and bind the supported logind session control API."""
         if self.do_not_touch_backlight or not self.mode.startswith("run"):
@@ -309,27 +458,7 @@ class LidCloseManager:
 
         try:
             devices = self._discover_backlight_devices()
-            result = self.logind_proxy.call_sync(
-                "GetSessionByPID",
-                GLib.Variant("(u)", (os.getpid(),)),
-                Gio.DBusCallFlags.NONE,
-                -1,
-                None,
-            )
-            session_path = result.unpack()[0]
-            if not isinstance(session_path, str) or not session_path.startswith("/"):
-                raise RuntimeError(
-                    f"logind returned an invalid session object path: {session_path!r}"
-                )
-            self.logind_session_proxy = Gio.DBusProxy.new_sync(
-                self.bus,
-                Gio.DBusProxyFlags.NONE,
-                None,
-                LOGIND_BUS_NAME,
-                session_path,
-                LOGIND_SESSION_IFACE,
-                None,
-            )
+            self.logind_session_proxy = self._resolve_logind_session_proxy()
             self.backlight_devices = devices
         except Exception as exc:
             self._fatal_error(f"Failed to prepare screen-backlight control: {exc}")
@@ -339,6 +468,10 @@ class LidCloseManager:
             for device in self.backlight_devices
         )
         print(f"[INFO] Screen-backlight state recorded: {device_summary}.")
+        print(
+            f"[INFO] Screen-backlight control session: {self.logind_session_path} "
+            f"({self.logind_session_source})."
+        )
 
     def _set_backlight_brightness(
         self, device: BacklightDeviceState, brightness: int
@@ -948,6 +1081,9 @@ class LidCloseManager:
         timestamp = time.strftime("%H:%M:%S")
         sys.stderr.write(f"\n[{timestamp}] [FATAL ERROR] {message}\n")
         self.shutdown_reason = f"Fatal Error: {message}"
+        fatal_deviation = f"Fatal error: {message}"
+        if fatal_deviation not in self.deviations:
+            self.deviations.append(fatal_deviation)
         self.goal_achieved = False
         self.exit_code = 1
         self.teardown()

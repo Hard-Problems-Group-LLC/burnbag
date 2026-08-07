@@ -25,6 +25,8 @@ Persistent run modes use the caller\(aqs
 .B org.freedesktop.login1.Session.SetBrightness
 interface to turn every discovered kernel screen backlight off three seconds after process startup. On every handled exit, burnbag restores the recorded brightness and verifies that the backlight reports a nonzero value before terminating.
 .PP
+The control session is resolved from the process session, inherited XDG_SESSION_ID, or the user\(aqs primary graphical logind session. A candidate must belong to the effective UID, be active, and be local. This supports tmux and user-service launchers whose PIDs are not assigned directly to a logind session.
+.PP
 Explicit backlight and power\-profile restoration can run after normal completion, handled SIGINT/SIGTERM, and caught application errors. It cannot run after SIGKILL, sudden power loss, or equivalent process destruction. Inhibitor file descriptors remain kernel\-released in those cases.
 .PP
 .B burnbag

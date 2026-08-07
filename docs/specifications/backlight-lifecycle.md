@@ -1,6 +1,6 @@
 # Backlight Lifecycle Specification
 
-- Status: Implemented; awaiting live hardware validation
+- Status: Implemented; live hardware validated
 - Owner: burnbag maintainers
 - Last reviewed: 2026-08-07
 
@@ -18,7 +18,9 @@ Unless `--do-not-touch-backlight` is present, burnbag must:
 1. discover every kernel backlight device under `/sys/class/backlight`;
 2. record each device's requested, actual, and maximum brightness before any
    backlight mutation;
-3. resolve the caller's logind session and use its
+3. resolve an active local logind session owned by the effective UID, preferring
+   the process session, then inherited `XDG_SESSION_ID`, then the user's
+   authoritative primary graphical `Display` session, and use its
    `org.freedesktop.login1.Session.SetBrightness` method;
 4. schedule brightness zero for three seconds after process startup;
 5. verify that every controlled device reports zero actual brightness;
@@ -31,6 +33,12 @@ If discovery, mutation, or verification fails, burnbag must record the
 deviation, attempt to restore every device it may have changed, terminate its
 persistent session, and return a nonzero status. Failure to restore a touched
 backlight is a teardown failure and must also produce a nonzero status.
+
+Session resolution must not assume that the launcher PID belongs directly to
+a logind session: tmux servers and user-service scopes commonly do not. A
+candidate session must be rejected before mutation when it belongs to another
+UID, is inactive, or is remote. Failure diagnostics must summarize all
+attempted resolution paths.
 
 ## Opt-Out
 
@@ -51,7 +59,9 @@ backlight restoration for those cases.
 - The command-line help, README, generated man page, startup narrative, and
   shutdown narrative agree with this contract.
 - Focused tests use a fake logind session and disposable sysfs-shaped files to
-  cover delayed power-down, verified restoration, opt-out, mutation failure,
-  and restoration failure without changing workstation hardware.
-- A supported Fedora/RHEL laptop test remains required to validate the real
-  logind policy, device driver, timing, and visual outcome.
+  cover PID, inherited-session, and primary-display resolution; local-session
+  validation; delayed power-down; verified restoration; opt-out; mutation
+  failure; and restoration failure without changing workstation hardware.
+- On 2026-08-07, the operator validated the real logind session fallback,
+  device driver, timing, visual power-down, and restoration on the supported
+  Fedora/RHEL-family laptop.
