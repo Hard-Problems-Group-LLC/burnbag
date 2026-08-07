@@ -1,0 +1,3 @@
+[submodule "FieldManual"]
+	path = FieldManual
+	url = git@github-hpg:Hard-Problems-Group-LLC/FieldManual.git

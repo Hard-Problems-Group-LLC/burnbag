@@ -1,0 +1,4 @@
+# Distributed FieldManual root configuration for this project.
+FieldManual_ConfigVersion = 1
+FieldManual_FrameworkRoot = "FieldManual"
+FieldManual_ProjectRoot = "."

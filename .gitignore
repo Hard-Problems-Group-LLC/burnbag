@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Checkout-local agent runtime mounts.
+.agents/
+
+# BEGIN managed by codex-wrangler
+# Local Codex package, home, wrapper, and sentinel artifacts.
+.codex-local/
+.codex-home/
+.codex
+.local/
+bin/codex-local
+README-LOCAL-Start-Codex.md
+# END managed by codex-wrangler
