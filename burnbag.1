@@ -31,6 +31,8 @@ Explicit backlight and power\-profile restoration can run after normal completio
 .PP
 .B burnbag
 provides narrative console logging on startup and exit, detailing intended system mutations, operational deviations, and the final shutdown state of D\-Bus locks and power profiles.
+.PP
+Every accepted operational session also writes an append-only JSON Lines running log. Each complete record is serialized against concurrent burnbag writers and synchronized to the filesystem before execution continues.
 .SH MODES
 The following mutually exclusive operational modes are supported:
 .TP
@@ -80,8 +82,28 @@ Keep a run mode active when the lid opens instead of ending after the first obse
 .B \-\-do\-not\-touch\-backlight
 Leave screen backlights untouched. Without this non-default opt-out, persistent run modes snapshot every kernel screen backlight, turn it off three seconds after process startup, verify it is off, and restore and verify a nonzero brightness before handled exit.
 .TP
+.BI \-\-log\-file " FILE"
+Write the mandatory synchronized running log to absolute FILE instead of the XDG state default. The parent must be owned by the effective user and must not be group or world writable.
+.TP
+.B \-\-no\-color
+Disable ANSI color in runtime messages, help, usage, and error output. Color remains automatic by default for interactive terminals.
+.TP
 .BR \-h ", " \-\-help
 Display syntax, mode descriptions, and usage examples, then exit.
+.SH TERMINAL OUTPUT
+When the relevant standard-output or standard-error stream is an interactive terminal, burnbag automatically adds ANSI color and visual hierarchy. Output remains plain when a stream is redirected, when TERM=dumb, when the NO_COLOR environment variable is present, or when
+.B \-\-no\-color
+is specified. Text labels such as [INFO], [OK], [WARNING], and [FATAL ERROR] remain present, so color is never the only status indication.
+.PP
+Invoking burnbag without a mode prints a concise quick-start guide to standard error and exits with status 2. Help, the zero-argument guide, and command-line validation run before PyGObject is loaded.
+.SH RUNNING LOG
+Every accepted operational invocation establishes a mandatory append-only running log before PyGObject is loaded or host state is changed. The default path is $XDG_STATE_HOME/burnbag/burnbag.log, falling back to $HOME/.local/state/burnbag/burnbag.log. There is no no-log option.
+.PP
+The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown. Absence of session_end is retained as evidence of an unhandled process or power interruption.
+.PP
+Each record is appended under an exclusive advisory lock and followed by fsync before execution continues. Safety-relevant mutation intent is synchronized before the mutation. Failure to resolve, open, validate, lock, append, or synchronize the log prevents further host mutation and returns nonzero. Logging failure never prevents backlight, inhibitor, or power-profile teardown.
+.PP
+The managed directory uses mode 0700 and the file mode 0600. Burnbag rejects symlink targets, non-regular or multiply linked files, incorrect ownership, and unsafe parent permissions. Burnbag does not rotate, upload, truncate, or delete logs; retention and external rename-based rotation are operator-owned.
 .SH SAFETY & EPHEMERAL INHIBITION
 Modifying
 .I /etc/systemd/logind.conf
@@ -122,6 +144,12 @@ Run in power\-saver mode without changing the screen backlight:
 .B burnbag run\-cool \-\-do\-not\-touch\-backlight
 .RE
 .PP
+Run with an explicit synchronized log path:
+.PP
+.RS 4
+.B burnbag run\-cool \-\-log\-file /absolute/path/to/automation.jsonl
+.RE
+.PP
 Restore normal system defaults immediately:
 .PP
 .RS 4
@@ -135,7 +163,10 @@ Successful execution, complete lid cycle observed, or clean termination via inte
 .B 1
 Fatal error or unverified required state encountered (e.g., missing
 .B python3\-gobject
-dependencies, D\-Bus connection failure, unsupported hibernation request, or backlight mutation/restoration failure).
+dependencies, D\-Bus connection failure, running-log durability failure, unsupported hibernation request, or backlight mutation/restoration failure).
+.TP
+.B 2
+Command-line usage error, including invocation without a required operational mode.
 .SH INSTALLATION
 From a source checkout, install prerequisites, the executable, and this manual page with:
 .PP
