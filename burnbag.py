@@ -5,8 +5,9 @@ burnbag — Clamshell Mode & Power Profile Management Utility for Fedora / GNOME
 Target Platform: Fedora 44 / Red Hat Enterprise Linux family (Python 3.9+)
 
 This utility temporarily inhibits systemd-logind lid-switch and idle-suspend events,
-manages power-profiles-daemon profiles, and monitors UPower lid state to allow a laptop
-to continue running when the lid is shut (e.g., while inside a bag or docked).
+manages power-profiles-daemon profiles, monitors UPower lid state, and samples installed
+battery percentages to allow a laptop to continue running when the lid is shut (e.g.,
+while inside a bag or docked) with an observable depletion history.
 
 It uses D-Bus inhibitor file descriptors so that all overrides are strictly ephemeral:
 if this script terminates, crashes, or is killed, systemd automatically drops the locks
@@ -19,16 +20,20 @@ Released under the MIT License.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import stat
+import statistics
 import sys
+import textwrap
 import time
 from typing import Any, Dict, List, Optional, Sequence, TextIO, Tuple
 import uuid
@@ -622,6 +627,25 @@ BACKLIGHT_SYSFS_ROOT = Path("/sys/class/backlight")
 BACKLIGHT_OFF_DELAY_SECONDS = 3.0
 BACKLIGHT_VERIFY_ATTEMPTS = 10
 BACKLIGHT_VERIFY_INTERVAL_SECONDS = 0.05
+BATTERY_SYSFS_ROOT = Path("/sys/class/power_supply")
+BATTERY_SAMPLE_INTERVAL_MILLISECONDS = 15_000
+BATTERY_PLOT_ROWS = 25
+BATTERY_PLOT_FALLBACK_COLUMNS = 80
+
+
+def linux_boottime() -> float:
+    """Return suspend-inclusive monotonic time on Linux.
+
+    ``CLOCK_MONOTONIC`` stops while the system is suspended. Battery-rate
+    durations use ``CLOCK_BOOTTIME`` so an auto-suspend interval cannot be
+    mistaken for an ordinary fifteen-second gauge update.
+    """
+    clock_id = getattr(time, "CLOCK_BOOTTIME", None)
+    if clock_id is None:
+        # The supported platform is Linux, but retaining this fallback keeps
+        # import-time and documentation tooling usable on other systems.
+        return time.monotonic()
+    return time.clock_gettime(clock_id)
 
 # Mapping from our CLI profile modes to net.hadess.PowerProfiles profile strings
 PROFILE_MAP: Dict[str, str] = {
@@ -651,6 +675,1193 @@ class BacklightDeviceState:
         return max(1, self.maximum_brightness // 10)
 
 
+@dataclass(frozen=True)
+class BatteryDevice:
+    """One read-only Linux power-supply battery selected for this run."""
+
+    name: str
+    capacity_path: Path
+    present_path: Optional[Path] = None
+    status_path: Optional[Path] = None
+
+
+@dataclass(frozen=True)
+class BatterySample:
+    """One sampling cycle, including gaps caused by unavailable devices."""
+
+    captured_at: datetime
+    elapsed_seconds: float
+    percentages: Dict[str, int]
+    statuses: Dict[str, str] = field(default_factory=dict)
+    present: Dict[str, bool] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BatteryStatistics:
+    """Descriptive fuel-gauge statistics for one battery and handled run."""
+
+    name: str
+    attempted_readings: int
+    valid_readings: int
+    first_percentage: Optional[int]
+    last_percentage: Optional[int]
+    span_seconds: Optional[float]
+    net_change_pp: Optional[int]
+    coverage_ratio: float
+    attempt_cadence_seconds: float
+    trend_kind: str
+    trend_depletion_pp_per_hour: Optional[float]
+    r_squared: Optional[float]
+    trend_validity_reason: Optional[str]
+    transition_count: int
+    local_rate_count: int
+    weighted_mean_depletion_pp_per_hour: Optional[float]
+    weighted_sigma_pp_per_hour: Optional[float]
+    coefficient_of_variation_percent: Optional[float]
+    robust_mad_sigma_pp_per_hour: Optional[float]
+    median_minutes_per_pp: Optional[float]
+    observed_reversals: int
+    mixed_history: bool
+    segment_count: int
+    excluded_gap_count: int
+    status_break_count: int
+    maximum_transition_bracket_seconds: Optional[float]
+    variability_validity_reason: Optional[str]
+    observed_statuses: Tuple[str, ...]
+
+    @staticmethod
+    def _finite_or_none(value: Optional[float]) -> Optional[float]:
+        """Keep the structured JSON representation free of NaN and infinity."""
+        if value is None or not math.isfinite(value):
+            return None
+        return value
+
+    @property
+    def average_reported_change_pp_per_minute(self) -> Optional[float]:
+        """Return signed mean local gauge change in percentage points/minute.
+
+        Local depletion rates use positive values, so negate before converting
+        hours to minutes: falling state of charge is negative and rising state
+        of charge is positive. This is a unit conversion of the already-gated
+        transition-rate estimator, not a derivative of raw 15-second samples.
+        """
+        if self.weighted_mean_depletion_pp_per_hour is None:
+            return None
+        return -self.weighted_mean_depletion_pp_per_hour / 60.0
+
+    @property
+    def reported_change_sigma_pp_per_minute(self) -> Optional[float]:
+        """Return local gauge-rate standard deviation in pp/minute."""
+        if self.weighted_sigma_pp_per_hour is None:
+            return None
+        return self.weighted_sigma_pp_per_hour / 60.0
+
+    def to_log_details(self) -> Dict[str, Any]:
+        """Return a versioned, unit-bearing JSON object for the running log."""
+        return {
+            "statistics_version": 2,
+            "battery": self.name,
+            "timebase": "CLOCK_BOOTTIME",
+            "attempted_readings": self.attempted_readings,
+            "valid_readings": self.valid_readings,
+            "coverage_ratio": self._finite_or_none(self.coverage_ratio),
+            "first_percentage": self.first_percentage,
+            "last_percentage": self.last_percentage,
+            "span_seconds": self._finite_or_none(self.span_seconds),
+            "net_change_percentage_points": self.net_change_pp,
+            "attempt_cadence_seconds": self._finite_or_none(
+                self.attempt_cadence_seconds
+            ),
+            "trend_kind": self.trend_kind,
+            "trend_depletion_percentage_points_per_hour": self._finite_or_none(
+                self.trend_depletion_pp_per_hour
+            ),
+            "r_squared": self._finite_or_none(self.r_squared),
+            "trend_validity_reason": self.trend_validity_reason,
+            "eligible_reported_transition_count": self.transition_count,
+            "local_rate_count": self.local_rate_count,
+            "weighted_mean_depletion_percentage_points_per_hour": (
+                self._finite_or_none(
+                    self.weighted_mean_depletion_pp_per_hour
+                )
+            ),
+            "weighted_depletion_rate_sigma_percentage_points_per_hour": (
+                self._finite_or_none(self.weighted_sigma_pp_per_hour)
+            ),
+            "average_reported_change_percentage_points_per_minute": (
+                self._finite_or_none(
+                    self.average_reported_change_pp_per_minute
+                )
+            ),
+            "standard_deviation_reported_change_percentage_points_per_minute": (
+                self._finite_or_none(
+                    self.reported_change_sigma_pp_per_minute
+                )
+            ),
+            "coefficient_of_variation_percent": self._finite_or_none(
+                self.coefficient_of_variation_percent
+            ),
+            "robust_mad_sigma_percentage_points_per_hour": self._finite_or_none(
+                self.robust_mad_sigma_pp_per_hour
+            ),
+            "median_minutes_per_percentage_point": self._finite_or_none(
+                self.median_minutes_per_pp
+            ),
+            "observed_reversals": self.observed_reversals,
+            "mixed_history": self.mixed_history,
+            "segment_count": self.segment_count,
+            "excluded_gap_count": self.excluded_gap_count,
+            "status_break_count": self.status_break_count,
+            "maximum_transition_bracket_seconds": self._finite_or_none(
+                self.maximum_transition_bracket_seconds
+            ),
+            "variability_validity_reason": self.variability_validity_reason,
+            "observed_statuses": list(self.observed_statuses),
+        }
+
+
+@dataclass(frozen=True)
+class _BatteryTransition:
+    """One interval-censored reported gauge-level change."""
+
+    segment: int
+    elapsed_seconds: float
+    percentage: int
+    change_pp: int
+    bracket_seconds: float
+
+
+class BatteryMonitor:
+    """Discover and sample at most two kernel battery devices without mutation.
+
+    The two-device limit is a presentation contract, not an assumption hidden
+    in the sysfs reader: additional eligible names are returned explicitly so
+    the controller can warn and record exactly which devices were selected.
+    """
+
+    MAX_PLOTTED_BATTERIES = 2
+
+    def __init__(self, root: Path, started_boottime: float) -> None:
+        self.root = root
+        self.started_boottime = started_boottime
+        self.devices: List[BatteryDevice] = []
+        self.unselected_names: List[str] = []
+        self.samples: List[BatterySample] = []
+
+    @staticmethod
+    def _read_sysfs_text(path: Path) -> str:
+        """Read and normalize one small sysfs attribute."""
+        return path.read_text(encoding="utf-8").strip()
+
+    def discover(self) -> List[str]:
+        """Select present battery devices in deterministic kernel-name order.
+
+        Missing sysfs is normal on systems without Linux power-supply support.
+        Other directory-level failures are returned for explicit reporting.
+        Unreadable attributes on unrelated non-battery supplies are ignored,
+        because their type cannot be established as in scope.
+        """
+        self.devices = []
+        self.unselected_names = []
+        try:
+            entries = sorted(self.root.iterdir(), key=lambda path: path.name)
+        except FileNotFoundError:
+            return []
+        except OSError as exc:
+            return [f"Could not enumerate battery power supplies under {self.root}: {exc}"]
+
+        eligible: List[BatteryDevice] = []
+        errors: List[str] = []
+        for entry in entries:
+            try:
+                supply_type = self._read_sysfs_text(entry / "type")
+            except OSError:
+                continue
+            if supply_type.casefold() != "battery":
+                continue
+
+            try:
+                present = self._read_sysfs_text(entry / "present")
+            except FileNotFoundError:
+                # The kernel documents `present` as optional. A battery whose
+                # driver omits it is eligible when capacity can be read.
+                present = "1"
+            except OSError as exc:
+                errors.append(
+                    f"Could not determine whether battery {entry.name!r} is present: {exc}"
+                )
+                continue
+            if present == "0":
+                continue
+            if present != "1":
+                errors.append(
+                    f"Battery {entry.name!r} reported invalid present value {present!r}."
+                )
+                continue
+
+            capacity_path = entry / "capacity"
+            if not capacity_path.exists():
+                errors.append(
+                    f"Battery {entry.name!r} does not expose a capacity percentage."
+                )
+                continue
+            present_path = entry / "present"
+            status_path = entry / "status"
+            eligible.append(
+                BatteryDevice(
+                    entry.name,
+                    capacity_path,
+                    present_path if present_path.exists() else None,
+                    status_path if status_path.exists() else None,
+                )
+            )
+
+        self.devices = eligible[: self.MAX_PLOTTED_BATTERIES]
+        self.unselected_names = [
+            device.name for device in eligible[self.MAX_PLOTTED_BATTERIES :]
+        ]
+        return errors
+
+    def sample(
+        self,
+        captured_at: Optional[datetime] = None,
+        elapsed_seconds: Optional[float] = None,
+    ) -> Tuple[BatterySample, List[str]]:
+        """Read all selected percentages and preserve device-level gaps."""
+        selected_time = (
+            datetime.now().astimezone() if captured_at is None else captured_at
+        )
+        if selected_time.tzinfo is None:
+            raise ValueError("Battery sample wall-clock time must be timezone-aware")
+        selected_elapsed = (
+            max(0.0, linux_boottime() - self.started_boottime)
+            if elapsed_seconds is None
+            else max(0.0, elapsed_seconds)
+        )
+
+        percentages: Dict[str, int] = {}
+        statuses: Dict[str, str] = {}
+        present_devices: Dict[str, bool] = {}
+        errors: List[str] = []
+        for device in self.devices:
+            if device.present_path is not None:
+                try:
+                    raw_present = self._read_sysfs_text(device.present_path)
+                    if raw_present not in {"0", "1"}:
+                        raise ValueError(
+                            f"invalid present value {raw_present!r}"
+                        )
+                    is_present = raw_present == "1"
+                    present_devices[device.name] = is_present
+                    if not is_present:
+                        # Removal or pack handoff is a continuity break, not a
+                        # read failure and not a reason to mutate the device.
+                        continue
+                except (OSError, ValueError) as exc:
+                    errors.append(
+                        f"Could not read battery {device.name!r} presence: {exc}"
+                    )
+                    continue
+            else:
+                present_devices[device.name] = True
+
+            if device.status_path is not None:
+                try:
+                    status_value = self._read_sysfs_text(device.status_path)
+                    if status_value:
+                        statuses[device.name] = status_value
+                except OSError:
+                    # Status is optional in the statistics contract. A driver
+                    # that exposes but cannot currently read it loses only
+                    # corroboration; capacity remains independently useful.
+                    pass
+
+            try:
+                raw_capacity = self._read_sysfs_text(device.capacity_path)
+                capacity = int(raw_capacity, 10)
+                if not 0 <= capacity <= 100:
+                    raise ValueError(
+                        f"percentage {capacity} is outside the inclusive 0--100 range"
+                    )
+            except (OSError, ValueError) as exc:
+                errors.append(f"Could not read battery {device.name!r}: {exc}")
+                continue
+            percentages[device.name] = capacity
+
+        sample = BatterySample(
+            selected_time,
+            selected_elapsed,
+            percentages,
+            statuses,
+            present_devices,
+        )
+        self.samples.append(sample)
+        return sample, errors
+
+
+def summarize_battery_statistics(
+    name: str, samples: Sequence[BatterySample]
+) -> BatteryStatistics:
+    """Calculate quantization-aware descriptive statistics for one battery.
+
+    Whole-run OLS describes the reported percentage staircase. Local
+    variability deliberately uses only eligible reported-level transitions;
+    differentiating adjacent 15-second integer readings would manufacture
+    alternating zero and 240 pp/h impulses from a smooth one-point change.
+    """
+    attempted = len(samples)
+    positive_attempt_deltas = [
+        later.elapsed_seconds - earlier.elapsed_seconds
+        for earlier, later in zip(samples, samples[1:])
+        if later.elapsed_seconds > earlier.elapsed_seconds
+    ]
+    attempt_cadence = (
+        float(statistics.median(positive_attempt_deltas))
+        if len(positive_attempt_deltas) >= 3
+        else float(BATTERY_SAMPLE_INTERVAL_MILLISECONDS) / 1000.0
+    )
+    maximum_contiguous_delta = max(45.0, 3.0 * attempt_cadence)
+    valid_points = [
+        (index, sample, sample.percentages[name])
+        for index, sample in enumerate(samples)
+        if name in sample.percentages
+    ]
+    valid = len(valid_points)
+    coverage = valid / attempted if attempted else 0.0
+    observed_statuses = tuple(
+        sorted(
+            {
+                sample.statuses[name]
+                for sample in samples
+                if name in sample.statuses
+            }
+        )
+    )
+
+    first_percentage: Optional[int] = None
+    last_percentage: Optional[int] = None
+    span_seconds: Optional[float] = None
+    net_change: Optional[int] = None
+    trend_depletion: Optional[float] = None
+    r_squared: Optional[float] = None
+    trend_reason: Optional[str] = None
+    trend_kind = "unavailable"
+
+    if valid_points:
+        first_percentage = valid_points[0][2]
+        last_percentage = valid_points[-1][2]
+    if valid >= 2:
+        span_seconds = max(
+            0.0,
+            valid_points[-1][1].elapsed_seconds
+            - valid_points[0][1].elapsed_seconds,
+        )
+        net_change = last_percentage - first_percentage  # type: ignore[operator]
+
+    ols_slope: Optional[float] = None
+    unique_levels = {point[2] for point in valid_points}
+    if valid == 0:
+        trend_reason = "no valid readings"
+    elif valid == 1:
+        trend_reason = "only one valid reading"
+    elif valid < 5:
+        trend_reason = "need at least five valid readings"
+    elif span_seconds is None or span_seconds < 300.0:
+        trend_reason = "need at least five minutes of observations"
+    elif len(unique_levels) == 1:
+        trend_kind = "constant"
+        trend_reason = "no reported whole-percentage change"
+    else:
+        elapsed_hours = [
+            (point[1].elapsed_seconds - valid_points[0][1].elapsed_seconds)
+            / 3600.0
+            for point in valid_points
+        ]
+        percentages = [float(point[2]) for point in valid_points]
+        mean_time = statistics.fmean(elapsed_hours)
+        mean_percentage = statistics.fmean(percentages)
+        time_sum_squares = sum(
+            (value - mean_time) ** 2 for value in elapsed_hours
+        )
+        if time_sum_squares <= 0.0:
+            trend_reason = "elapsed times do not establish a trend"
+        else:
+            ols_slope = sum(
+                (elapsed - mean_time) * (percentage - mean_percentage)
+                for elapsed, percentage in zip(elapsed_hours, percentages)
+            ) / time_sum_squares
+            trend_depletion = -ols_slope
+            fitted = [
+                mean_percentage + ols_slope * (elapsed - mean_time)
+                for elapsed in elapsed_hours
+            ]
+            total_sum_squares = sum(
+                (percentage - mean_percentage) ** 2
+                for percentage in percentages
+            )
+            if total_sum_squares > 0.0:
+                residual_sum_squares = sum(
+                    (percentage - estimate) ** 2
+                    for percentage, estimate in zip(percentages, fitted)
+                )
+                calculated_r_squared = 1.0 - (
+                    residual_sum_squares / total_sum_squares
+                )
+                # Clamp only floating-point spill at the descriptive boundary.
+                r_squared = min(1.0, max(0.0, calculated_r_squared))
+
+    # Build per-device contiguous segments. A missing reading, long elapsed
+    # interval, or known status change breaks local-rate continuity.
+    segments: List[List[Tuple[int, BatterySample, int]]] = []
+    missing_gap_runs = sum(
+        name not in sample.percentages
+        and (index == 0 or name in samples[index - 1].percentages)
+        for index, sample in enumerate(samples)
+    )
+    long_or_invalid_gap_count = 0
+    status_break_count = 0
+    previous_valid: Optional[Tuple[int, BatterySample, int]] = None
+    for point in valid_points:
+        index, sample, _percentage = point
+        continue_segment = False
+        if previous_valid is not None:
+            previous_index, previous_sample, _previous_percentage = previous_valid
+            elapsed_delta = sample.elapsed_seconds - previous_sample.elapsed_seconds
+            previous_status = previous_sample.statuses.get(name)
+            current_status = sample.statuses.get(name)
+            status_changed = (
+                previous_status is not None
+                and current_status is not None
+                and previous_status != current_status
+            )
+            missing_between = index != previous_index + 1
+            elapsed_gap = not (0.0 < elapsed_delta <= maximum_contiguous_delta)
+            if status_changed:
+                status_break_count += 1
+            if not missing_between and elapsed_gap:
+                long_or_invalid_gap_count += 1
+            continue_segment = (
+                not missing_between
+                and not elapsed_gap
+                and not status_changed
+            )
+        if not continue_segment:
+            segments.append([])
+        segments[-1].append(point)
+        previous_valid = point
+
+    excluded_gap_count = missing_gap_runs + long_or_invalid_gap_count
+    transitions: List[_BatteryTransition] = []
+    for segment_index, segment in enumerate(segments):
+        for earlier, later in zip(segment, segment[1:]):
+            _earlier_index, earlier_sample, earlier_percentage = earlier
+            _later_index, later_sample, later_percentage = later
+            if later_percentage == earlier_percentage:
+                continue
+            bracket_seconds = (
+                later_sample.elapsed_seconds - earlier_sample.elapsed_seconds
+            )
+            if bracket_seconds <= 0.0:
+                continue
+            transitions.append(
+                _BatteryTransition(
+                    segment=segment_index,
+                    elapsed_seconds=(
+                        earlier_sample.elapsed_seconds + bracket_seconds / 2.0
+                    ),
+                    percentage=later_percentage,
+                    change_pp=later_percentage - earlier_percentage,
+                    bracket_seconds=bracket_seconds,
+                )
+            )
+
+    transition_signs = [1 if item.change_pp > 0 else -1 for item in transitions]
+    observed_reversals = sum(
+        current != previous
+        for previous, current in zip(transition_signs, transition_signs[1:])
+    )
+    upward_motion = sum(max(0, item.change_pp) for item in transitions)
+    downward_motion = sum(max(0, -item.change_pp) for item in transitions)
+    upward_transitions = sum(item.change_pp > 0 for item in transitions)
+    downward_transitions = sum(item.change_pp < 0 for item in transitions)
+    mixed_history = (
+        upward_motion > 0
+        and downward_motion > 0
+        and (
+            min(upward_motion, downward_motion) >= 2
+            or min(upward_transitions, downward_transitions) >= 2
+        )
+    )
+
+    if ols_slope is not None and span_seconds is not None and net_change is not None:
+        fitted_change = ols_slope * (span_seconds / 3600.0)
+        sign_agrees = (
+            (net_change < 0 and fitted_change < 0)
+            or (net_change > 0 and fitted_change > 0)
+        )
+        if mixed_history:
+            trend_kind = "mixed"
+        elif abs(net_change) >= 2 and abs(fitted_change) >= 2 and sign_agrees:
+            trend_kind = "depleting" if fitted_change < 0 else "rising"
+        else:
+            trend_kind = "unresolved"
+            trend_reason = "direction unresolved at whole-percentage resolution"
+
+    # Rates are formed only between consecutive eligible transition events in
+    # the same segment. Their elapsed duration is also the time weight.
+    local_rates: List[Tuple[float, float, int]] = []
+    for earlier, later in zip(transitions, transitions[1:]):
+        if earlier.segment != later.segment:
+            continue
+        duration_seconds = later.elapsed_seconds - earlier.elapsed_seconds
+        if duration_seconds <= 0.0:
+            continue
+        percentage_change = later.percentage - earlier.percentage
+        rate = -percentage_change * 3600.0 / duration_seconds
+        local_rates.append((rate, duration_seconds, percentage_change))
+
+    weighted_mean: Optional[float] = None
+    weighted_sigma: Optional[float] = None
+    cv_percent: Optional[float] = None
+    robust_mad_sigma: Optional[float] = None
+    median_minutes_per_pp: Optional[float] = None
+    variability_reason: Optional[str] = None
+    if len(local_rates) < 3:
+        variability_reason = (
+            "no observed level transitions"
+            if not transitions
+            else f"need at least three local rates; observed {len(local_rates)}"
+        )
+    else:
+        total_weight = sum(item[1] for item in local_rates)
+        weighted_mean = sum(
+            rate * duration for rate, duration, _change in local_rates
+        ) / total_weight
+        weighted_sigma = math.sqrt(
+            sum(
+                duration * (rate - weighted_mean) ** 2
+                for rate, duration, _change in local_rates
+            )
+            / total_weight
+        )
+        unweighted_rates = [item[0] for item in local_rates]
+        median_rate = float(statistics.median(unweighted_rates))
+        robust_mad_sigma = 1.4826 * float(
+            statistics.median(
+                [abs(rate - median_rate) for rate in unweighted_rates]
+            )
+        )
+        all_one_direction = len(set(transition_signs)) <= 1
+        if (
+            len(local_rates) >= 5
+            and all_one_direction
+            and weighted_mean != 0.0
+        ):
+            cv_percent = 100.0 * weighted_sigma / abs(weighted_mean)
+
+    if not mixed_history and transition_signs:
+        dominant_sign = transition_signs[0]
+        cadence_intervals = [
+            duration / 60.0
+            for _rate, duration, percentage_change in local_rates
+            if abs(percentage_change) == 1
+            and (1 if percentage_change > 0 else -1) == dominant_sign
+        ]
+        if len(cadence_intervals) >= 2:
+            median_minutes_per_pp = float(statistics.median(cadence_intervals))
+
+    maximum_bracket = (
+        max(item.bracket_seconds for item in transitions)
+        if transitions
+        else None
+    )
+    return BatteryStatistics(
+        name=name,
+        attempted_readings=attempted,
+        valid_readings=valid,
+        first_percentage=first_percentage,
+        last_percentage=last_percentage,
+        span_seconds=span_seconds,
+        net_change_pp=net_change,
+        coverage_ratio=coverage,
+        attempt_cadence_seconds=attempt_cadence,
+        trend_kind=trend_kind,
+        trend_depletion_pp_per_hour=trend_depletion,
+        r_squared=r_squared,
+        trend_validity_reason=trend_reason,
+        transition_count=len(transitions),
+        local_rate_count=len(local_rates),
+        weighted_mean_depletion_pp_per_hour=weighted_mean,
+        weighted_sigma_pp_per_hour=weighted_sigma,
+        coefficient_of_variation_percent=cv_percent,
+        robust_mad_sigma_pp_per_hour=robust_mad_sigma,
+        median_minutes_per_pp=median_minutes_per_pp,
+        observed_reversals=observed_reversals,
+        mixed_history=mixed_history,
+        segment_count=len(segments),
+        excluded_gap_count=excluded_gap_count,
+        status_break_count=status_break_count,
+        maximum_transition_bracket_seconds=maximum_bracket,
+        variability_validity_reason=variability_reason,
+        observed_statuses=observed_statuses,
+    )
+
+
+def _draw_battery_line(
+    canvas: List[List[int]], start: Tuple[int, int], end: Tuple[int, int], mask: int
+) -> None:
+    """Rasterize one inclusive line segment with integer Bresenham steps."""
+    x0, y0 = start
+    x1, y1 = end
+    delta_x = abs(x1 - x0)
+    step_x = 1 if x0 < x1 else -1
+    delta_y = -abs(y1 - y0)
+    step_y = 1 if y0 < y1 else -1
+    error = delta_x + delta_y
+    while True:
+        canvas[y0][x0] |= mask
+        if x0 == x1 and y0 == y1:
+            return
+        doubled_error = 2 * error
+        if doubled_error >= delta_y:
+            error += delta_y
+            x0 += step_x
+        if doubled_error <= delta_x:
+            error += delta_x
+            y0 += step_y
+
+
+def render_battery_depletion_chart(
+    devices: Sequence[BatteryDevice],
+    samples: Sequence[BatterySample],
+    terminal_style: TerminalStyle,
+    stream: Optional[TextIO] = None,
+    columns: Optional[int] = None,
+) -> str:
+    """Return the full-width 25-row battery chart, or an empty string.
+
+    Only actual observations establish the Y range and Y labels. Monotonic
+    elapsed time controls X placement so a wall-clock adjustment cannot reorder
+    samples; the displayed labels remain actual local wall-clock `HH:mm` values.
+    """
+    selected_stream = sys.stdout if stream is None else stream
+    selected_names = [device.name for device in devices[:2]]
+    observed_values = [
+        sample.percentages[name]
+        for sample in samples
+        for name in selected_names
+        if name in sample.percentages
+    ]
+    if not selected_names or not observed_values:
+        return ""
+
+    terminal_columns = (
+        shutil.get_terminal_size(
+            fallback=(BATTERY_PLOT_FALLBACK_COLUMNS, 24)
+        ).columns
+        if columns is None
+        else columns
+    )
+    terminal_columns = max(20, terminal_columns)
+    observed_min = min(observed_values)
+    observed_max = max(observed_values)
+
+    def row_for(value: int) -> int:
+        if observed_max == observed_min:
+            return BATTERY_PLOT_ROWS // 2
+        fraction = (observed_max - value) / (observed_max - observed_min)
+        return int(round(fraction * (BATTERY_PLOT_ROWS - 1)))
+
+    # Labels are intentionally restricted to observed percentages. When
+    # quantization maps several values to one row, retain the first value in
+    # descending order; the plotted range endpoints are inserted first.
+    labels_by_row: Dict[int, str] = {}
+    ordered_values = [observed_max, observed_min] + sorted(
+        set(observed_values) - {observed_min, observed_max}, reverse=True
+    )
+    for value in ordered_values:
+        labels_by_row.setdefault(row_for(value), f"{value}%")
+    axis_width = max(len(label) for label in labels_by_row.values())
+    plot_width = max(1, terminal_columns - axis_width - 2)
+    canvas = [[0 for _ in range(plot_width)] for _ in range(BATTERY_PLOT_ROWS)]
+
+    elapsed_values = [sample.elapsed_seconds for sample in samples]
+    first_elapsed = min(elapsed_values)
+    last_elapsed = max(elapsed_values)
+
+    def column_for(elapsed: float) -> int:
+        if last_elapsed == first_elapsed or plot_width == 1:
+            return 0
+        fraction = (elapsed - first_elapsed) / (last_elapsed - first_elapsed)
+        return int(round(fraction * (plot_width - 1)))
+
+    for series_index, name in enumerate(selected_names):
+        previous_point: Optional[Tuple[int, int]] = None
+        mask = 1 << series_index
+        for sample in samples:
+            if name not in sample.percentages:
+                # Do not manufacture a line through an unavailable reading.
+                previous_point = None
+                continue
+            point = (
+                column_for(sample.elapsed_seconds),
+                row_for(sample.percentages[name]),
+            )
+            if previous_point is None:
+                canvas[point[1]][point[0]] |= mask
+            else:
+                _draw_battery_line(canvas, previous_point, point, mask)
+            previous_point = point
+
+    color_enabled = terminal_style.enabled_for(selected_stream)
+
+    def render_cell(mask: int) -> str:
+        if mask == 0:
+            return " "
+        if not color_enabled:
+            return {1: "1", 2: "2", 3: "X"}[mask]
+        color = {
+            1: TerminalStyle.YELLOW,
+            2: TerminalStyle.BLUE,
+            3: TerminalStyle.GREEN,
+        }[mask]
+        return terminal_style.paint("*", color, selected_stream)
+
+    title = "BATTERY DEPLETION - 15-second samples"
+    range_text = f"Observed Y range: {observed_min}%--{observed_max}%"
+    output = [title[:terminal_columns], range_text[:terminal_columns]]
+    for row_index, row in enumerate(canvas):
+        label = labels_by_row.get(row_index, "").rjust(axis_width)
+        output.append(f"{label} |{''.join(render_cell(cell) for cell in row)}")
+    # Build callouts only from actual samples. Consecutive samples within one
+    # displayed wall-clock minute form one candidate group; the final group
+    # uses its last sample so a long run can retain its actual endpoint.
+    candidate_groups: List[List[BatterySample]] = []
+    plottable_samples = [
+        sample
+        for sample in samples
+        if any(name in sample.percentages for name in selected_names)
+    ]
+    for sample in plottable_samples:
+        sample_label = sample.captured_at.astimezone().strftime("%H:%M")
+        if not candidate_groups:
+            candidate_groups.append([sample])
+            continue
+        previous_label = (
+            candidate_groups[-1][-1].captured_at.astimezone().strftime("%H:%M")
+        )
+        if sample_label == previous_label:
+            candidate_groups[-1].append(sample)
+        else:
+            candidate_groups.append([sample])
+    candidate_samples = [group[0] for group in candidate_groups]
+    candidate_samples[-1] = candidate_groups[-1][-1]
+
+    # Each tuple contains the sample's exact plot column and the inclusive
+    # screen-column interval occupied by its centered (or edge-clamped) label.
+    callout_candidates: List[Tuple[int, str, int, int]] = []
+    for sample in candidate_samples:
+        label = sample.captured_at.astimezone().strftime("%H:%M")
+        sample_column = column_for(sample.elapsed_seconds)
+        start = max(
+            0,
+            min(plot_width - len(label), sample_column - len(label) // 2),
+        )
+        callout_candidates.append(
+            (sample_column, label, start, start + len(label) - 1)
+        )
+
+    # Two visible blanks make adjacent HH:mm values unambiguous. Reserve the
+    # final real sample first; a greedy interior pass then retains the densest
+    # readable set without allowing a late label to crowd that endpoint.
+    minimum_blank_columns = 2
+    selected_callouts = [callout_candidates[0]]
+    final_callout: Optional[Tuple[int, str, int, int]] = None
+    if len(callout_candidates) > 1:
+        proposed_final = callout_candidates[-1]
+        if proposed_final[2] > selected_callouts[0][3] + minimum_blank_columns:
+            final_callout = proposed_final
+
+    interior_candidates = (
+        callout_candidates[1:-1]
+        if final_callout is not None
+        else callout_candidates[1:]
+    )
+    for candidate in interior_candidates:
+        if candidate[2] <= selected_callouts[-1][3] + minimum_blank_columns:
+            continue
+        if (
+            final_callout is not None
+            and candidate[3] + minimum_blank_columns >= final_callout[2]
+        ):
+            continue
+        selected_callouts.append(candidate)
+    if final_callout is not None:
+        selected_callouts.append(final_callout)
+
+    # Mark the exact sampled X positions on the axis. The leading corner is
+    # already the tick for column zero; interior/final callouts receive `+`.
+    axis_cells = ["-" for _ in range(plot_width)]
+    for sample_column, _label, _start, _end in selected_callouts:
+        if sample_column > 0:
+            axis_cells[sample_column] = "+"
+    output.append(f"{' ' * axis_width} +{''.join(axis_cells)}")
+
+    # Place the already collision-checked labels beneath their real ticks.
+    label_line = [" " for _ in range(plot_width)]
+    for _sample_column, label, start, _end in selected_callouts:
+        label_line[start : start + len(label)] = label
+    output.append(f"{' ' * (axis_width + 2)}{''.join(label_line)}")
+    output.append("X: local wall clock (HH:mm); Y: observed battery percentage")
+
+    if color_enabled:
+        legend_parts = [
+            terminal_style.paint(
+                f"yellow *={selected_names[0]}",
+                TerminalStyle.YELLOW,
+                selected_stream,
+            )
+        ]
+        if len(selected_names) > 1:
+            legend_parts.extend(
+                [
+                    terminal_style.paint(
+                        f"blue *={selected_names[1]}",
+                        TerminalStyle.BLUE,
+                        selected_stream,
+                    ),
+                    terminal_style.paint(
+                        "green *=overlap", TerminalStyle.GREEN, selected_stream
+                    ),
+                ]
+            )
+    else:
+        legend_parts = [f"1={selected_names[0]}"]
+        if len(selected_names) > 1:
+            legend_parts.extend([f"2={selected_names[1]}", "X=overlap"])
+    output.append("Legend: " + "  ".join(legend_parts))
+    return "\n".join(output) + "\n"
+
+
+def _format_statistics_duration(seconds: Optional[float]) -> str:
+    """Format a measured duration without implying sub-second precision."""
+    if seconds is None:
+        return "n/a"
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, remaining_seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{remaining_seconds:02d}s"
+    if minutes:
+        return f"{minutes}m{remaining_seconds:02d}s"
+    return f"{remaining_seconds}s"
+
+
+def _battery_statistics_plain_lines(
+    result: BatteryStatistics, columns: int
+) -> Tuple[List[str], str, str, str]:
+    """Lay out one battery in no more than three visible terminal lines.
+
+    The returned phrases identify the headline and variability spans that the
+    ANSI layer may color without changing layout or plain-output semantics.
+    """
+    columns = max(40, columns)
+    prefix = f"● {result.name}"
+    data_phrase = f"data {result.valid_readings}/{result.attempted_readings}"
+    quality_parts: List[str] = []
+    if result.coverage_ratio < 0.8:
+        quality_parts.append("low coverage")
+    if result.excluded_gap_count:
+        quality_parts.append(f"gapped {result.excluded_gap_count}")
+    if result.status_break_count:
+        quality_parts.append(f"status breaks {result.status_break_count}")
+
+    mean_per_minute = result.average_reported_change_pp_per_minute
+    sigma_per_minute = result.reported_change_sigma_pp_per_minute
+    if mean_per_minute is not None and sigma_per_minute is not None:
+        signed_mean = (
+            f"{mean_per_minute:+.2f}" if mean_per_minute != 0.0 else "0.00"
+        ).replace("-", "−")
+        per_minute_phrase = (
+            f"avg reported-gauge Δ/min {signed_mean} pp/min │ "
+            f"σ {sigma_per_minute:.2f} pp/min"
+        )
+    else:
+        per_minute_phrase = "avg reported-gauge Δ/min n/a │ σ n/a"
+    per_minute_line = f"  ↳ {per_minute_phrase}"
+
+    if result.valid_readings == 0:
+        base = f"{prefix} no valid readings"
+        headline = "statistics unavailable"
+        return (
+            [f"{base} │ {data_phrase}", f"  ↳ {headline}", per_minute_line],
+            headline,
+            headline,
+            per_minute_phrase,
+        )
+    if result.valid_readings == 1:
+        base = f"{prefix} {result.first_percentage}% only"
+        headline = "statistics unavailable — only one valid reading"
+        return (
+            [f"{base} │ {data_phrase}", f"  ↳ {headline}", per_minute_line],
+            headline,
+            headline,
+            per_minute_phrase,
+        )
+
+    net_change = result.net_change_pp or 0
+    net_text = f"+{net_change}" if net_change > 0 else str(net_change)
+    net_text = net_text.replace("-", "−")
+    base = (
+        f"{prefix} {result.first_percentage}→{result.last_percentage}%  "
+        f"Δ{net_text} pp / {_format_statistics_duration(result.span_seconds)}"
+    )
+
+    trend_rate = result.trend_depletion_pp_per_hour
+    normalized_statuses = {value.casefold() for value in result.observed_statuses}
+    if result.trend_kind == "depleting" and trend_rate is not None:
+        trend_label = (
+            "depletion trend"
+            if normalized_statuses == {"discharging"}
+            else "falling SoC trend"
+        )
+        headline = f"{trend_label} {abs(trend_rate):.1f} pp/h"
+    elif result.trend_kind == "rising" and trend_rate is not None:
+        trend_label = (
+            "charging trend"
+            if normalized_statuses == {"charging"}
+            else "rising SoC trend"
+        )
+        headline = f"{trend_label} {abs(trend_rate):.1f} pp/h"
+    elif result.trend_kind == "mixed" and trend_rate is not None:
+        direction = "down" if trend_rate > 0 else "up"
+        headline = f"mixed history; OLS net drift {direction} {abs(trend_rate):.1f} pp/h"
+    elif result.trend_kind == "constant":
+        headline = "no reported whole-percentage change"
+    elif trend_rate is not None:
+        direction = "down" if trend_rate > 0 else "up"
+        headline = f"direction unresolved; OLS drift {direction} {abs(trend_rate):.1f} pp/h"
+    else:
+        headline = result.trend_validity_reason or "trend unavailable"
+
+    trend_parts = [headline]
+    if result.r_squared is not None:
+        trend_parts.append(f"R² {result.r_squared:.2f}".replace("0.", "."))
+    trend_parts.append(data_phrase)
+    trend_parts.extend(quality_parts)
+    trend_line = " │ ".join(trend_parts)
+
+    if result.weighted_sigma_pp_per_hour is not None:
+        variability_phrase = (
+            "gauge depletion-rate variability "
+            f"σ {result.weighted_sigma_pp_per_hour:.1f} pp/h"
+        )
+        variability_context = ["weighted"]
+        if result.coefficient_of_variation_percent is not None:
+            variability_context.append(
+                f"CV {result.coefficient_of_variation_percent:.0f}%"
+            )
+        variability_context.append(f"n={result.local_rate_count}")
+        variability_parts = [
+            f"{variability_phrase} ({', '.join(variability_context)})"
+        ]
+        if result.median_minutes_per_pp is not None:
+            variability_parts.append(
+                "median 1 pp / "
+                f"{_format_statistics_duration(result.median_minutes_per_pp * 60.0)}"
+            )
+        variability_parts.append(f"reversals {result.observed_reversals}")
+        variability_line = " │ ".join(variability_parts)
+    else:
+        variability_phrase = "gauge depletion-rate variability n/a"
+        variability_line = (
+            f"{variability_phrase} — "
+            f"{result.variability_validity_reason or 'insufficient observations'}"
+        )
+
+    full_first = f"{base} │ {trend_line}"
+    full_second = f"  ↳ {variability_line}"
+    wide_lines = [full_first, full_second, per_minute_line]
+    if max(len(line) for line in wide_lines) <= columns:
+        return wide_lines, headline, variability_phrase, per_minute_phrase
+
+    # Compact fallback retains the core meaning at the documented 40-column
+    # minimum. Supporting CV/cadence/reversal fields yield to width before any
+    # core endpoint, trend, variability, or coverage value is truncated.
+    compact_base = base.replace("  ", " ").replace(" pp", "pp")
+    if result.trend_kind == "depleting" and trend_rate is not None:
+        compact_label = (
+            "deplete"
+            if normalized_statuses == {"discharging"}
+            else "SoC fall"
+        )
+        compact_headline = f"{compact_label} {abs(trend_rate):.1f}pp/h"
+    elif result.trend_kind == "rising" and trend_rate is not None:
+        compact_label = (
+            "charge" if normalized_statuses == {"charging"} else "SoC rise"
+        )
+        compact_headline = f"{compact_label} {abs(trend_rate):.1f}pp/h"
+    elif result.trend_kind == "constant":
+        compact_headline = "no whole-percentage change"
+    elif trend_rate is not None:
+        compact_headline = f"OLS drift {abs(trend_rate):.1f}pp/h"
+    else:
+        compact_headline = "trend n/a"
+    compact_trend_parts = [compact_headline]
+    if result.r_squared is not None:
+        compact_trend_parts.append(
+            f"R²{result.r_squared:.2f}".replace("0.", ".")
+        )
+    compact_trend_parts.append(
+        f"{result.valid_readings}/{result.attempted_readings}"
+    )
+    compact_trend = " · ".join(compact_trend_parts)
+
+    if result.weighted_sigma_pp_per_hour is not None:
+        assert mean_per_minute is not None and sigma_per_minute is not None
+        compact_mean = (
+            f"{mean_per_minute:+.2f}" if mean_per_minute != 0.0 else "0.00"
+        ).replace("-", "−")
+        compact_mean = compact_mean.replace("+0.", "+.").replace("−0.", "−.")
+        compact_sigma = f"{sigma_per_minute:.2f}".removeprefix("0")
+        compact_variability = (
+            f"σrate {result.weighted_sigma_pp_per_hour:.1f}pp/h · "
+            f"avgΔ{compact_mean} σ{compact_sigma}pp/min"
+        )
+        supporting: List[str] = [f"n{result.local_rate_count}"]
+        if result.coefficient_of_variation_percent is not None:
+            supporting.append(
+                f"CV{result.coefficient_of_variation_percent:.0f}%"
+            )
+        if result.median_minutes_per_pp is not None:
+            supporting.append(
+                f"med{_format_statistics_duration(result.median_minutes_per_pp * 60.0)}/pp"
+            )
+        if result.observed_reversals:
+            supporting.append(f"rev{result.observed_reversals}")
+        for item in supporting:
+            proposed = f"{compact_variability} · {item}"
+            if len(f"  {proposed}") <= columns:
+                compact_variability = proposed
+    else:
+        compact_variability = "σrate n/a · avgΔ/min n/a · σ n/a"
+
+    return (
+        [compact_base, f"  {compact_trend}", f"  {compact_variability}"],
+        compact_headline,
+        compact_variability.split(" · ", 1)[0],
+        compact_variability,
+    )
+
+
+def render_battery_statistics(
+    results: Sequence[BatteryStatistics],
+    terminal_style: TerminalStyle,
+    stream: Optional[TextIO] = None,
+    columns: Optional[int] = None,
+) -> str:
+    """Render sophisticated but gauge-honest per-battery summary lines."""
+    if not results:
+        return ""
+    selected_stream = sys.stdout if stream is None else stream
+    terminal_columns = (
+        shutil.get_terminal_size(
+            fallback=(BATTERY_PLOT_FALLBACK_COLUMNS, 24)
+        ).columns
+        if columns is None
+        else columns
+    )
+    terminal_columns = max(40, terminal_columns)
+    heading = "BATTERY SUMMARY — quantized fuel-gauge statistics"
+    if len(heading) > terminal_columns:
+        heading = "BATTERY SUMMARY"
+    rendered = [
+        terminal_style.paint(
+            heading,
+            f"{TerminalStyle.BOLD};{TerminalStyle.CYAN}",
+            selected_stream,
+        )
+    ]
+    color_by_index = [TerminalStyle.YELLOW, TerminalStyle.BLUE]
+    for index, result in enumerate(results[:2]):
+        (
+            plain_lines,
+            headline,
+            variability_phrase,
+            per_minute_phrase,
+        ) = _battery_statistics_plain_lines(result, terminal_columns)
+        series_color = color_by_index[index]
+        for plain_line in plain_lines:
+            line = plain_line.replace(
+                f"● {result.name}",
+                terminal_style.paint(
+                    f"● {result.name}",
+                    f"{TerminalStyle.BOLD};{series_color}",
+                    selected_stream,
+                ),
+                1,
+            )
+            if headline in line:
+                line = line.replace(
+                    headline,
+                    terminal_style.paint(
+                        headline, series_color, selected_stream
+                    ),
+                    1,
+                )
+            if variability_phrase in line:
+                line = line.replace(
+                    variability_phrase,
+                    terminal_style.paint(
+                        variability_phrase,
+                        TerminalStyle.MAGENTA,
+                        selected_stream,
+                    ),
+                    1,
+                )
+            if per_minute_phrase in line and per_minute_phrase != variability_phrase:
+                line = line.replace(
+                    per_minute_phrase,
+                    terminal_style.paint(
+                        per_minute_phrase,
+                        TerminalStyle.MAGENTA,
+                        selected_stream,
+                    ),
+                    1,
+                )
+            for warning in ("low coverage", "gapped", "mixed history"):
+                if warning in line:
+                    line = line.replace(
+                        warning,
+                        terminal_style.paint(
+                            warning, TerminalStyle.YELLOW, selected_stream
+                        ),
+                    )
+            line = line.replace(
+                "│", terminal_style.paint("│", TerminalStyle.DIM_CYAN, selected_stream)
+            ).replace(
+                "↳", terminal_style.paint("↳", TerminalStyle.CYAN, selected_stream)
+            )
+            rendered.append(line)
+    footer = (
+        "pp = percentage points; avg Δ/min is signed; σrate and σ/min "
+        "describe gauge-rate unevenness, not watts."
+    )
+    footer_lines = textwrap.wrap(
+        footer,
+        width=terminal_columns,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    for footer_line in footer_lines:
+        rendered.append(
+            terminal_style.paint(
+                footer_line, TerminalStyle.DIM_CYAN, selected_stream
+            )
+        )
+    return "\n".join(rendered) + "\n"
+
+
 # ==============================================================================
 # CORE CONTROLLER CLASS
 # ==============================================================================
@@ -658,7 +1869,8 @@ class BacklightDeviceState:
 class LidCloseManager:
     """
     Manages the lifecycle of D-Bus inhibitor locks, power profile states,
-    UPower lid monitoring, and narrative console reporting for burnbag.
+    UPower lid monitoring, read-only battery sampling, and narrative console
+    reporting for burnbag.
     """
 
     def __init__(
@@ -668,7 +1880,9 @@ class LidCloseManager:
         no_inhibit_auto_suspend: bool,
         ignore_lid: bool,
         do_not_touch_backlight: bool = False,
+        no_plot: bool = False,
         started_monotonic: Optional[float] = None,
+        started_boottime: Optional[float] = None,
         terminal_style: Optional[TerminalStyle] = None,
         running_log: Optional[RunningLog] = None,
     ):
@@ -678,11 +1892,16 @@ class LidCloseManager:
         self.no_inhibit_auto_suspend: bool = no_inhibit_auto_suspend
         self.ignore_lid: bool = ignore_lid
         self.do_not_touch_backlight: bool = do_not_touch_backlight
+        self.no_plot: bool = no_plot
         self.started_monotonic: float = (
             time.monotonic() if started_monotonic is None else started_monotonic
         )
+        self.started_boottime: float = (
+            linux_boottime() if started_boottime is None else started_boottime
+        )
         self.terminal_style = terminal_style or TerminalStyle.detect()
         self.running_log = running_log
+        self.battery_monitor = BatteryMonitor(BATTERY_SYSFS_ROOT, self.started_boottime)
 
         # State tracking variables for clean teardown and narrative reporting
         self.original_power_profile: Optional[str] = None
@@ -692,6 +1911,7 @@ class LidCloseManager:
         self.current_lid_closed_state: bool = False
         self.suspend_timer_id: Optional[int] = None
         self.backlight_timer_id: Optional[int] = None
+        self.battery_timer_id: Optional[int] = None
         self.backlight_devices: List[BacklightDeviceState] = []
         self.backlight_powered_down: bool = False
         self.backlight_restore_attempted: bool = False
@@ -705,6 +1925,11 @@ class LidCloseManager:
         self.shutdown_narrative_printed: bool = False
         self.running_log_finished: bool = False
         self.log_failure_reported: bool = False
+        self.battery_monitor_started: bool = False
+        self.battery_monitor_stopped: bool = False
+        self.battery_plot_printed: bool = False
+        self.battery_statistics: List[BatteryStatistics] = []
+        self.reported_battery_errors: set[str] = set()
 
         # D-Bus connection and proxy placeholders
         self.bus: Optional[Gio.DBusConnection] = None
@@ -834,6 +2059,20 @@ class LidCloseManager:
                         "active_power_profile": self.active_power_profile,
                         "original_power_profile": self.original_power_profile,
                         "lid_was_closed": self.lid_was_closed_during_session,
+                        "battery_names": [
+                            device.name for device in self.battery_monitor.devices
+                        ],
+                        "battery_sample_count": len(self.battery_monitor.samples),
+                        "battery_last_percentages": (
+                            self.battery_monitor.samples[-1].percentages
+                            if self.battery_monitor.samples
+                            else {}
+                        ),
+                        "battery_plot_suppressed": self.no_plot,
+                        "battery_statistics": [
+                            result.to_log_details()
+                            for result in self.battery_statistics
+                        ],
                     },
                 )
             except RunningLogError as exc:
@@ -884,6 +2123,229 @@ class LidCloseManager:
             else value
         )
         print(f"{prefix}{rendered_value}")
+
+    # --------------------------------------------------------------------------
+    # READ-ONLY BATTERY MONITORING & EXIT PLOT
+    # --------------------------------------------------------------------------
+
+    def _record_battery_error(self, message: str) -> None:
+        """Report one observational failure without blocking safety teardown."""
+        if message not in self.deviations:
+            self.deviations.append(message)
+        self.exit_code = 1
+        if message in self.reported_battery_errors:
+            return
+        self.reported_battery_errors.add(message)
+        try:
+            self._warn(message)
+        except RunningLogError:
+            # The mandatory logger has already selected fail-closed shutdown.
+            # A timer callback must not obscure that cause with another error.
+            if not self.teardown_in_progress:
+                raise
+
+    def _take_battery_sample(self, reason: str) -> Optional[BatterySample]:
+        """Take and synchronize one sample while retaining per-device gaps."""
+        if not self.battery_monitor.devices:
+            return None
+        try:
+            sample, errors = self.battery_monitor.sample()
+        except Exception as exc:
+            self._record_battery_error(f"Battery sampling failed: {exc}")
+            return None
+
+        self._log_only(
+            "battery_sample",
+            "OK" if not errors else "WARNING",
+            f"Recorded {reason} battery sample.",
+            {
+                "reason": reason,
+                "captured_at_local": sample.captured_at.isoformat(
+                    timespec="seconds"
+                ),
+                "elapsed_seconds": round(sample.elapsed_seconds, 6),
+                "timebase": "CLOCK_BOOTTIME",
+                "percentages": dict(sample.percentages),
+                "statuses": dict(sample.statuses),
+                "present": dict(sample.present),
+                "errors": errors,
+            },
+        )
+        for error in errors:
+            self._record_battery_error(error)
+        return sample
+
+    def _on_battery_sample_timer(self) -> bool:
+        """GLib callback for the fixed fifteen-second sampling cadence."""
+        try:
+            self._take_battery_sample("periodic")
+        except RunningLogError:
+            self.battery_timer_id = None
+            return False
+        return True
+
+    def start_battery_monitoring(self) -> None:
+        """Discover batteries, take the initial sample, and schedule run modes."""
+        if self.battery_monitor_started:
+            return
+        self.battery_monitor_started = True
+        discovery_errors = self.battery_monitor.discover()
+        selected_names = [
+            device.name for device in self.battery_monitor.devices
+        ]
+        self._log_only(
+            "battery_discovery_completed",
+            "OK" if not discovery_errors else "WARNING",
+            "Completed read-only battery discovery.",
+            {
+                "selected_batteries": selected_names,
+                "unselected_batteries": self.battery_monitor.unselected_names,
+                "errors": discovery_errors,
+            },
+        )
+        for error in discovery_errors:
+            self._record_battery_error(error)
+
+        if self.battery_monitor.unselected_names:
+            message = (
+                "More than two batteries were discovered; monitoring "
+                f"{', '.join(selected_names)} and leaving "
+                f"{', '.join(self.battery_monitor.unselected_names)} unplotted."
+            )
+            # This is an explicit presentation-limit warning, not a failure of
+            # the selected two-battery monitoring contract.
+            self._warn(message)
+
+        if not self.battery_monitor.devices:
+            self._info(
+                "No installed system batteries were discovered; no depletion "
+                "plot will be produced.",
+                event="battery_monitor_unavailable",
+            )
+            return
+
+        self._take_battery_sample("initial")
+        if not self.mode.startswith("run"):
+            return
+        try:
+            self.battery_timer_id = GLib.timeout_add(
+                BATTERY_SAMPLE_INTERVAL_MILLISECONDS,
+                self._on_battery_sample_timer,
+            )
+        except Exception as exc:
+            self._record_battery_error(
+                f"Could not schedule fifteen-second battery monitoring: {exc}"
+            )
+            return
+        self._log_only(
+            "battery_monitor_started",
+            "OK",
+            "Battery monitoring timer started.",
+            {
+                "interval_milliseconds": BATTERY_SAMPLE_INTERVAL_MILLISECONDS,
+                "source_id": self.battery_timer_id,
+                "batteries": selected_names,
+            },
+        )
+
+    def stop_battery_monitoring(self) -> None:
+        """Cancel periodic sampling and take the handled-exit observation."""
+        if self.battery_monitor_stopped:
+            return
+        self.battery_monitor_stopped = True
+        if self.battery_timer_id is not None:
+            source_id = self.battery_timer_id
+            self.battery_timer_id = None
+            try:
+                GLib.source_remove(source_id)
+            except Exception as exc:
+                self._record_battery_error(
+                    f"Could not cancel battery monitoring timer: {exc}"
+                )
+            else:
+                self._log_only(
+                    "battery_monitor_stopped",
+                    "OK",
+                    "Battery monitoring timer stopped before teardown recovery.",
+                    {"source_id": source_id},
+                )
+
+        if self.battery_monitor.devices:
+            self._take_battery_sample("final")
+            last_percentages = (
+                self.battery_monitor.samples[-1].percentages
+                if self.battery_monitor.samples
+                else {}
+            )
+            statistics_errors: List[str] = []
+            self.battery_statistics = []
+            for device in self.battery_monitor.devices:
+                try:
+                    self.battery_statistics.append(
+                        summarize_battery_statistics(
+                            device.name, self.battery_monitor.samples
+                        )
+                    )
+                except Exception as exc:
+                    message = (
+                        f"Could not calculate battery statistics for "
+                        f"{device.name!r}: {exc}"
+                    )
+                    statistics_errors.append(message)
+                    self._record_battery_error(message)
+            self._log_only(
+                "battery_monitor_summary",
+                "OK" if not self.reported_battery_errors else "WARNING",
+                "Battery monitoring completed for the handled run.",
+                {
+                    "sample_count": len(self.battery_monitor.samples),
+                    "last_percentages": dict(last_percentages),
+                    "plot_suppressed": self.no_plot,
+                    "statistics": [
+                        result.to_log_details()
+                        for result in self.battery_statistics
+                    ],
+                    "statistics_errors": statistics_errors,
+                },
+            )
+
+    def print_battery_plot(self) -> None:
+        """Print the optional chart and mandatory statistics after teardown."""
+        if self.battery_plot_printed:
+            return
+        self.battery_plot_printed = True
+        try:
+            output_parts: List[str] = []
+            if not self.no_plot:
+                chart = render_battery_depletion_chart(
+                    self.battery_monitor.devices,
+                    self.battery_monitor.samples,
+                    self.terminal_style,
+                    sys.stdout,
+                )
+                if chart:
+                    output_parts.append(chart.rstrip("\n"))
+            statistics_output = render_battery_statistics(
+                self.battery_statistics,
+                self.terminal_style,
+                sys.stdout,
+            )
+            if statistics_output:
+                output_parts.append(statistics_output.rstrip("\n"))
+            if output_parts:
+                sys.stdout.write("\n" + "\n\n".join(output_parts) + "\n")
+        except Exception as exc:
+            # Persistent-state recovery and the durable final record are
+            # already complete. Chart presentation cannot undo or interrupt
+            # either safety boundary.
+            try:
+                self.terminal_style.write_status(
+                    "WARNING",
+                    f"Could not render battery summary output: {exc}",
+                    sys.stderr,
+                )
+            except (OSError, ValueError):
+                pass
 
     # --------------------------------------------------------------------------
     # D-BUS INITIALIZATION & CONNECTION HELPERS
@@ -1400,6 +2862,9 @@ class LidCloseManager:
             "INFO",
             "Handled teardown started in safety-first order.",
         )
+        # Stop the read-only observer before restoring persistent host state.
+        # Sampling failure is contained internally and cannot bypass recovery.
+        self.stop_battery_monitoring()
         if self.backlight_timer_id is not None:
             try:
                 GLib.source_remove(self.backlight_timer_id)
@@ -1931,6 +3396,24 @@ class LidCloseManager:
                 f"{self.running_log.path} (append + fsync per record)",
             )
 
+        if self.battery_monitor.devices:
+            battery_names = ", ".join(
+                device.name for device in self.battery_monitor.devices
+            )
+            plot_policy = (
+                "statistics only at exit"
+                if self.no_plot
+                else "25-row exit plot + statistics"
+            )
+            self._narrative_field(
+                "Battery Monitoring",
+                f"{battery_names}; every 15 seconds; {plot_policy}",
+            )
+        else:
+            self._narrative_field(
+                "Battery Monitoring", "No installed system battery discovered"
+            )
+
         # Profile explanation
         target_profile = PROFILE_MAP.get(self.mode, "Unchanged (keep active)")
         self._narrative_field("Target Power Profile", target_profile)
@@ -2076,7 +3559,22 @@ class LidCloseManager:
             self._narrative_subfield(
                 "Running Log", running_log_status, running_log_color
             )
+        if self.battery_monitor.samples:
+            last_sample = self.battery_monitor.samples[-1]
+            battery_summary = ", ".join(
+                f"{name}={percentage}%"
+                for name, percentage in last_sample.percentages.items()
+            )
+            if not battery_summary:
+                battery_summary = "Final readings unavailable"
+            self._narrative_subfield(
+                "Batteries",
+                f"{battery_summary}; {len(self.battery_monitor.samples)} sample(s)",
+            )
+        else:
+            self._narrative_subfield("Batteries", "No valid observations")
         self._narrative_rule()
+        self.print_battery_plot()
 
     # --------------------------------------------------------------------------
     # ERROR & WARNING LOGGING
@@ -2217,6 +3715,15 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
         action="store_true",
         help="Disable ANSI color in all runtime, help, usage, and error output.",
     )
+    parser.add_argument(
+        "--no-plot",
+        action="store_true",
+        help=(
+            "Suppress the 25-row battery depletion chart at exit; battery "
+            "sampling, synchronized log records, and per-battery statistics "
+            "remain enabled."
+        ),
+    )
     return parser
 
 
@@ -2254,6 +3761,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     and runs the appropriate mode lifecycle.
     """
     process_started_at = time.monotonic()
+    process_started_boottime = linux_boottime()
     arguments = list(sys.argv[1:] if argv is None else argv)
     terminal_style = TerminalStyle.detect(no_color="--no-color" in arguments)
     parser = build_argument_parser(terminal_style)
@@ -2287,6 +3795,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "inhibit_auto_suspend": not args.no_inhibit_auto_suspend,
                 "ignore_lid": args.ignore_lid,
                 "manage_backlight": not args.do_not_touch_backlight,
+                "show_battery_plot": not args.no_plot,
                 "color_stdout": terminal_style.stdout_color,
                 "color_stderr": terminal_style.stderr_color,
                 "log_path": str(log_path),
@@ -2333,7 +3842,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             no_inhibit_auto_suspend=args.no_inhibit_auto_suspend,
             ignore_lid=args.ignore_lid,
             do_not_touch_backlight=args.do_not_touch_backlight,
+            no_plot=args.no_plot,
             started_monotonic=process_started_at,
+            started_boottime=process_started_boottime,
             terminal_style=terminal_style,
             running_log=running_log,
         )
@@ -2348,8 +3859,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "inhibit_auto_suspend": not args.no_inhibit_auto_suspend,
                 "ignore_lid": args.ignore_lid,
                 "manage_backlight": not args.do_not_touch_backlight,
+                "show_battery_plot": not args.no_plot,
             },
         )
+        # Battery monitoring is read-only and begins before any operational
+        # host mutation. Persistent modes schedule subsequent samples on the
+        # same GLib loop used for lid and backlight lifecycle events.
+        manager.start_battery_monitoring()
         manager.print_startup_narrative()
         manager.connect_dbus()
 

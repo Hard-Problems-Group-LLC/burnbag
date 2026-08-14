@@ -1,6 +1,6 @@
 # burnbag
 
-**Ephemeral clamshell mode, backlight control, power profiles, and sleep inhibition for Linux laptops.**
+**Ephemeral clamshell mode, battery monitoring, backlight control, power profiles, and sleep inhibition for Linux laptops.**
 
 `burnbag` is a desktop-agnostic, ephemeral D-Bus control utility for Fedora and Red Hat Enterprise Linux family systems running GNOME or standard systemd/freedesktop stacks. It allows a laptop (such as a ThinkPad T480) to continue operating with its lid closed—whether docked on a desk or thrown into a backpack—while managing performance profiles and enforcing optional safety countdowns.
 
@@ -23,6 +23,7 @@ Unlike traditional lid-close scripts that permanently mutate `/etc/systemd/login
 * **Narrative Verification:** Prints an explicit startup narrative before touching system state, and a structured teardown report upon exit detailing whether goals were achieved and any deviations observed.
 * **Adaptive Terminal Presentation:** Interactive terminals receive ANSI color and stronger visual hierarchy in runtime messages, help, usage tips, and errors. Redirected streams and explicit plain-output controls remain free of terminal escapes, and status meaning is always retained in text labels.
 * **Durable Running Log:** Every accepted operational session appends structured JSON Lines under the invoking user's XDG state directory. Each record is serialized across concurrent processes and synchronized with `fsync`; mutation intent is durable before safety-relevant host changes, and handled teardown is recorded before exit.
+* **Battery Depletion History & Statistics:** Burnbag reads up to two installed Linux power-supply batteries before host mutation, every fifteen seconds during persistent modes, and once more at handled exit. The synchronized samples feed a full-terminal-width, 25-row depletion chart plus quantization-aware trend and gauge-rate-variability statistics without changing charging or power-supply state.
 
 ---
 
@@ -100,6 +101,7 @@ burnbag <MODE> [OPTIONS]
 * `--do-not-touch-backlight`: Leave the screen backlight untouched. Without this opt-out, persistent `run*` modes turn every discovered backlight off three seconds after process startup and restore and verify it as on before handled exit.
 * `--log-file <FILE>`: Write the mandatory synchronized running log to an explicit absolute path instead of the XDG state default. The parent must be owned by the effective user and must not be group/world writable.
 * `--no-color`: Disable ANSI color in runtime messages, help, usage, and error output. Color remains automatic by default for interactive terminals.
+* `--no-plot`: Suppress the 25-row battery depletion chart at exit. Discovery, fifteen-second sampling, synchronized log records, and per-battery statistics remain enabled.
 * `-h`, `--help`: Display syntax and usage help.
 
 ---
@@ -108,7 +110,23 @@ burnbag <MODE> [OPTIONS]
 
 `burnbag` automatically adds color and visual hierarchy when the relevant standard-output or standard-error stream is an interactive terminal. It emits plain text when a stream is redirected, when `TERM=dumb`, when the `NO_COLOR` environment variable is present, or when `--no-color` is specified. Text labels such as `[INFO]`, `[OK]`, `[WARNING]`, and `[FATAL ERROR]` remain present in every mode, so color is never the only indication of status.
 
+The battery plot and statistical summary follow the same capability policy. Interactive output uses yellow for the first battery, blue for the second, and green where their plot lines overlap; gauge-rate variability and per-minute statistics use magenta. Plain output uses `1`, `2`, and `X` in the plot and retains statistic labels and units, so every meaning remains available with `--no-color` or redirected output.
+
 Running `burnbag` without a mode prints a concise quick-start guide to standard error and exits with status 2. `burnbag --help`, the zero-argument guide, and command-line validation run before PyGObject is loaded, so they remain available even when runtime prerequisites are not yet installed.
+
+---
+
+## Battery Monitoring, Exit Plot & Statistics
+
+Burnbag discovers present entries of type `Battery` under `/sys/class/power_supply` in lexical kernel-name order and monitors up to two independently. It takes an initial reading before operational host mutation, samples persistent `run*` modes every 15 seconds, and takes a final reading as handled teardown begins. One-shot modes receive only the initial and final readings. Percentage ordering and rate calculations use suspend-inclusive Linux `CLOCK_BOOTTIME`; local wall clock is presentation-only. Systems without an installed battery continue normally and omit battery output.
+
+Every sampling cycle is written to the mandatory synchronized running log. A battery discovery or read error is reported as an operational deviation and selects nonzero exit status, but it cannot prevent backlight restoration, inhibitor release, or power-profile restoration. If more than two eligible batteries are exposed, burnbag explicitly identifies the first two selected for monitoring and warns about the unplotted devices.
+
+At handled exit, burnbag draws exactly 25 data rows across the current standard-output terminal width, with an 80-column fallback when width is unavailable. The Y axis spans only the minimum through maximum battery percentages actually observed and labels at most one observed value per row. The X axis uses monotonic ordering, marks real sample positions with ticks, and shows selected actual local wall-clock times as `HH:mm`. Callout selection retains a real endpoint when it fits and leaves at least two blank columns between labels. Missing readings remain gaps instead of being interpolated. `--no-plot` suppresses only this graph.
+
+Below the graph, or by itself under `--no-plot`, burnbag prints one to three lines per battery. It reports endpoints, net percentage-point change, elapsed span, whole-run least-squares gauge trend, fit and coverage, and—when enough whole-percentage transitions exist—`gauge depletion-rate variability σ` in percentage points per hour. It also shows signed average reported-gauge change per minute and its nonnegative standard deviation in `pp/min`; falling SoC is negative and rising SoC is positive. These per-minute values are conversions of the same duration-weighted transition-rate distribution, not raw 15-second derivatives or an independent physical measurement. The variability describes how uneven the reported depletion velocity was; it is not acceleration, watts, instantaneous load, or a claim of zero draw when the integer gauge stays flat. Missing readings, long intervals, and known charge-status changes break local-rate continuity, and short, flat, mixed, or gapped histories are explicitly qualified with `n/a` where necessary.
+
+`SIGKILL`, sudden power loss, and equivalent unhandled exits cannot take a final reading or render a chart. Samples synchronized before termination remain available in the running log.
 
 ---
 
@@ -116,7 +134,7 @@ Running `burnbag` without a mode prints a concise quick-start guide to standard 
 
 Every accepted operational invocation must establish its running log before PyGObject is loaded or host state is changed. The default path is `$XDG_STATE_HOME/burnbag/burnbag.log`, or `$HOME/.local/state/burnbag/burnbag.log` when `XDG_STATE_HOME` is unset. `--log-file /absolute/path` selects another file; there is deliberately no no-log option.
 
-The log is UTF-8 JSON Lines. Records include UTC and monotonic time, a session UUID, sequence number, process and user IDs, selected mode, stable event code, severity, message, and structured details. `session_start` is synchronized before runtime initialization. A handled `session_end` is synchronized after backlight restoration, inhibitor release, and power-profile restoration. If a process or the machine dies before handled teardown, the missing `session_end` remains useful evidence instead of being fabricated later.
+The log is UTF-8 JSON Lines. Records include UTC and monotonic time, a session UUID, sequence number, process and user IDs, selected mode, stable event code, severity, message, and structured details. Battery discovery and each initial, periodic, and final battery sample are recorded alongside the power lifecycle; the final summary includes versioned, unit-bearing derived statistics, signed per-minute average and standard deviation fields, and explicit validity reasons. `session_start` is synchronized before runtime initialization. A handled `session_end` is synchronized after backlight restoration, inhibitor release, and power-profile restoration. If a process or the machine dies before handled teardown, the missing `session_end` remains useful evidence instead of being fabricated later.
 
 Each complete record is appended while holding an exclusive advisory lock and is followed by `fsync` before the operation continues. The managed directory is mode `0700` and the log is mode `0600`; symlink targets, non-regular files, multiply linked files, wrong ownership, and unsafe parent permissions are rejected. Failure to open, append, lock, or synchronize the log prevents further host mutation and returns nonzero. If logging fails after state has changed, teardown still takes precedence and runs to completion.
 
@@ -165,4 +183,9 @@ burnbag run-cool --do-not-touch-backlight
 **7. Put an automation run in a separate synchronized log:**
 ```bash
 burnbag run-cool --log-file /absolute/path/to/automation.jsonl
+```
+
+**8. Keep battery sampling and log history but omit the exit plot:**
+```bash
+burnbag run-cool --no-plot
 ```

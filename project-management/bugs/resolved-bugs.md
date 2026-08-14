@@ -5,6 +5,11 @@ closure timestamp, short outcome, and link to the authoritative record under
 `closed/`. Keep root cause, resolution, and validation evidence in that
 record.
 
+- `BB-BUG-2026-08-13-01` — Resolved 2026-08-13T14:42:36-07:00; battery-chart
+  axes retain only real observed callouts, mark selected sample positions, and
+  guarantee visible separation between time labels. See the
+  [closed record](closed/BB-BUG-2026-08-13-01-battery-chart-label-overlap.md).
+
 - `BB-BUG-2026-08-07-02` — Resolved 2026-08-07T15:36:08-07:00; backlight
   control now resolves and validates the operator's active local display
   session when launcher PID accounting is unavailable. See the

@@ -4,6 +4,151 @@ Record completed work with newest entries at the top. Use dated bullets and
 include concise outcomes, owners, ISO 8601 completion timestamps, validation
 evidence, important decisions or risk acceptances, and follow-up records.
 
+- `BB-2026-08-13-03` — Add signed average reported battery-percentage change
+  per minute and its standard deviation to each per-battery summary.
+  - Requestor: Operator
+  - Owner: Codex
+  - Started: 2026-08-13T15:28:00-07:00
+  - Completed: 2026-08-13T16:27:13-07:00
+  - Outcome: every selected battery now receives an additional per-minute
+    result within the existing one-to-three-line presentation budget. Wide
+    output says `avg reported-gauge Δ/min` and `σ` in `pp/min`; compact output
+    uses `avgΔ` and a defining footer. Falling SoC is negative, rising SoC is
+    positive, and the standard deviation is nonnegative.
+  - Statistics: the values are unit conversions of the already-approved,
+    duration-weighted transition-rate distribution: signed average change is
+    `-weighted_mean_depletion_pp_per_hour / 60`, and standard deviation is
+    `weighted_sigma_pp_per_hour / 60`. Raw 15-second differences remain
+    forbidden. Unsupported, short, or constant histories show `n/a` rather
+    than asserting zero physical drain.
+  - Durability: the per-battery structured object advances to statistics
+    schema version 2 and adds unit-bearing average-change and
+    standard-deviation fields in `pp/min`, using JSON `null` when gated.
+  - Documentation: updated source comments, the battery, running-log, and
+    terminal-output specifications, approved proposal decision history,
+    generated README and man page, and project tracking.
+  - Validation: 65 tests passed under Python 3.9.21, system Python 3.12.13,
+    and Python 3.14.6. The reported 252-cycle session produces BAT1
+    `−0.19 pp/min` average and `0.03 pp/min` standard deviation; BAT0 remains
+    explicitly unavailable because it has no reported gauge transitions.
+    Compilation, JSON finite-value checks, 40-column/ANSI rendering,
+    generated-document reproducibility, man rendering, Bash syntax,
+    ShellCheck, prerequisite and installer checks, isolated staged install,
+    whitespace, ignore coverage, and FieldManual cleanliness passed.
+  - Decision: this direct operator request extends the existing approved
+    estimator and does not require a new proposal or FieldManual ECR. The
+    existing `.local/` ignore boundary remains sufficient.
+
+- `BB-2026-08-13-02` — Add compact, quantization-aware per-battery trend and
+  gauge depletion-rate-variability statistics.
+  - Requestor: Operator
+  - Owner: Codex
+  - Started: 2026-08-13T14:52:19-07:00
+  - Completed: 2026-08-13T15:27:34-07:00
+  - Authorization: implemented the approved
+    [battery-statistics proposal](proposals/approved/BB-PROP-2026-08-13-02-battery-statistics.md)
+    and updated the canonical
+    [battery-monitoring specification](../docs/specifications/battery-monitoring.md).
+  - Review: the requested electrical/lithium, Linux power, and
+    statistics/data-science board rejected raw 15-second derivatives, fixed
+    windows, inferred wattage, false precision, and acceleration terminology.
+    After adversarial review it approved a capacity-only OLS trend plus
+    interval-censored gauge-transition rates and the label `gauge
+    depletion-rate variability`.
+  - Outcome: handled exit now prints one to three width-aware lines per
+    battery beneath the chart, or by themselves with `--no-plot`. The summary
+    includes endpoints, net percentage-point change, span, coverage,
+    whole-run OLS gauge trend, descriptive `R²`, duration-weighted local-rate
+    sigma, contextual CV, median one-point cadence, reversals, and explicit
+    gates for constant, short, mixed, or interrupted histories. ANSI output
+    preserves yellow/blue battery identity and uses magenta for variability;
+    plain output retains every meaning and unit.
+  - Correctness: sampling and statistics use suspend-inclusive Linux
+    `CLOCK_BOOTTIME`. Optional presence and status are reread per cycle.
+    Missing readings, long or invalid intervals, and known status changes
+    break per-battery local-rate continuity. Raw adjacent differences are
+    forbidden because a one-point 15-second update would fabricate a
+    `240 pp/h` impulse. Constant histories state that no whole-percentage
+    change was reported and never claim zero physical draw.
+  - Durability: synchronized sample records now include the timebase,
+    presence, and optional kernel status. Final summary and session-end
+    records contain versioned, unit-bearing per-battery statistics with JSON
+    `null` and explicit validity reasons for unavailable values. Calculation
+    or presentation failure cannot bypass backlight, inhibitor, or
+    power-profile recovery.
+  - Documentation: updated source comments and help, generated README and man
+    page, battery-monitoring, running-log, and terminal-output specifications,
+    approved proposal, and project tracking.
+  - Validation: 65 tests passed under Python 3.9.21, system Python 3.12.13,
+    and Python 3.14.6. Tests cover OLS and weighted formulas, constant and
+    mixed histories, gaps, status breaks, `CLOCK_BOOTTIME`, log schema,
+    40-column and ANSI rendering, `--no-plot`, and a 252-cycle regression of
+    the operator's reported staircase (`11.0 pp/h`, `R² .99`, weighted
+    `σ 1.8 pp/h`, median `5m15s`). Compilation, generated-document
+    reproducibility, Bash syntax, ShellCheck, prerequisite and installer check
+    modes, man rendering, isolated staged installation, whitespace, ignore
+    coverage, and FieldManual cleanliness also passed.
+  - Risk acceptance: no live persistent power, lid, suspend, hibernate, or
+    backlight operation was performed. The completed implementation is ready
+    for operator testing against real battery behavior.
+  - Decision: optional kernel watt/energy telemetry remains a separate future
+    proposal because availability, units, driver semantics, and cross-device
+    comparability materially differ. FieldManual guidance was sufficient, so
+    no ECR was needed. The existing `.local/` rule covers all new local state;
+    `.gitignore` requires no addition.
+
+- `BB-2026-08-13-01` — Monitor installed batteries every fifteen seconds and
+  render a full-terminal-width, 25-row depletion chart at handled exit.
+  - Requestor: Operator
+  - Owner: Codex
+  - Started: 2026-08-13T12:39:41-07:00
+  - Completed: 2026-08-13T12:52:25-07:00
+  - Contract: implemented the
+    [battery-monitoring specification](../docs/specifications/battery-monitoring.md)
+    under direct operator authorization.
+  - Outcome: burnbag now discovers up to two present kernel batteries in
+    stable name order, samples them before host mutation, every 15,000 ms in a
+    persistent GLib loop, and once at handled teardown, and synchronizes every
+    cycle to the mandatory running log. `--no-plot` suppresses only graph
+    presentation, leaving samples and the final narrative summary enabled.
+  - Plot: handled exit renders exactly 25 data rows at current stdout terminal
+    width with an 80-column fallback. The Y transform and labels use only
+    observed battery percentages; the X axis orders by monotonic time and
+    labels actual local samples as `HH:mm`. Consecutive samples are connected,
+    while missing observations create gaps. ANSI output uses yellow and blue
+    battery lines with green overlap; plain output uses `1`, `2`, and `X`.
+  - Safety: battery sysfs access is read-only. Observation failures select
+    nonzero status but cannot prevent backlight restoration, inhibitor
+    release, or power-profile restoration. Machines without a battery remain
+    successful and omit the chart; more than two eligible devices cause an
+    explicit, non-fatal selection warning.
+  - Documentation: updated source comments, help, startup/shutdown narratives,
+    generated README and man page, battery specification, terminal-output
+    specification, running-log event coverage, and project tracking.
+  - Validation: 59 tests passed under Python 3.9.21, system Python 3.12.13,
+    and Python 3.14.6. Tests cover real temporary sysfs fixtures, absent,
+    present, malformed, out-of-range and failed attributes, deterministic
+    two-battery selection, initial/periodic/final samples, exact timer cadence,
+    teardown precedence, 25-row and exact-width geometry, data-bounded scales,
+    wall-clock labels, constant values, gaps, overlap colors, plain symbols,
+    narrative placement, and `--no-plot`. Both host batteries (`BAT0` and
+    `BAT1`) were also discovered and read through the real sysfs implementation
+    without mutation. Compilation, Bash syntax, ShellCheck, prerequisite and
+    installer checks, generated-document reproducibility, man rendering,
+    FieldManual cleanliness, ignore coverage, and whitespace checks passed.
+  - Risk acceptance: automated checks did not run a live persistent power
+    session, wait through real 15-second timer firings, or render the final
+    chart in the operator's actual terminal. Those integrated observations
+    remain for operator testing; no live power, lid, suspend, hibernate, or
+    backlight mutation was performed.
+  - Decision: FieldManual guidance was sufficient and no ECR was needed. The
+    existing `.local/` ignore boundary covers disposable test/Ubersight state;
+    battery samples use the external runtime log, so `.gitignore` needs no new
+    pattern.
+  - Follow-up: the operator's hour-long live run exposed touching X-axis
+    callouts. The correction and reproduction evidence are recorded in
+    [BB-BUG-2026-08-13-01](bugs/closed/BB-BUG-2026-08-13-01-battery-chart-label-overlap.md).
+
 - `BB-2026-08-07-05` — Specify and implement a mandatory synchronized running
   log for safety-relevant operational sessions.
   - Requestor: Operator

@@ -2,7 +2,7 @@
 .\" Target platform: Fedora 44 / RHEL family
 .TH BURNBAG 1 "August 2026" "burnbag 1.0" "User Commands"
 .SH NAME
-burnbag \- ephemeral clamshell mode, power profile, and sleep inhibition for Linux laptops
+burnbag \- ephemeral clamshell mode, battery monitoring, power profile, and sleep inhibition for Linux laptops
 .SH SYNOPSIS
 .B burnbag
 \fIMODE\fR [\fIOPTIONS\fR]
@@ -12,7 +12,7 @@ is a desktop\-agnostic systems utility for Fedora and RHEL family Linux distribu
 .B systemd-logind
 lid\-switch and idle\-suspend events, controls screen backlights, manages
 .B power\-profiles\-daemon
-performance profiles, and monitors hardware lid state via
+performance profiles, monitors installed batteries, and monitors hardware lid state via
 .BR UPower .
 .PP
 Unlike static configuration overrides,
@@ -33,6 +33,8 @@ Explicit backlight and power\-profile restoration can run after normal completio
 provides narrative console logging on startup and exit, detailing intended system mutations, operational deviations, and the final shutdown state of D\-Bus locks and power profiles.
 .PP
 Every accepted operational session also writes an append-only JSON Lines running log. Each complete record is serialized against concurrent burnbag writers and synchronized to the filesystem before execution continues.
+.PP
+Burnbag reads up to two installed Linux power-supply batteries before operational host mutation, every fifteen seconds in persistent run modes, and at handled exit. Shutdown includes quantization-aware per-battery statistics and, unless disabled, a full-width 25-row battery depletion plot.
 .SH MODES
 The following mutually exclusive operational modes are supported:
 .TP
@@ -88,6 +90,9 @@ Write the mandatory synchronized running log to absolute FILE instead of the XDG
 .B \-\-no\-color
 Disable ANSI color in runtime messages, help, usage, and error output. Color remains automatic by default for interactive terminals.
 .TP
+.B \-\-no\-plot
+Suppress the 25-row battery depletion chart at exit. Battery discovery, fifteen-second sampling, synchronized log records, and per-battery statistics remain enabled.
+.TP
 .BR \-h ", " \-\-help
 Display syntax, mode descriptions, and usage examples, then exit.
 .SH TERMINAL OUTPUT
@@ -96,10 +101,24 @@ When the relevant standard-output or standard-error stream is an interactive ter
 is specified. Text labels such as [INFO], [OK], [WARNING], and [FATAL ERROR] remain present, so color is never the only status indication.
 .PP
 Invoking burnbag without a mode prints a concise quick-start guide to standard error and exits with status 2. Help, the zero-argument guide, and command-line validation run before PyGObject is loaded.
+.SH BATTERY MONITORING, EXIT PLOT, AND STATISTICS
+Burnbag discovers present entries of type Battery under /sys/class/power_supply in lexical kernel-name order and monitors up to two independently. It takes an initial reading before operational host mutation, samples persistent run modes every 15 seconds, and takes a final reading as handled teardown begins. One-shot modes receive initial and final readings. Percentage ordering and rate calculations use suspend-inclusive Linux CLOCK_BOOTTIME; local wall clock is presentation-only. Systems without a battery continue normally and omit battery output.
+.PP
+Every cycle is retained in the synchronized running log. Discovery or read failures are reported as operational deviations and select nonzero exit status, but never prevent backlight, inhibitor, or power-profile recovery. More than two eligible devices produce an explicit warning identifying which first two devices were selected.
+.PP
+The handled-exit chart contains exactly 25 data rows and uses the current standard-output terminal width, with an 80-column fallback. Its Y axis spans only observed percentage values and labels at most one observed value per row. Its X axis uses monotonic ordering, marks real sample positions with ticks, and labels selected actual local times as HH:mm. A real endpoint is retained when it fits, and adjacent callouts have at least two blank columns. Missing readings remain gaps.
+.PP
+With ANSI color enabled, the first battery is yellow, the second blue, and overlap green. Plain output uses 1, 2, and X. Use
+.B \-\-no\-plot
+to suppress only the graph.
+.PP
+Below the graph, or by itself when the graph is suppressed, burnbag prints one to three summary lines per battery. Endpoints, net percentage-point change, elapsed span, a whole-run least-squares gauge trend, fit, and coverage are shown. When enough reported whole-percentage transitions exist, gauge depletion-rate variability sigma is reported in percentage points per hour as the duration-weighted standard deviation of transition-to-transition gauge rates. The summary also shows signed average reported-gauge change per minute and its nonnegative standard deviation in pp/min; falling state of charge is negative and rising state of charge is positive. These are conversions of the same gated transition-rate distribution, not raw 15-second derivatives or an independent physical measurement. They describe uneven reported depletion velocity, not acceleration, watts, instantaneous load, or zero draw when the integer gauge stays flat. Missing readings, long intervals, and known charge-status changes break local-rate continuity; short, flat, mixed, and gapped histories are explicitly qualified with n/a where necessary.
+.PP
+SIGKILL, sudden power loss, and equivalent unhandled exits cannot render a chart or summary or take a final sample; previously synchronized records remain available.
 .SH RUNNING LOG
 Every accepted operational invocation establishes a mandatory append-only running log before PyGObject is loaded or host state is changed. The default path is $XDG_STATE_HOME/burnbag/burnbag.log, falling back to $HOME/.local/state/burnbag/burnbag.log. There is no no-log option.
 .PP
-The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown. Absence of session_end is retained as evidence of an unhandled process or power interruption.
+The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and every initial, periodic, and final battery sample are included; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown. Absence of session_end is retained as evidence of an unhandled process or power interruption.
 .PP
 Each record is appended under an exclusive advisory lock and followed by fsync before execution continues. Safety-relevant mutation intent is synchronized before the mutation. Failure to resolve, open, validate, lock, append, or synchronize the log prevents further host mutation and returns nonzero. Logging failure never prevents backlight, inhibitor, or power-profile teardown.
 .PP
@@ -150,6 +169,12 @@ Run with an explicit synchronized log path:
 .B burnbag run\-cool \-\-log\-file /absolute/path/to/automation.jsonl
 .RE
 .PP
+Run with battery monitoring and durable samples but no exit chart:
+.PP
+.RS 4
+.B burnbag run\-cool \-\-no\-plot
+.RE
+.PP
 Restore normal system defaults immediately:
 .PP
 .RS 4
@@ -163,7 +188,7 @@ Successful execution, complete lid cycle observed, or clean termination via inte
 .B 1
 Fatal error or unverified required state encountered (e.g., missing
 .B python3\-gobject
-dependencies, D\-Bus connection failure, running-log durability failure, unsupported hibernation request, or backlight mutation/restoration failure).
+dependencies, D\-Bus connection failure, running-log durability failure, unsupported hibernation request, battery observation failure, or backlight mutation/restoration failure).
 .TP
 .B 2
 Command-line usage error, including invocation without a required operational mode.

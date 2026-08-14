@@ -2,7 +2,7 @@
 
 - Status: Implemented; ready for operator validation
 - Owner: burnbag maintainers
-- Last reviewed: 2026-08-07
+- Last reviewed: 2026-08-13
 - Authorization:
   [BB-PROP-2026-08-07-01](../../project-management/proposals/approved/BB-PROP-2026-08-07-01-durable-running-log.md)
 
@@ -118,6 +118,8 @@ Between session boundaries, synchronized records must cover:
 - inhibitor acquisition intent/result and release intent/result;
 - initial lid state, lid transitions, timer start/cancel/expiry;
 - signal receipt and event-loop entry/exit;
+- battery discovery, timer start/stop, each initial, periodic, and final
+  battery sample, observation failures, and the final battery summary;
 - suspend or hibernate intent before the D-Bus request;
 - all console status, warning, error, and fatal messages associated with an
   operational session; and
@@ -125,6 +127,17 @@ Between session boundaries, synchronized records must cover:
 
 Every safety-relevant host mutation requires a synchronized intent record
 before the mutation and an outcome or deviation record afterward.
+
+Battery sample details use a separate suspend-inclusive `CLOCK_BOOTTIME`
+elapsed value for plotting and rate calculations and include per-device
+percentage plus optional presence and kernel status. The final summary and
+`session_end` contain versioned, unit-bearing per-battery derived statistics:
+coverage, endpoints, whole-run OLS gauge trend and `R²`, eligible reported
+level transitions, duration-weighted gauge-rate standard deviation, robust MAD
+scale, signed average reported change and its standard deviation in `pp/min`,
+cadence, reversals, segments, excluded gaps, status breaks, and explicit
+validity reasons. The per-battery statistics schema is version 2. Unsupported
+values are JSON `null`, never NaN or infinity.
 
 ## Failure Behavior
 

@@ -2,7 +2,7 @@
 
 - Status: Implemented; ready for operator validation
 - Owner: burnbag maintainers
-- Last reviewed: 2026-08-07
+- Last reviewed: 2026-08-13
 
 ## Scope
 
@@ -36,6 +36,19 @@ Python 3.14 and later provide an independent automatic-color facility in
 `argparse`. Burnbag disables that facility and renders presentation through
 its own policy boundary so `--no-color` and the environmental controls behave
 consistently across supported Python versions.
+
+The handled-exit battery chart and statistical summary follow this same color capability policy but
+is otherwise governed by the canonical
+[battery-monitoring specification](battery-monitoring.md). Its plain symbols
+must distinguish both series and overlap without relying on ANSI color.
+Battery identity and trend reuse the yellow/blue series colors; gauge-rate
+variability uses magenta. Complete labels, percentage-point units, validity
+reasons, and the qualification that the metric does not measure watts remain
+present in plain output. Each battery also shows a signed average reported
+change per minute and its nonnegative standard deviation in `pp/min`; `n/a`
+preserves the estimator's evidence gates. Summary layout supports one to three
+lines per battery at terminal widths of 40 columns or more. Compact output may
+use `avgΔ` and `σrate`, with a footer defining their gauge-only meaning.
 
 ## Zero-Argument Invocation
 
