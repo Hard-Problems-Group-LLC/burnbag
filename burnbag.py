@@ -20,9 +20,11 @@ Released under the MIT License.
 from __future__ import annotations
 
 import argparse
+import contextlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import fcntl
+import io
 import json
 import math
 import os
@@ -35,7 +37,7 @@ import statistics
 import sys
 import textwrap
 import time
-from typing import Any, Dict, List, Optional, Sequence, TextIO, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, TextIO, Tuple
 import uuid
 
 Gio: Any = None
@@ -629,6 +631,9 @@ UPOWER_BUS_NAME = "org.freedesktop.UPower"
 UPOWER_OBJECT_PATH = "/org/freedesktop/UPower"
 UPOWER_IFACE = "org.freedesktop.UPower"
 DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
+# Explicit method deadline; GI proxy construction uses its own library defaults.
+DBUS_CALL_TIMEOUT_MILLISECONDS = 10_000
+POWER_ACTION_TIMEOUT_MILLISECONDS = 30_000
 
 BACKLIGHT_SYSFS_ROOT = Path("/sys/class/backlight")
 BACKLIGHT_OFF_DELAY_SECONDS = 3.0
@@ -1961,6 +1966,14 @@ class LidCloseManager:
         # State tracking variables for clean teardown and narrative reporting
         self.original_power_profile: Optional[str] = None
         self.active_power_profile: Optional[str] = None
+        self.power_profile_changed: bool = False
+        self.power_profile_change_verified: bool = False
+        self.power_profile_restore_attempted: bool = False
+        self.power_profile_restore_verified: bool = False
+        self.power_profile_retained: bool = False
+        self.inhibitor_release_failed: bool = False
+        self.lid_capability_checked: bool = False
+        self.lid_monitoring_available: bool = False
         self.inhibitor_fds: List[int] = []  # Open file descriptors holding systemd locks
         self.lid_was_closed_during_session: bool = False
         self.current_lid_closed_state: bool = False
@@ -1987,6 +2000,9 @@ class LidCloseManager:
         self.reported_battery_errors: set[str] = set()
         self.shutdown_signal: Optional[int] = None
         self.shutdown_signal_source_id: Optional[int] = None
+        self.stop_requested: bool = False
+        self.teardown_started: bool = False
+        self.failed_output_streams: List[TextIO] = []
 
         # D-Bus connection and proxy placeholders
         self.bus: Optional[Gio.DBusConnection] = None
@@ -2005,6 +2021,8 @@ class LidCloseManager:
         lost. Repeated signals do not interrupt recovery or duplicate sources.
         Logging is deliberately left to the ordinary finalization path.
         """
+        if self.teardown_in_progress:
+            return
         if self.shutdown_signal is None:
             self.shutdown_signal = signum
         if (
@@ -2012,7 +2030,9 @@ class LidCloseManager:
             and not self.teardown_in_progress
             and self.shutdown_signal_source_id is None
         ):
-            self.shutdown_signal_source_id = GLib.idle_add(self._quit_for_signal)
+            self.shutdown_signal_source_id = GLib.idle_add(
+                self.guard_callback("signal shutdown", self._quit_for_signal)
+            )
 
     def _quit_for_signal(self) -> bool:
         """Dispatch a pending signal after the GLib loop has actually started."""
@@ -2023,7 +2043,7 @@ class LidCloseManager:
 
     def check_shutdown_requested(self) -> None:
         """Stop setup at a safe boundary before starting another operation."""
-        if self.shutdown_signal is not None:
+        if self.shutdown_signal is not None or self.stop_requested:
             raise ShutdownRequested()
 
     def record_signal_shutdown(self) -> None:
@@ -2031,7 +2051,9 @@ class LidCloseManager:
         if self.shutdown_signal is None:
             return
         signum = self.shutdown_signal
-        sig_name = "SIGINT (Ctrl-C)" if signum == signal.SIGINT else "SIGTERM"
+        sig_name = signal.Signals(signum).name
+        if signum == signal.SIGINT:
+            sig_name += " (Ctrl-C)"
         if self.shutdown_reason == "Unknown / Undefined" or self.exit_code == 0:
             self.shutdown_reason = f"User termination signal received ({sig_name})"
             self.goal_achieved = self.exit_code == 0
@@ -2046,6 +2068,107 @@ class LidCloseManager:
             # The durability failure is already marked; cleanup still owns
             # restoration and the best available shutdown report.
             pass
+
+    def _record_failure(self, message: str, event: str = "runtime_failure") -> None:
+        """Retain a failed outcome even when both diagnostic channels fail."""
+        if message not in self.deviations:
+            self.deviations.append(message)
+        if self.exit_code == 0 or self.shutdown_reason == "Unknown / Undefined":
+            self.shutdown_reason = message
+        self.exit_code = 1
+        self.goal_achieved = False
+        self.stop_requested = True
+        try:
+            self._log_only(event, "ERROR", message)
+        except Exception:
+            # Recovery must not depend on the availability of its own log.
+            pass
+        if self.mainloop is not None:
+            try:
+                self.mainloop.quit()
+            except Exception:
+                pass
+
+    def _write_output(self, text: str, stream: TextIO) -> bool:
+        """Flush output now, recording failures before the final log record."""
+        if any(stream is failed for failed in self.failed_output_streams):
+            return False
+        try:
+            stream.write(text)
+            stream.flush()
+            return True
+        except Exception as exc:
+            self.failed_output_streams.append(stream)
+            name = "stderr" if stream is sys.stderr else "stdout"
+            self._record_failure(
+                f"Could not write {name}: {type(exc).__name__}: {exc}",
+                "terminal_output_failed",
+            )
+            # A failed buffered stdout flush would otherwise be retried by
+            # Python during interpreter shutdown, producing a second traceback
+            # and changing the process status after session_end was recorded.
+            if isinstance(exc, BrokenPipeError):
+                try:
+                    if stream.fileno() in (1, 2):
+                        with open(os.devnull, "w") as sink:
+                            os.dup2(sink.fileno(), stream.fileno())
+                except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+                    pass
+            return False
+
+    def _console_status(
+        self, label: str, message: str, stream: Optional[TextIO] = None,
+        timestamp: Optional[str] = None, leading_newline: bool = False,
+    ) -> None:
+        """Try the requested terminal channel, then its surviving alternative."""
+        preferred = sys.stdout if stream is None else stream
+        alternate = sys.stdout if preferred is sys.stderr else sys.stderr
+        for destination in (preferred, alternate):
+            prefix = f"[{timestamp}] " if timestamp else ""
+            try:
+                prefix += self.terminal_style.status_prefix(label, destination)
+            except Exception as exc:
+                self._record_failure(f"Could not format terminal status: {exc}", "terminal_render_failed")
+                prefix += f"[{label}]"
+            text = ("\n" if leading_newline else "") + f"{prefix} {message}\n"
+            if self._write_output(text, destination):
+                return
+
+    def guard_callback(
+        self, label: str, callback: Callable[..., Any],
+        source_attribute: Optional[str] = None,
+    ) -> Callable[..., Any]:
+        """Keep Python exceptions inside the application's GLib boundary."""
+        def guarded(*arguments: Any) -> Any:
+            if self.teardown_in_progress:
+                return False
+            try:
+                result = callback(*arguments)
+                if not result and source_attribute is not None:
+                    setattr(self, source_attribute, None)
+                return result
+            except KeyboardInterrupt:
+                self.request_signal_shutdown(signal.SIGINT)
+            except ShutdownRequested:
+                pass
+            except SystemExit as exc:
+                if not self.teardown_complete:
+                    self._record_failure(f"{label} callback exited unexpectedly: {exc}", "callback_failed")
+            except BaseException as exc:
+                self._record_failure(
+                    f"{label} callback failed: {type(exc).__name__}: {exc}",
+                    "callback_failed",
+                )
+                self._console_status("ERROR", self.shutdown_reason, sys.stderr)
+            if source_attribute is not None:
+                setattr(self, source_attribute, None)
+            if self.mainloop is not None:
+                try:
+                    self.mainloop.quit()
+                except Exception as exc:
+                    self._record_failure(f"Could not stop event loop: {exc}")
+            return False
+        return guarded
 
     def _mark_running_log_failure(self, error: RunningLogError) -> None:
         """Mark a durability failure without routing the report back into the log."""
@@ -2065,7 +2188,7 @@ class LidCloseManager:
         # helper: the running log is already known to be unavailable.
         if not self.log_failure_reported:
             self.log_failure_reported = True
-            self.terminal_style.write_status(
+            self._console_status(
                 "FATAL ERROR",
                 f"{message}. Ending the session and preserving teardown.",
                 sys.stderr,
@@ -2086,7 +2209,7 @@ class LidCloseManager:
         details: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Synchronize one record and fail closed unless teardown is underway."""
-        if self.running_log is None:
+        if self.running_log is None or self.running_log_finished:
             return
         if self.running_log.failed_reason is not None:
             if not self.teardown_in_progress:
@@ -2121,7 +2244,7 @@ class LidCloseManager:
     ) -> None:
         """Write an informational runtime message."""
         self._append_running_log(event, "INFO", message, details)
-        self.terminal_style.write_status("INFO", message)
+        self._console_status("INFO", message)
 
     def _ok(
         self,
@@ -2131,7 +2254,7 @@ class LidCloseManager:
     ) -> None:
         """Write a successful runtime outcome."""
         self._append_running_log(event, "OK", message, details)
-        self.terminal_style.write_status("OK", message)
+        self._console_status("OK", message)
 
     def _event(
         self,
@@ -2141,12 +2264,23 @@ class LidCloseManager:
     ) -> None:
         """Write an asynchronous lifecycle event with visual separation."""
         self._append_running_log(event, "EVENT", message, details)
-        self.terminal_style.write_status("EVENT", message, leading_newline=True)
+        self._console_status("EVENT", message, leading_newline=True)
 
     def finish_running_log(self) -> None:
         """Synchronize the handled session end after teardown and close the log."""
+        if self.exit_code != 0:
+            self.goal_achieved = False
         if self.running_log is None or self.running_log_finished:
             return
+        statistics_details = []
+        for result in self.battery_statistics:
+            try:
+                statistics_details.append(result.to_log_details())
+            except Exception as exc:
+                self._record_failure(
+                    f"Could not serialize battery statistics: {type(exc).__name__}: {exc}",
+                    "final_state_serialization_failed",
+                )
         self.running_log_finished = True
 
         if self.running_log.failed_reason is None:
@@ -2164,6 +2298,13 @@ class LidCloseManager:
                         "backlight_restore_verified": self.backlight_restore_verified,
                         "active_power_profile": self.active_power_profile,
                         "original_power_profile": self.original_power_profile,
+                        "power_profile_changed": getattr(self, "power_profile_changed", False),
+                        "power_profile_change_verified": getattr(self, "power_profile_change_verified", False),
+                        "power_profile_restore_attempted": getattr(self, "power_profile_restore_attempted", False),
+                        "power_profile_restore_verified": getattr(self, "power_profile_restore_verified", False),
+                        "power_profile_retained": getattr(self, "power_profile_retained", False),
+                        "inhibitor_release_failed": getattr(self, "inhibitor_release_failed", False),
+                        "terminal_output_failed": bool(self.failed_output_streams),
                         "lid_was_closed": self.lid_was_closed_during_session,
                         "battery_names": [
                             device.name for device in self.battery_monitor.devices
@@ -2175,19 +2316,20 @@ class LidCloseManager:
                             else {}
                         ),
                         "battery_plot_suppressed": self.no_plot,
-                        "battery_statistics": [
-                            result.to_log_details()
-                            for result in self.battery_statistics
-                        ],
+                        "battery_statistics": statistics_details,
                     },
                 )
-            except RunningLogError as exc:
-                self._mark_running_log_failure(exc)
+            except Exception as exc:
+                self._mark_running_log_failure(
+                    exc if isinstance(exc, RunningLogError) else RunningLogError(str(exc))
+                )
 
         try:
             self.running_log.close()
-        except RunningLogError as exc:
-            self._mark_running_log_failure(exc)
+        except Exception as exc:
+            self._mark_running_log_failure(
+                exc if isinstance(exc, RunningLogError) else RunningLogError(str(exc))
+            )
 
     def _narrative_rule(self) -> None:
         """Draw a subdued narrative boundary."""
@@ -2357,7 +2499,7 @@ class LidCloseManager:
         try:
             self.battery_timer_id = GLib.timeout_add(
                 BATTERY_SAMPLE_INTERVAL_MILLISECONDS,
-                self._on_battery_sample_timer,
+                self.guard_callback("battery sampling", self._on_battery_sample_timer, "battery_timer_id"),
             )
         except Exception as exc:
             self._record_battery_error(
@@ -2445,38 +2587,35 @@ class LidCloseManager:
         if self.battery_plot_printed:
             return
         self.battery_plot_printed = True
-        try:
-            output_parts: List[str] = []
-            if not self.no_plot:
-                chart = render_battery_depletion_chart(
+        preferred = sys.stderr if any(sys.stdout is item for item in self.failed_output_streams) else sys.stdout
+        output_parts: List[str] = []
+        renderers = []
+        if not self.no_plot:
+            renderers.append(("battery chart", lambda: render_battery_depletion_chart(
                     self.battery_monitor.devices,
                     self.battery_monitor.samples,
                     self.terminal_style,
-                    sys.stdout,
-                )
-                if chart:
-                    output_parts.append(chart.rstrip("\n"))
-            statistics_output = render_battery_statistics(
+                    preferred,
+                )))
+        renderers.append(("battery statistics", lambda: render_battery_statistics(
                 self.battery_statistics,
                 self.terminal_style,
-                sys.stdout,
-            )
-            if statistics_output:
-                output_parts.append(statistics_output.rstrip("\n"))
-            if output_parts:
-                sys.stdout.write("\n" + "\n\n".join(output_parts) + "\n")
-        except Exception as exc:
-            # Persistent-state recovery and the durable final record are
-            # already complete. Chart presentation cannot undo or interrupt
-            # either safety boundary.
+                preferred,
+            )))
+        for label, render in renderers:
             try:
-                self.terminal_style.write_status(
-                    "WARNING",
-                    f"Could not render battery summary output: {exc}",
-                    sys.stderr,
-                )
-            except (OSError, ValueError):
-                pass
+                output = render()
+                if output:
+                    output_parts.append(output.rstrip("\n"))
+            except Exception as exc:
+                message = f"Could not render {label}: {type(exc).__name__}: {exc}"
+                self._record_failure(message, "terminal_render_failed")
+                self._console_status("ERROR", message, sys.stderr)
+        if output_parts:
+            text = "\n" + "\n\n".join(output_parts) + "\n"
+            if not self._write_output(text, preferred):
+                alternate = sys.stdout if preferred is sys.stderr else sys.stderr
+                self._write_output(text, alternate)
 
     # --------------------------------------------------------------------------
     # D-BUS INITIALIZATION & CONNECTION HELPERS
@@ -2720,7 +2859,7 @@ class LidCloseManager:
                 "GetSessionByPID",
                 GLib.Variant("(u)", (os.getpid(),)),
                 Gio.DBusCallFlags.NONE,
-                -1,
+                DBUS_CALL_TIMEOUT_MILLISECONDS,
                 None,
             )
             session_path = result.unpack()[0]
@@ -2737,7 +2876,7 @@ class LidCloseManager:
                     "GetSession",
                     GLib.Variant("(s)", (inherited_session_id,)),
                     Gio.DBusCallFlags.NONE,
-                    -1,
+                    DBUS_CALL_TIMEOUT_MILLISECONDS,
                     None,
                 )
                 session_path = result.unpack()[0]
@@ -2754,7 +2893,7 @@ class LidCloseManager:
                 "GetUser",
                 GLib.Variant("(u)", (os.geteuid(),)),
                 Gio.DBusCallFlags.NONE,
-                -1,
+                DBUS_CALL_TIMEOUT_MILLISECONDS,
                 None,
             )
             user_path = self._validate_dbus_object_path(
@@ -2842,7 +2981,7 @@ class LidCloseManager:
                 "SetBrightness",
                 GLib.Variant("(ssu)", ("backlight", device.name, brightness)),
                 Gio.DBusCallFlags.NONE,
-                -1,
+                DBUS_CALL_TIMEOUT_MILLISECONDS,
                 None,
             )
         except Exception as exc:
@@ -2882,6 +3021,7 @@ class LidCloseManager:
                     f"Requesting brightness zero for backlight {device.name!r}.",
                     {"device": device.name, "target_brightness": 0},
                 )
+                self.check_shutdown_requested()
                 # Mark the device before crossing D-Bus: a transport failure can
                 # be ambiguous about whether logind applied the mutation.
                 device.changed = True
@@ -2898,6 +3038,10 @@ class LidCloseManager:
                 "Screen backlight turned off and verified after three seconds.",
                 event="backlight_power_down_complete",
             )
+        except ShutdownRequested:
+            # Cancellation before a new device mutation is handled by the
+            # common callback/finalization path, which restores prior devices.
+            raise
         except RunningLogError:
             # _append_running_log already marked the session failed and asked
             # the loop to stop. Compensate any brightness already changed.
@@ -2930,7 +3074,8 @@ class LidCloseManager:
         delay_milliseconds = max(1, int(round(remaining_seconds * 1000)))
         try:
             self.backlight_timer_id = GLib.timeout_add(
-                delay_milliseconds, self._on_backlight_power_down
+                delay_milliseconds,
+                self.guard_callback("backlight power-down", self._on_backlight_power_down, "backlight_timer_id"),
             )
         except Exception as exc:
             self._fatal_error(f"Failed to schedule screen-backlight power-down: {exc}")
@@ -2983,168 +3128,235 @@ class LidCloseManager:
 
     def teardown(self) -> None:
         """Run the idempotent handled-exit cleanup path in safety-first order."""
-        if self.teardown_complete:
+        if self.teardown_complete or self.teardown_started:
             return
-        # From this point forward a failed log write may change the final exit
-        # status, but it must never interrupt restoration of persistent state.
+        self.teardown_started = True
         self.teardown_in_progress = True
-        if self.shutdown_signal_source_id is not None:
-            source_id = self.shutdown_signal_source_id
-            self.shutdown_signal_source_id = None
-            try:
-                GLib.source_remove(source_id)
-            except Exception:
-                # The event loop will not run again; a stale exit source must
-                # not prevent persistent-state restoration.
-                pass
-        self._log_only(
-            "teardown_started",
-            "INFO",
-            "Handled teardown started in safety-first order.",
-        )
-        # Stop the read-only observer before restoring persistent host state.
-        # Sampling failure is contained internally and cannot bypass recovery.
-        self.stop_battery_monitoring()
-        if self.backlight_timer_id is not None:
-            try:
-                GLib.source_remove(self.backlight_timer_id)
-            except Exception as exc:
-                self._warn(f"Could not cancel screen-backlight timer: {exc}")
-                self.deviations.append(f"Could not cancel screen-backlight timer: {exc}")
-                self.exit_code = 1
-            self.backlight_timer_id = None
-        if self.suspend_timer_id is not None:
-            try:
-                GLib.source_remove(self.suspend_timer_id)
-            except Exception as exc:
-                self._warn(f"Could not cancel suspend timer: {exc}")
-                self.deviations.append(f"Could not cancel suspend timer: {exc}")
-                self.exit_code = 1
-            self.suspend_timer_id = None
 
-        # Brightness persists independently of this process, so restore and
-        # verify it before releasing automatically scoped inhibitors.
-        self.restore_backlights()
-        self.release_inhibitor_fds()
-        self.restore_power_profile()
+        def recover(label: str, action: Callable[[], Any]) -> None:
+            try:
+                action()
+            except BaseException as exc:
+                message = f"{label} failed during teardown: {type(exc).__name__}: {exc}"
+                self._record_failure(message, "teardown_step_failed")
+                self._console_status("ERROR", message, sys.stderr)
+
+        recover(
+            "Recording teardown start",
+            lambda: self._log_only("teardown_started", "INFO", "Handled teardown started in safety-first order."),
+        )
+        recover("Final battery observation and statistics", self.stop_battery_monitoring)
+        for attribute, label in (
+            ("shutdown_signal_source_id", "Pending shutdown callback cancellation"),
+            ("backlight_timer_id", "Backlight timer cancellation"),
+            ("suspend_timer_id", "Suspend timer cancellation"),
+        ):
+            source_id = getattr(self, attribute)
+            setattr(self, attribute, None)
+            if source_id is not None:
+                recover(label, lambda source_id=source_id: GLib.source_remove(source_id))
+
+        recover("Backlight restoration", self.restore_backlights)
+        recover("Inhibitor release", self.release_inhibitor_fds)
+        recover("Power profile restoration", self.restore_power_profile)
         self.teardown_complete = True
-        self._log_only(
-            "teardown_completed",
-            "OK" if self.exit_code == 0 else "ERROR",
-            "Handled teardown completed.",
-            {"exit_code": self.exit_code},
+        recover(
+            "Recording teardown completion",
+            lambda: self._log_only(
+                "teardown_completed", "OK" if self.exit_code == 0 else "ERROR",
+                "Handled teardown completed.", {"exit_code": self.exit_code},
+            ),
         )
 
     # --------------------------------------------------------------------------
     # POWER PROFILE MANAGEMENT
     # --------------------------------------------------------------------------
 
-    def save_and_set_power_profile(self, target_profile: Optional[str]) -> None:
-        """
-        Queries and records the current system power profile, then applies the
-        target profile if requested.
-        """
+    def _record_operation_failure(self, message: str) -> None:
+        """Preserve failed recovery or action state before reporting the error."""
+        self.exit_code = 1
+        self.goal_achieved = False
+        if message not in self.deviations:
+            self.deviations.append(message)
+        self._warn(message)
+
+    def _read_power_profile(self) -> str:
+        """Read and validate the daemon's current profile, never an assumed default."""
+        result = self.power_proxy.call_sync(
+            "Get",
+            GLib.Variant("(ss)", (POWER_IFACE, "ActiveProfile")),
+            Gio.DBusCallFlags.NONE,
+            DBUS_CALL_TIMEOUT_MILLISECONDS,
+            None,
+        )
+        profile = result.unpack()[0]
+        if not isinstance(profile, str) or not profile.strip():
+            raise RuntimeError(f"Invalid ActiveProfile value: {profile!r}")
+        return profile
+
+    def _available_power_profiles(self) -> List[str]:
+        """Read advertised profiles before attempting a requested change."""
+        result = self.power_proxy.call_sync(
+            "Get",
+            GLib.Variant("(ss)", (POWER_IFACE, "Profiles")),
+            Gio.DBusCallFlags.NONE,
+            DBUS_CALL_TIMEOUT_MILLISECONDS,
+            None,
+        )
+        profiles = result.unpack()[0]
+        if not isinstance(profiles, (list, tuple)) or not profiles:
+            raise RuntimeError(f"Invalid Profiles value: {profiles!r}")
+        names = []
+        for profile in profiles:
+            name = profile.get("Profile") if isinstance(profile, dict) else None
+            if not isinstance(name, str) or not name.strip():
+                raise RuntimeError(f"Invalid profile entry: {profile!r}")
+            names.append(name)
+        return names
+
+    def save_and_set_power_profile(self, target_profile: Optional[str]) -> bool:
+        """Snapshot, apply, and verify a requested profile before taking inhibitors."""
         if not self.power_proxy:
             if target_profile:
-                self.deviations.append(
-                    f"Requested power profile '{target_profile}' could not be applied "
-                    "(power-profiles-daemon unreachable)."
+                self._fatal_error(
+                    f"Cannot apply requested power profile {target_profile!r}: "
+                    "power-profiles-daemon is unavailable."
                 )
-            return
+            self._warn("power-profiles-daemon is unavailable; leaving the profile untouched.")
+            return target_profile is None
 
         try:
-            # Query current profile via DBus.Properties.Get
-            result = self.power_proxy.call_sync(
-                "Get",
-                GLib.Variant("(ss)", (POWER_IFACE, "ActiveProfile")),
-                Gio.DBusCallFlags.NONE,
-                -1,
-                None,
-            )
-            self.original_power_profile = result.unpack()[0]
+            self.original_power_profile = self._read_power_profile()
             self.active_power_profile = self.original_power_profile
         except Exception as exc:
-            self._warn(f"Could not read current power profile: {exc}")
-            self.original_power_profile = "balanced"  # Safe default assumption
-        else:
-            self._log_only(
-                "power_profile_recorded",
-                "OK",
-                f"Recorded original power profile {self.original_power_profile!r}.",
-                {"profile": self.original_power_profile},
-            )
+            self.original_power_profile = None
+            self.active_power_profile = None
+            message = f"Could not read the current power profile: {exc}"
+            if target_profile:
+                self._fatal_error(message + "; no profile change was attempted.")
+            self._warn(message + "; leaving the profile untouched.")
+            return False
+        self._log_only(
+            "power_profile_recorded",
+            "OK",
+            f"Recorded original power profile {self.original_power_profile!r}.",
+            {"profile": self.original_power_profile},
+        )
+        self.check_shutdown_requested()
+        if target_profile is None:
+            return True
+        if target_profile == self.original_power_profile:
+            self.power_profile_change_verified = True
+            return True
 
-        # Apply new target profile if specified and different from current
-        if target_profile and target_profile != self.original_power_profile:
-            self._log_only(
-                "power_profile_change_intent",
-                "INFO",
-                f"Requesting power profile {target_profile!r}.",
-                {
-                    "original_profile": self.original_power_profile,
-                    "target_profile": target_profile,
-                },
+        try:
+            available = self._available_power_profiles()
+            if target_profile not in available:
+                raise RuntimeError(
+                    f"Requested profile {target_profile!r} is unavailable; "
+                    f"advertised profiles: {', '.join(available)}"
+                )
+        except Exception as exc:
+            self._fatal_error(f"Cannot select a power profile: {exc}")
+
+        self._log_only(
+            "power_profile_change_intent",
+            "INFO",
+            f"Requesting power profile {target_profile!r}.",
+            {
+                "original_profile": self.original_power_profile,
+                "target_profile": target_profile,
+            },
+        )
+        self.check_shutdown_requested()
+        # A timeout or lost reply does not prove Set was rejected. Mark the
+        # recovery obligation before dispatch so every uncertain mutation is
+        # restored to the real snapshot during teardown.
+        self.power_profile_changed = True
+        self.active_power_profile = None
+        try:
+            self.power_proxy.call_sync(
+                "Set",
+                GLib.Variant(
+                    "(ssv)",
+                    (POWER_IFACE, "ActiveProfile", GLib.Variant("s", target_profile)),
+                ),
+                Gio.DBusCallFlags.NONE,
+                DBUS_CALL_TIMEOUT_MILLISECONDS,
+                None,
             )
-            try:
-                self.power_proxy.call_sync(
-                    "Set",
-                    GLib.Variant("(ssv)", (POWER_IFACE, "ActiveProfile", GLib.Variant("s", target_profile))),
-                    Gio.DBusCallFlags.NONE,
-                    -1,
-                    None,
+            self.active_power_profile = self._read_power_profile()
+            if self.active_power_profile != target_profile:
+                raise RuntimeError(
+                    f"verification read {self.active_power_profile!r}, "
+                    f"expected {target_profile!r}"
                 )
-                self.active_power_profile = target_profile
-            except Exception as exc:
-                err_msg = (
-                    f"Failed to set power profile to '{target_profile}' ({exc}). "
-                    "Remaining on default profile."
-                )
-                self._warn(err_msg)
-                self.deviations.append(err_msg)
-            else:
-                self._info(
-                    f"Power profile successfully switched to: '{target_profile}'.",
-                    event="power_profile_changed",
-                    details={"active_profile": target_profile},
-                )
+        except Exception as exc:
+            self._fatal_error(
+                f"Failed to apply and verify power profile {target_profile!r}: {exc}"
+            )
+        self.power_profile_change_verified = True
+        self._info(
+            f"Power profile switched and verified: {target_profile!r}.",
+            event="power_profile_changed",
+            details={"active_profile": target_profile, "verified": True},
+        )
+        # A signal during Set or failed result output must reach teardown
+        # before normal mode can commit to retaining the changed profile.
+        self.check_shutdown_requested()
+        return True
 
     def restore_power_profile(self) -> None:
-        """
-        Restores the power profile that was active before burnbag started.
-        """
-        if not self.power_proxy or not self.original_power_profile:
+        """Restore and verify the snapshot after every temporary or uncertain Set."""
+        if self.power_profile_retained or not self.power_profile_changed:
             return
-
-        if self.active_power_profile != self.original_power_profile:
-            self._log_only(
-                "power_profile_restore_intent",
-                "INFO",
-                f"Restoring original power profile {self.original_power_profile!r}.",
-                {
-                    "active_profile": self.active_power_profile,
-                    "target_profile": self.original_power_profile,
-                },
+        self.power_profile_restore_attempted = True
+        self.power_profile_restore_verified = False
+        if self.power_proxy is None or self.original_power_profile is None:
+            self._record_operation_failure(
+                "Cannot restore power profile: the daemon or original snapshot is unavailable."
             )
-            try:
-                self.power_proxy.call_sync(
-                    "Set",
-                    GLib.Variant(
-                        "(ssv)",
-                        (POWER_IFACE, "ActiveProfile", GLib.Variant("s", self.original_power_profile)),
-                    ),
-                    Gio.DBusCallFlags.NONE,
-                    -1,
-                    None,
+            return
+        self._log_only(
+            "power_profile_restore_intent",
+            "INFO",
+            f"Restoring original power profile {self.original_power_profile!r}.",
+            {
+                "active_profile": self.active_power_profile,
+                "target_profile": self.original_power_profile,
+            },
+        )
+        self.active_power_profile = None
+        try:
+            self.power_proxy.call_sync(
+                "Set",
+                GLib.Variant(
+                    "(ssv)",
+                    (POWER_IFACE, "ActiveProfile", GLib.Variant("s", self.original_power_profile)),
+                ),
+                Gio.DBusCallFlags.NONE,
+                DBUS_CALL_TIMEOUT_MILLISECONDS,
+                None,
+            )
+            self.active_power_profile = self._read_power_profile()
+            if self.active_power_profile != self.original_power_profile:
+                raise RuntimeError(
+                    f"verification read {self.active_power_profile!r}, "
+                    f"expected {self.original_power_profile!r}"
                 )
-                self.active_power_profile = self.original_power_profile
-                self._info(
-                    "Restored system power profile to original state: "
-                    f"'{self.original_power_profile}'.",
-                    event="power_profile_restored",
-                    details={"active_profile": self.original_power_profile},
-                )
-            except Exception as exc:
-                self._warn(f"Failed to restore original power profile '{self.original_power_profile}': {exc}")
+        except Exception as exc:
+            self._record_operation_failure(
+                f"Failed to restore and verify original power profile "
+                f"{self.original_power_profile!r}: {exc}"
+            )
+            return
+        self.power_profile_changed = False
+        self.power_profile_restore_verified = True
+        self._info(
+            f"Restored and verified original power profile: {self.original_power_profile!r}.",
+            event="power_profile_restored",
+            details={"active_profile": self.original_power_profile, "verified": True},
+        )
 
     # --------------------------------------------------------------------------
     # INHIBITOR LOCK MANAGEMENT
@@ -3179,20 +3391,26 @@ class LidCloseManager:
             f"Requesting systemd-logind inhibitor for [{what_string}].",
             {"what": what_string, "inhibit_mode": mode_string},
         )
+        self.check_shutdown_requested()
         try:
             # call_with_unix_fd_list_sync allows receiving file descriptors over D-Bus
             res, out_fd_list = self.logind_proxy.call_with_unix_fd_list_sync(
                 "Inhibit",
                 GLib.Variant("(ssss)", (what_string, who_string, why_string, mode_string)),
                 Gio.DBusCallFlags.NONE,
-                -1,
+                DBUS_CALL_TIMEOUT_MILLISECONDS,
                 None,
                 None,
             )
             # Unpack the returned handle index and retrieve the OS file descriptor
             fd_index = res.unpack()[0]
+            if type(fd_index) is not int or fd_index < 0 or out_fd_list is None:
+                raise RuntimeError(f"Invalid inhibitor descriptor handle: {fd_index!r}")
             os_fd = out_fd_list.get(fd_index)
+            if type(os_fd) is not int or os_fd < 0:
+                raise RuntimeError(f"Invalid inhibitor file descriptor: {os_fd!r}")
             self.inhibitor_fds.append(os_fd)
+            os.set_inheritable(os_fd, False)
         except Exception as exc:
             self._fatal_error(
                 f"Failed to acquire systemd-logind inhibitor lock for [{what_string}]: {exc}"
@@ -3210,59 +3428,111 @@ class LidCloseManager:
         Closes all open file descriptors for inhibitor locks, signaling systemd-logind
         to immediately drop our sleep/lid prohibitions.
         """
-        for fd in self.inhibitor_fds:
+        # Never retry a failed close: Linux may already have released the
+        # descriptor number for reuse. Attempt every owned descriptor even if
+        # another close or its diagnostic fails.
+        owned_fds = self.inhibitor_fds
+        self.inhibitor_fds = []
+        failures: List[str] = []
+        for fd in owned_fds:
+            closed = False
             try:
-                self._log_only(
-                    "inhibitor_release_intent",
-                    "INFO",
-                    f"Closing inhibitor file descriptor {fd}.",
-                    {"file_descriptor": fd},
-                )
-                os.close(fd)
+                try:
+                    self._log_only(
+                        "inhibitor_release_intent",
+                        "INFO",
+                        f"Closing inhibitor file descriptor {fd}.",
+                        {"file_descriptor": fd},
+                    )
+                finally:
+                    os.close(fd)
+                    closed = True
                 self._info(
                     f"Released D-Bus inhibitor lock (closed FD {fd}).",
                     event="inhibitor_released",
                     details={"file_descriptor": fd},
                 )
-            except OSError as exc:
-                self._warn(f"Error closing inhibitor file descriptor {fd}: {exc}")
-        self.inhibitor_fds.clear()
+            except Exception as exc:
+                if not closed:
+                    self.inhibitor_release_failed = True
+                failures.append(f"Error releasing inhibitor file descriptor {fd}: {exc}")
+        for message in failures:
+            try:
+                self._record_operation_failure(message)
+            except Exception:
+                # Failure state was stored before diagnostics. All descriptors
+                # have already received their close attempt.
+                pass
 
     # --------------------------------------------------------------------------
     # LID STATE & SIGNAL MONITORING
     # --------------------------------------------------------------------------
 
+    def _read_upower_boolean_property(self, name: str) -> bool:
+        """Read an actual UPower boolean through the Properties interface."""
+        if self.upower_proxy is None:
+            raise RuntimeError("UPower is unavailable")
+        result = self.upower_proxy.call_sync(
+            "org.freedesktop.DBus.Properties.Get",
+            GLib.Variant("(ss)", (UPOWER_IFACE, name)),
+            Gio.DBusCallFlags.NONE,
+            DBUS_CALL_TIMEOUT_MILLISECONDS,
+            None,
+        )
+        value = result.unpack()[0]
+        if type(value) is not bool:
+            raise RuntimeError(f"Invalid UPower {name} value: {value!r}")
+        return value
+
+    def _lid_monitoring_required(self) -> bool:
+        """A timed run or the default lid-cycle exit requires working lid telemetry."""
+        return not self.ignore_lid or self.suspend_after_minutes is not None
+
+    def validate_lid_monitoring(self) -> None:
+        """Check required lid and timeout capabilities before operational mutation."""
+        self.lid_capability_checked = True
+        try:
+            self.lid_monitoring_available = self._read_upower_boolean_property("LidIsPresent")
+            if not self.lid_monitoring_available:
+                raise RuntimeError("UPower reports no hardware lid sensor")
+            # Validate state access now; startup reads it again after the
+            # listener is installed to establish the initial event baseline.
+            self._read_upower_boolean_property("LidIsClosed")
+        except Exception as exc:
+            self.lid_monitoring_available = False
+            message = f"Lid monitoring is unavailable: {exc}"
+            if self._lid_monitoring_required():
+                self._fatal_error(message)
+            self._warn(message + "; --ignore-lid without a timeout will await SIGINT/SIGTERM.")
+        if self.suspend_after_minutes is not None:
+            try:
+                self._require_sleep_capability("Suspend")
+            except RunningLogError:
+                raise
+            except Exception as exc:
+                self._fatal_error(f"Cannot establish the requested suspend timeout: {exc}")
+
     def check_initial_lid_state(self) -> None:
-        """
-        Queries UPower for the current 'LidIsClosed' boolean state on startup.
-        """
-        if not self.upower_proxy:
+        """Read the initial lid state and arm the timeout for an already-closed lid."""
+        if self.lid_capability_checked and not self.lid_monitoring_available:
             return
         try:
-            result = self.upower_proxy.call_sync(
-                "org.freedesktop.DBus.Properties.Get",
-                GLib.Variant("(ss)", (UPOWER_IFACE, "LidIsClosed")),
-                Gio.DBusCallFlags.NONE,
-                -1,
-                None,
-            )
-            self.current_lid_closed_state = result.unpack()[0]
-            state_str = "CLOSED" if self.current_lid_closed_state else "OPEN"
-            self._info(
-                f"Initial hardware lid state detected as: {state_str}.",
-                event="lid_initial_state",
-                details={"closed": self.current_lid_closed_state},
-            )
-            if self.current_lid_closed_state:
-                self.lid_was_closed_during_session = True
-                self._handle_lid_closed_event()
-        except RunningLogError:
-            raise
+            self.current_lid_closed_state = self._read_upower_boolean_property("LidIsClosed")
         except Exception as exc:
-            self._warn(
-                f"Could not read initial 'LidIsClosed' property from UPower ({exc}). "
-                "Will rely on D-Bus property change signals."
-            )
+            message = f"Could not read initial 'LidIsClosed' property from UPower: {exc}"
+            if self._lid_monitoring_required():
+                self._fatal_error(message)
+            self._warn(message + "; awaiting interrupt without lid monitoring.")
+            return
+        state_str = "CLOSED" if self.current_lid_closed_state else "OPEN"
+        self._info(
+            f"Initial hardware lid state detected as: {state_str}.",
+            event="lid_initial_state",
+            details={"closed": self.current_lid_closed_state},
+        )
+        if self.current_lid_closed_state:
+            self.lid_was_closed_during_session = True
+            self._handle_lid_closed_event()
 
     def setup_upower_signal_listener(self) -> None:
         """
@@ -3270,7 +3540,10 @@ class LidCloseManager:
         """
         if not self.upower_proxy:
             return
-        self.upower_proxy.connect("g-properties-changed", self._on_upower_properties_changed)
+        self.upower_proxy.connect(
+            "g-properties-changed",
+            self.guard_callback("lid monitoring", self._on_upower_properties_changed),
+        )
         self._log_only(
             "lid_listener_ready",
             "OK",
@@ -3283,29 +3556,42 @@ class LidCloseManager:
         changed_properties: GLib.Variant,
         invalidated_properties: List[str],
     ) -> None:
-        """
-        Callback triggered whenever UPower broadcasts property changes.
-        """
+        """Process changed or invalidated lid properties without truthiness guesses."""
         unpacked_changes = changed_properties.unpack()
-        if "LidIsClosed" in unpacked_changes:
-            new_state: bool = bool(unpacked_changes["LidIsClosed"])
-            if new_state != self.current_lid_closed_state:
-                self.current_lid_closed_state = new_state
-                if new_state:
-                    self._event(
-                        "Lid closure detected.",
-                        event="lid_closed",
-                        details={"closed": True},
-                    )
-                    self.lid_was_closed_during_session = True
-                    self._handle_lid_closed_event()
-                else:
-                    self._event(
-                        "Lid opening detected.",
-                        event="lid_opened",
-                        details={"closed": False},
-                    )
-                    self._handle_lid_opened_event()
+        if not isinstance(unpacked_changes, dict):
+            raise RuntimeError("UPower property change payload is not a dictionary")
+        for property_name in ("LidIsPresent", "LidIsClosed"):
+            if property_name in invalidated_properties and property_name not in unpacked_changes:
+                unpacked_changes[property_name] = self._read_upower_boolean_property(property_name)
+            if property_name in unpacked_changes and type(unpacked_changes[property_name]) is not bool:
+                raise RuntimeError(f"Invalid changed UPower {property_name} value")
+        if unpacked_changes.get("LidIsPresent") is False:
+            self.lid_monitoring_available = False
+            if self._lid_monitoring_required():
+                self._fatal_error("UPower reports that the hardware lid sensor disappeared.")
+            self._warn("Hardware lid sensor unavailable; --ignore-lid session awaits interruption.")
+            return
+        if "LidIsClosed" not in unpacked_changes:
+            return
+        new_state = unpacked_changes["LidIsClosed"]
+        if new_state == self.current_lid_closed_state:
+            return
+        self.current_lid_closed_state = new_state
+        if new_state:
+            self._event(
+                "Lid closure detected.",
+                event="lid_closed",
+                details={"closed": True},
+            )
+            self.lid_was_closed_during_session = True
+            self._handle_lid_closed_event()
+        else:
+            self._event(
+                "Lid opening detected.",
+                event="lid_opened",
+                details={"closed": False},
+            )
+            self._handle_lid_opened_event()
 
     def _handle_lid_closed_event(self) -> None:
         """
@@ -3313,6 +3599,8 @@ class LidCloseManager:
         """
         if self.suspend_after_minutes is not None and self.suspend_after_minutes > 0:
             delay_seconds = self.suspend_after_minutes * 60
+            if delay_seconds > 2 ** 32 - 1:
+                self._fatal_error("Suspend timeout exceeds the GLib timer's supported range.")
             self._info(
                 "Starting suspend countdown timer: machine will unconditionally "
                 f"suspend in {self.suspend_after_minutes} minute(s).",
@@ -3323,7 +3611,8 @@ class LidCloseManager:
             if self.suspend_timer_id is not None:
                 GLib.source_remove(self.suspend_timer_id)
             self.suspend_timer_id = GLib.timeout_add_seconds(
-                delay_seconds, self._on_suspend_timer_expired
+                delay_seconds,
+                self.guard_callback("suspend countdown", self._on_suspend_timer_expired, "suspend_timer_id"),
             )
             self._log_only(
                 "suspend_timer_started",
@@ -3369,151 +3658,129 @@ class LidCloseManager:
             if self.mainloop:
                 self.mainloop.quit()
 
-    def _on_suspend_timer_expired(self) -> bool:
-        """
-        Callback triggered when `--suspend-after-minutes` reaches zero.
-        Forces an immediate OS suspend and terminates the script loop.
-        """
-        self._event(
-            f"Suspend timer ({self.suspend_after_minutes} min) expired.",
-            event="suspend_timer_expired",
-            details={"minutes": self.suspend_after_minutes},
+    def _require_sleep_capability(self, action: str) -> None:
+        """Reject unsupported, denied, inhibited, or malformed sleep capabilities."""
+        if self.logind_proxy is None:
+            raise RuntimeError("systemd-logind is unavailable")
+        event_prefix = action.lower()
+        self._log_only(
+            f"{event_prefix}_capability_query_intent",
+            "INFO",
+            f"Checking systemd-logind Can{action} capability.",
         )
-        self.suspend_timer_id = None
-        self.shutdown_reason = f"Timeout expired after {self.suspend_after_minutes} minutes of lid closure"
-        self.goal_achieved = True
+        result = self.logind_proxy.call_sync(
+            f"Can{action}",
+            None,
+            Gio.DBusCallFlags.NONE,
+            DBUS_CALL_TIMEOUT_MILLISECONDS,
+            None,
+        )
+        capability = result.unpack()[0]
+        self._log_only(
+            f"{event_prefix}_capability_recorded",
+            "OK" if capability in ("yes", "challenge") else "WARNING",
+            f"systemd-logind reported Can{action}={capability!r}.",
+            {"capability": capability},
+        )
+        if capability not in ("yes", "challenge"):
+            raise RuntimeError(
+                f"{action} is unavailable or not permitted "
+                f"(systemd-logind Can{action}={capability!r}). "
+                "Check system sleep support, policy, and active inhibitors."
+            )
 
-        # Synchronize intent before crossing the suspend mutation boundary.
-        self._info(
-            "Sending D-Bus Suspend command to systemd-logind...",
-            event="suspend_request_intent",
-            details={"source": "lid_close_timer"},
+    def _on_suspend_timer_expired(self) -> bool:
+        """Request supported suspend, reporting success only after acceptance."""
+        self.suspend_timer_id = None
+        self.goal_achieved = False
+        self.shutdown_reason = (
+            f"Timeout expired after {self.suspend_after_minutes} minutes of lid closure"
         )
         try:
+            self._event(
+                f"Suspend timer ({self.suspend_after_minutes} min) expired.",
+                event="suspend_timer_expired",
+                details={"minutes": self.suspend_after_minutes},
+            )
+            self._require_sleep_capability("Suspend")
+            self._info(
+                "Sending D-Bus Suspend command to systemd-logind...",
+                event="suspend_request_intent",
+                details={"source": "lid_close_timer"},
+            )
+            self.check_shutdown_requested()
             self.logind_proxy.call_sync(
                 "Suspend",
                 GLib.Variant("(b)", (True,)),
                 Gio.DBusCallFlags.NONE,
-                -1,
+                POWER_ACTION_TIMEOUT_MILLISECONDS,
                 None,
             )
-        except Exception as exc:
-            self._warn(f"D-Bus Suspend command failed: {exc}")
-            self.deviations.append(f"Failed to execute unconditional suspend ({exc}).")
-        else:
             self._log_only(
                 "suspend_request_sent",
                 "OK",
                 "systemd-logind accepted the timer-triggered suspend request.",
                 {"source": "lid_close_timer"},
             )
-
-        # Exit main loop after initiating sleep
-        if self.mainloop:
-            self.mainloop.quit()
-        return False  # Returning False removes the timeout source from GLib
+            self.goal_achieved = self.exit_code == 0
+        except (RunningLogError, ShutdownRequested):
+            raise
+        except Exception as exc:
+            self.shutdown_reason = f"Timer-triggered suspend failed: {exc}"
+            self._record_operation_failure(self.shutdown_reason)
+        finally:
+            if self.mainloop:
+                self.mainloop.quit()
+        return False
 
     # --------------------------------------------------------------------------
     # IMMEDIATE ACTION MODES: suspend, hibernate, normal
     # --------------------------------------------------------------------------
 
     def execute_immediate_action(self) -> None:
-        """
-        Handles non-persistent modes ('suspend', 'hibernate', 'normal') and exits.
-        """
+        """Perform a verified profile reset or a supported one-shot sleep request."""
         if self.mode == "normal":
-            # Set profile back to balanced and ensure no locks are held
-            self._info(
-                "Applying '--normal' defaults: switching power mode to 'balanced'..."
-            )
-            self.save_and_set_power_profile("balanced")
-            self.goal_achieved = True
-            self.shutdown_reason = "Normal system defaults explicitly requested and applied"
+            self._info("Applying normal mode: selecting the balanced power profile...")
+            if self.save_and_set_power_profile("balanced"):
+                # The operator explicitly requested this durable result. A
+                # failed/uncertain Set has already gone through restoration;
+                # only a verified successful result bypasses temporary rollback.
+                self.power_profile_retained = True
+                self.power_profile_changed = False
+                self.goal_achieved = self.exit_code == 0
+                self.shutdown_reason = "Balanced power profile explicitly requested and verified"
             return
 
-        if self.mode == "suspend":
+        if self.mode not in ("suspend", "hibernate"):
+            self._fatal_error(f"Unsupported immediate action: {self.mode!r}")
+        action = "Suspend" if self.mode == "suspend" else "Hibernate"
+        try:
+            self._require_sleep_capability(action)
             self._info(
-                "Mode 'suspend' selected. Initiating immediate system suspend...",
-                event="suspend_request_intent",
+                f"Requesting immediate system {self.mode}...",
+                event=f"{self.mode}_request_intent",
                 details={"source": "immediate_mode"},
             )
-            try:
-                self.logind_proxy.call_sync(
-                    "Suspend",
-                    GLib.Variant("(b)", (True,)),
-                    Gio.DBusCallFlags.NONE,
-                    -1,
-                    None,
-                )
-                self.goal_achieved = True
-                self.shutdown_reason = "Immediate system suspend triggered"
-            except Exception as exc:
-                self._fatal_error(f"Failed to trigger system suspend via D-Bus: {exc}")
-            else:
-                self._log_only(
-                    "suspend_request_sent",
-                    "OK",
-                    "systemd-logind accepted the immediate suspend request.",
-                    {"source": "immediate_mode"},
-                )
-            return
-
-        if self.mode == "hibernate":
-            self._info(
-                "Mode 'hibernate' selected. Verifying system hibernation capability...",
-                event="hibernate_capability_query_intent",
+            self.check_shutdown_requested()
+            self.logind_proxy.call_sync(
+                action,
+                GLib.Variant("(b)", (True,)),
+                Gio.DBusCallFlags.NONE,
+                POWER_ACTION_TIMEOUT_MILLISECONDS,
+                None,
             )
-            try:
-                # Check CanHibernate before attempting, as default Fedora 44 uses zram (no swap disk)
-                res = self.logind_proxy.call_sync(
-                    "CanHibernate",
-                    None,
-                    Gio.DBusCallFlags.NONE,
-                    -1,
-                    None,
-                )
-                can_hibernate_str = res.unpack()[0]
-            except Exception as exc:
-                self._fatal_error(f"Failed to query system hibernation capabilities: {exc}")
-            self._log_only(
-                "hibernate_capability_recorded",
-                "OK",
-                f"systemd-logind reported CanHibernate={can_hibernate_str!r}.",
-                {"capability": can_hibernate_str},
-            )
-
-            if can_hibernate_str in ("no", "na"):
-                self.deviations.append("System reported hibernation is unsupported ('no'/'na').")
-                self._fatal_error(
-                    "Hibernation is not supported on this system.\n"
-                    "        Note: Fedora uses zram by default, which does not support suspend-to-disk.\n"
-                    "        A dedicated disk swap partition or swapfile must be configured."
-                )
-
-            self._info(
-                f"Hibernation capability confirmed ('{can_hibernate_str}'). "
-                "Initiating hibernate...",
-                event="hibernate_request_intent",
-            )
-            try:
-                self.logind_proxy.call_sync(
-                    "Hibernate",
-                    GLib.Variant("(b)", (True,)),
-                    Gio.DBusCallFlags.NONE,
-                    -1,
-                    None,
-                )
-                self.goal_achieved = True
-                self.shutdown_reason = "Immediate system hibernation triggered"
-            except Exception as exc:
-                self._fatal_error(f"Failed to execute hibernation command via D-Bus: {exc}")
-            else:
-                self._log_only(
-                    "hibernate_request_sent",
-                    "OK",
-                    "systemd-logind accepted the hibernate request.",
-                )
-            return
+        except (RunningLogError, ShutdownRequested):
+            raise
+        except Exception as exc:
+            self._fatal_error(f"Failed to request system {self.mode}: {exc}")
+        self._log_only(
+            f"{self.mode}_request_sent",
+            "OK",
+            f"systemd-logind accepted the immediate {self.mode} request.",
+            {"source": "immediate_mode"},
+        )
+        self.goal_achieved = self.exit_code == 0
+        self.shutdown_reason = f"Immediate system {self.mode} request accepted"
 
     # --------------------------------------------------------------------------
     # NARRATIVE REPORTING (STARTUP & SHUTDOWN)
@@ -3617,23 +3884,55 @@ class LidCloseManager:
         print()
 
     def print_shutdown_narrative(self) -> None:
-        """
-        Prints a detailed final status report explaining achievement of goals,
-        any operational deviations, and the final state of locks and power profiles.
-        """
+        """Attempt independent reports, then synchronize their final outcome."""
+        if self.exit_code != 0:
+            self.goal_achieved = False
         if self.shutdown_narrative_printed:
             return
-        # The final record must describe post-teardown state and be synchronized
-        # before the human narrative claims that the handled lifecycle ended.
-        self.finish_running_log()
         self.shutdown_narrative_printed = True
 
+        def render_narrative() -> str:
+            try:
+                with contextlib.redirect_stdout(io.StringIO()) as buffer:
+                    self._render_shutdown_fields()
+                return buffer.getvalue()
+            except Exception as exc:
+                self._record_failure(
+                    f"Could not render shutdown narrative: {type(exc).__name__}: {exc}",
+                    "terminal_render_failed",
+                )
+                return (
+                    "\nBURNBAG — SHUTDOWN & TEARDOWN\n"
+                    f"TERMINATED / INCOMPLETE: {self.shutdown_reason}\n"
+                    + "\n".join(self.deviations) + "\n"
+                )
+
+        try:
+            narrative = render_narrative()
+            if not self._write_output(narrative, sys.stdout):
+                # Re-render after a failed write so the surviving channel
+                # reports that failure instead of repeating a success claim.
+                self._write_output(render_narrative(), sys.stderr)
+        finally:
+            try:
+                self.print_battery_plot()
+            except BaseException as exc:
+                self._record_failure(
+                    f"Battery presentation failed: {type(exc).__name__}: {exc}",
+                    "terminal_render_failed",
+                )
+            finally:
+                self.finish_running_log()
+
+    def _render_shutdown_fields(self) -> None:
+        """Build the narrative separately from delivery and graph rendering."""
         print()
         self._narrative_rule()
         self._narrative_title("BURNBAG — SHUTDOWN & TEARDOWN")
         self._narrative_rule()
-        status_str = "ACHIEVED SUCCESSFULLY" if self.goal_achieved else "TERMINATED / INCOMPLETE"
-        status_color = TerminalStyle.GREEN if self.goal_achieved else TerminalStyle.RED
+        success = self.goal_achieved and self.exit_code == 0
+        status_str = "ACHIEVED SUCCESSFULLY" if success else "TERMINATED / INCOMPLETE"
+        status_color = TerminalStyle.GREEN if success else TerminalStyle.RED
         self._narrative_field("Primary Mission Status", status_str, status_color)
         self._narrative_field("Final Reason for Exit", self.shutdown_reason)
 
@@ -3653,10 +3952,12 @@ class LidCloseManager:
                 print(f"        {idx}. {dev}")
 
         self._narrative_field("Final System State", "")
+        inhibitors_failed = bool(self.inhibitor_fds) or getattr(self, "inhibitor_release_failed", False)
         self._narrative_subfield(
             "D-Bus Inhibitors",
-            "All inhibitor locks released (OS safety defaults restored)",
-            TerminalStyle.GREEN,
+            "RELEASE FAILED; consult recorded errors" if inhibitors_failed
+            else "All owned inhibitor descriptors released",
+            TerminalStyle.RED if inhibitors_failed else TerminalStyle.GREEN,
         )
 
         if self.do_not_touch_backlight:
@@ -3680,16 +3981,25 @@ class LidCloseManager:
             "Screen Backlight", backlight_status, backlight_color
         )
 
-        # Explain active power profile status
-        final_prof = self.original_power_profile if self.original_power_profile else "Unknown"
-        if self.mode == "normal":
-            final_prof = "balanced"
+        profile_color = TerminalStyle.GREEN
+        if getattr(self, "power_profile_retained", False):
+            profile_status = f"Retained verified '{self.active_power_profile}'"
+        elif getattr(self, "power_profile_restore_verified", False):
+            profile_status = f"Restored and verified '{self.active_power_profile}'"
+        elif getattr(self, "power_profile_restore_attempted", False) or getattr(self, "power_profile_changed", False):
+            profile_status = f"RESTORATION NOT VERIFIED; last observed '{self.active_power_profile}'"
+            profile_color = TerminalStyle.RED
+        elif self.active_power_profile is not None:
+            profile_status = f"Unchanged; last observed '{self.active_power_profile}'"
+        else:
+            profile_status = "Unavailable; no profile change verified"
+            profile_color = TerminalStyle.YELLOW
         self._narrative_subfield(
-            "Power Profile", f"Restored to '{final_prof}'", TerminalStyle.GREEN
+            "Power Profile", profile_status, profile_color
         )
         if self.running_log is not None:
             if self.running_log.failed_reason is None:
-                running_log_status = f"Session synchronized to {self.running_log.path}"
+                running_log_status = f"Finalizing after this report: {self.running_log.path}"
                 running_log_color = TerminalStyle.GREEN
             else:
                 running_log_status = (
@@ -3714,7 +4024,6 @@ class LidCloseManager:
         else:
             self._narrative_subfield("Batteries", "No valid observations")
         self._narrative_rule()
-        self.print_battery_plot()
 
     # --------------------------------------------------------------------------
     # ERROR & WARNING LOGGING
@@ -3728,11 +4037,11 @@ class LidCloseManager:
         except RunningLogError:
             # Preserve the originating diagnostic even when its durable copy
             # failed; the running-log failure was already reported directly.
-            self.terminal_style.write_status(
+            self._console_status(
                 "WARNING", message, sys.stderr, timestamp=timestamp
             )
             raise
-        self.terminal_style.write_status(
+        self._console_status(
             "WARNING", message, sys.stderr, timestamp=timestamp
         )
 
@@ -3750,15 +4059,8 @@ class LidCloseManager:
         try:
             self._append_running_log("fatal_error", "FATAL", message)
         except RunningLogError:
-            self.terminal_style.write_status(
-                "FATAL ERROR",
-                message,
-                sys.stderr,
-                timestamp=timestamp,
-                leading_newline=True,
-            )
-            raise
-        self.terminal_style.write_status(
+            pass
+        self._console_status(
             "FATAL ERROR",
             message,
             sys.stderr,
@@ -3912,13 +4214,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(arguments)
 
     # Validate logical constraints on CLI options
-    if args.suspend_after_minutes is not None and args.suspend_after_minutes <= 0:
-        terminal_style.write_status(
-            "ERROR",
-            "--suspend-after-minutes must be a positive integer.",
-            sys.stderr,
+    if args.suspend_after_minutes is not None and not (
+        1 <= args.suspend_after_minutes <= 0xFFFFFFFF // 60
+    ):
+        parser.error(
+            "--suspend-after-minutes must be a positive integer no greater "
+            f"than {0xFFFFFFFF // 60} (the timer backend limit)."
         )
-        return 1
 
     running_log: Optional[RunningLog] = None
     try:
@@ -3995,7 +4297,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         # Protect every operational mode and setup step. Handlers only request
         # shutdown; safe checkpoints preserve resource ownership bookkeeping.
-        for signum in (signal.SIGINT, signal.SIGTERM):
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             previous_signal_handlers[signum] = signal.getsignal(signum)
             signal.signal(signum, sig_handler)
 
@@ -4030,6 +4332,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             # PERSISTENT 'RUN*' MODE LIFECYCLE
             # --------------------------------------------------------------
             try:
+                # Verify required lid telemetry and timed sleep capability
+                # before changing any persistent host state.
+                manager.validate_lid_monitoring()
+                manager.check_shutdown_requested()
+
                 # 1. Snapshot screen-backlight state and bind the caller's
                 # logind session. The opt-out returns before discovery.
                 manager.prepare_backlight_control()
@@ -4129,12 +4436,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             try:
                 try:
                     manager.record_signal_shutdown()
-                except (RunningLogError, OSError, ValueError):
-                    manager.exit_code = 1
-                    manager.goal_achieved = False
-                manager.teardown()
-                manager.print_shutdown_narrative()
-                result_code = manager.exit_code
+                except BaseException as exc:
+                    manager._record_failure(f"Could not record termination signal: {exc}")
+                try:
+                    manager.teardown()
+                except BaseException as exc:
+                    manager._record_failure(f"Teardown could not finish: {exc}")
+                try:
+                    manager.print_shutdown_narrative()
+                except BaseException as exc:
+                    manager._record_failure(f"Shutdown reporting could not finish: {exc}")
+                    manager._console_status("ERROR", manager.shutdown_reason, sys.stderr)
+                finally:
+                    manager.finish_running_log()
+                    result_code = manager.exit_code
             finally:
                 for signum, previous_handler in previous_signal_handlers.items():
                     signal.signal(signum, previous_handler)

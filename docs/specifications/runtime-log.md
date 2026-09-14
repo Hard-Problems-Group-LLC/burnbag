@@ -101,8 +101,11 @@ host mutation. Its details contain selected mode and explicit option values,
 not raw arguments or the environment.
 
 `session_end` must be the final handled record and is written after handled
-teardown. It contains exit code, goal status, shutdown reason, deviations, and
-final observations for inhibitors, backlights, and power profile. An absent
+teardown and independent terminal reporting attempts. It contains exit code,
+goal status, shutdown reason, deviations, and final observations for inhibitors,
+backlights, power-profile verification, and output failures. The terminal
+narrative describes the log as finalizing; it cannot promise synchronization
+before the final record succeeds. An absent
 `session_end` is retained as evidence of an unhandled termination; a later
 process must not fabricate one for the interrupted process.
 

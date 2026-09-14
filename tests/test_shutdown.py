@@ -26,7 +26,7 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
     burnbag.load_pygobject(burnbag.TerminalStyle(False, False))
     glib, gio = burnbag.GLib, burnbag.Gio
     burnbag.BATTERY_SYSFS_ROOT = root / "power_supply"
-    original_handlers = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    original_handlers = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     descriptors = []
 
     def ready(stage: str) -> None:
@@ -48,7 +48,12 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
         def call_sync(self, method, arguments, *unused):
             if method in {"Get", "org.freedesktop.DBus.Properties.Get"}:
                 interface, name = arguments.unpack()
-                value = False if name == "LidIsClosed" else self.active_profile
+                if name == "Profiles":
+                    return glib.Variant("(v)", (glib.Variant("aa{sv}", [
+                        {"Profile": glib.Variant("s", profile)}
+                        for profile in ("balanced", "power-saver", "performance")
+                    ]),))
+                value = ({"LidIsClosed": False, "LidIsPresent": True}.get(name, self.active_profile))
                 return glib.Variant("(v)", (glib.Variant("b" if isinstance(value, bool) else "s", value),))
             if method == "Set":
                 self.active_profile = arguments.unpack()[2]
@@ -58,12 +63,19 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
                 return None
             if method == "Suspend":
                 return None
+            if method in {"CanSuspend", "CanHibernate"}:
+                return glib.Variant("(s)", ("yes",))
             raise AssertionError(f"Unexpected external call: {method}")
 
         def call_with_unix_fd_list_sync(self, *unused):
             return glib.Variant("(h)", (0,)), FDList()
 
         def connect(self, name, callback):
+            if scenario == "callback_failure":
+                def invalid_signal():
+                    callback(self, None, [])
+                    return False
+                glib.idle_add(invalid_signal)
             if scenario == "lid":
                 def lid_cycle():
                     for closed in (True, False):
@@ -87,7 +99,7 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
         ready("loop")
         return False
 
-    if scenario in {"loop", "repeated", "no_plot"}:
+    if scenario in {"loop", "repeated", "no_plot", "broken_output"}:
         glib.idle_add(loop_ready)
 
     # Observe the narrow race between the final setup checkpoint and loop entry
@@ -168,9 +180,12 @@ class ShutdownSubprocessTests(unittest.TestCase):
             )
             os.close(writer)
             try:
-                if scenario in {"loop", "repeated", "no_plot", "setup", "setup_one_shot"}:
+                if scenario in {"loop", "repeated", "no_plot", "setup", "setup_one_shot", "broken_output"}:
                     setup = scenario.startswith("setup")
                     self.wait_ready(reader, "setup" if setup else "loop")
+                    if scenario == "broken_output":
+                        child.stdout.close()
+                        child.stdout = None
                     child.send_signal(signum)
                     if setup:
                         child.stdin.write("continue\n")
@@ -182,6 +197,8 @@ class ShutdownSubprocessTests(unittest.TestCase):
                         child.stdin.write("continue\n")
                         child.stdin.flush()
                 output, errors = child.communicate(timeout=8)
+                if scenario == "broken_output":
+                    output = errors
             finally:
                 os.close(reader)
                 if child.poll() is None:
@@ -200,11 +217,11 @@ class ShutdownSubprocessTests(unittest.TestCase):
         self.assertEqual(final["final_state"]["inhibitor_count"], 0)
         self.assertEqual(final["final_state"]["battery_sample_count"], 2)
         self.assertEqual(child.returncode, final["exit_code"])
-        self.assertEqual(child.returncode, 1 if scenario == "failure" else 0, errors)
+        self.assertEqual(child.returncode, 1 if scenario in {"failure", "callback_failure", "broken_output"} else 0, errors)
         if scenario in {"setup", "setup_one_shot"}:
             self.assertNotIn("inhibitor_acquired", [row["event"] for row in records])
             self.assertNotIn("suspend_request_intent", [row["event"] for row in records])
-        if scenario not in {"failure", "lid"}:
+        if scenario not in {"failure", "lid", "callback_failure", "broken_output"}:
             self.assertEqual(sum(row["event"] == "signal_received" for row in records), 1)
             self.assertIn("User termination signal", final["shutdown_reason"])
 
@@ -213,6 +230,15 @@ class ShutdownSubprocessTests(unittest.TestCase):
 
     def test_sigterm_reports_chart_and_summary(self):
         self.run_scenario("loop", signal.SIGTERM)
+
+    def test_terminal_hangup_reports_chart_and_summary(self):
+        self.run_scenario("loop", signal.SIGHUP)
+
+    def test_callback_exception_exits_glib_with_nonzero_and_final_report(self):
+        self.run_scenario("callback_failure")
+
+    def test_broken_output_pipe_uses_stderr_and_closes_log(self):
+        self.run_scenario("broken_output")
 
     def test_sigterm_during_setup_finalizes_before_next_mutation(self):
         self.run_scenario("setup", signal.SIGTERM)

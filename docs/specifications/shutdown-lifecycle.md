@@ -6,15 +6,18 @@
 An operational session begins when the controller starts battery monitoring,
 before any power, backlight, or inhibitor mutation. Every handled exit from
 that point follows the common cleanup and reporting path: final observation
-and statistics, persistent-state restoration, inhibitor release, synchronized
-session-end record, and the terminal shutdown narrative, chart, and statistics.
+and statistics, persistent-state restoration, inhibitor release,
+terminal shutdown narrative, chart, and statistics, then a synchronized
+session-end record that includes observed presentation failures.
 Failures can make individual recovery steps unsuccessful; the report must
 describe the available evidence rather than fabricate successful recovery.
 
-SIGINT (including Ctrl-C) and SIGTERM apply during setup and to every operating
-mode. Signal handlers remember the first request without logging or raising
+SIGINT (including Ctrl-C), SIGTERM, and SIGHUP apply during setup and to every
+operating mode. Signal handlers remember the first request without logging or raising
 inside mutation bookkeeping. Setup stops at the next safe boundary before
-beginning another operation. A signal received immediately before event-loop
+beginning another operation. Internal checkpoints also run after capability
+and profile reads and immediately before each new host mutation; recovery
+operations remain available after cancellation. A signal received immediately before event-loop
 entry remains pending and stops the loop. Repeated signals cannot interrupt
 the cleanup phase. Existing process signal handlers are restored on return.
 Synchronous external operations already in progress finish or time out before
@@ -24,16 +27,26 @@ their safe boundary is reached.
 shutdown narrative, chart, final battery observation, or statistics. Explicit
 `--no-plot` suppresses the chart while preserving the statistics. No valid
 battery observations means there is no chart to draw; unavailable output
-channels likewise cannot display one. Neither condition licenses invented
-readings. The battery-monitoring specification defines telemetry availability.
+channels likewise cannot display one. If stdout fails, the program tries stderr
+and records a nonzero outcome even when fallback reporting succeeds. Narrative,
+chart, and statistics rendering have independent failure boundaries; an error
+in one does not skip the others or running-log closure. Neither condition
+licenses invented readings. The battery-monitoring specification defines
+telemetry availability.
 
 Help, rejected command lines, and failures before controller initialization
 are not meaningful operational starts. SIGKILL, power loss, and equivalent
 unhandled termination cannot execute cleanup or display a final report.
 Previously synchronized running-log records remain the evidence in those cases.
 
-Validation uses real subprocess SIGINT/SIGTERM delivery, native PyGObject/GLib,
-real battery fixtures and running-log files, and substituted system D-Bus
+GLib callback exceptions select a nonzero outcome and end the loop through
+handled cleanup. Failure in an individual observer, timer cancellation, or
+recovery step does not skip the remaining steps. Success requires both the
+primary goal and an overall zero exit status; an earlier telemetry or output
+failure cannot be overwritten by a later lid-cycle completion.
+
+Validation uses real subprocess SIGINT/SIGTERM/SIGHUP delivery, native
+PyGObject/GLib, real battery fixtures and running-log files, and substituted system D-Bus
 boundaries. It covers persistent and one-shot setup, repeated signals during
 restoration, the event-loop entry race, lid termination, setup failure, and
 `--no-plot`. It does not exercise physical lid or backlight behavior.

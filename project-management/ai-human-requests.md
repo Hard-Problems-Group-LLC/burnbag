@@ -15,6 +15,9 @@ Record each request with concise context, owner or requestor details, and ISO
     close/open cycle, repeated `--ignore-lid` cycles, and Ctrl-C with a visible
     battery graph and summary. Exact checkout commands will be supplied after
     final automated verification; no untested live suspend is requested yet.
+  - 2026-09-14: operator will run `./install.sh --mode dev` after the
+    readiness notice, selecting checkout command resolution at its prompt.
+    No agent installation into `/usr/local` is requested.
   - 2026-09-14: operator supplied installed-baseline evidence of successful
     physical lid events, delayed backlight off, verified backlight restoration,
     and inhibitor release. This closes P1.4. It does not validate the revised

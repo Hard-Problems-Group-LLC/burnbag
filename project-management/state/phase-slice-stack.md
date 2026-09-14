@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: active
 
-Notes: Operator baseline confirms Ubuntu lid and backlight; P1 closed. Revised ARM graph/profile checks remain; hardening active.
+Notes: P4 verified with 138 native tests plus Python compatibility suites. Documentation delivery active; operator owns dev installation.
 
 ## Phases
 
@@ -18,8 +18,8 @@ Notes: Operator baseline confirms Ubuntu lid and backlight; P1 closed. Revised A
 | P1 | done | Ubuntu support |
 | P2 | blocked | ARM platform support |
 | P3 | blocked | Shutdown graph and summary |
-| P4 | active | Error and exception hardening |
-| P5 | pending | Documentation and installation |
+| P4 | done | Error and exception hardening |
+| P5 | active | Documentation and installation |
 | V | pending | Manual validation and final closure |
 
 ## Slices
@@ -39,10 +39,10 @@ Notes: Operator baseline confirms Ubuntu lid and backlight; P1 closed. Revised A
 | P3.3 | P3 | done | Test signals through actual GLib |
 | P3.4 | P3 | blocked | Confirm visible shutdown output |
 | P4.1 | P4 | done | Audit runtime and installer errors |
-| P4.2 | P4 | active | Harden runtime recovery |
-| P4.3 | P4 | pending | Harden installer failures |
-| P4.4 | P4 | pending | Verify injected failures and suite |
-| P5.1 | P5 | pending | Synchronize behavior contracts |
+| P4.2 | P4 | done | Harden runtime recovery |
+| P4.3 | P4 | done | Harden installer failures |
+| P4.4 | P4 | done | Verify injected failures and suite |
+| P5.1 | P5 | active | Synchronize behavior contracts |
 | P5.2 | P5 | pending | Regenerate README and manual |
 | P5.3 | P5 | pending | Validate and install delivery |
 | P5.4 | P5 | pending | Publish evidence and handoff |

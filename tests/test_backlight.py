@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import signal
 from pathlib import Path
 import shutil
 import tempfile
@@ -464,6 +465,34 @@ class BacklightTests(unittest.TestCase):
         self.assertEqual(manager.exit_code, 1)
         self.assertTrue(manager.backlight_restore_verified)
         self.assertTrue(any("power-down failed" in item for item in manager.deviations))
+
+    def test_stop_between_backlights_restores_first_without_mutating_second(self) -> None:
+        self.add_device("panel0", brightness=42)
+        self.add_device("panel1", brightness=55)
+        for stop_kind in ("signal", "failure"):
+            with self.subTest(stop_kind=stop_kind):
+                manager, proxy = self.make_manager()
+                manager.mainloop = None
+                manager.backlight_devices = manager._discover_backlight_devices()
+                original_set = manager._set_backlight_brightness
+
+                def stop_after_first(device, brightness):
+                    original_set(device, brightness)
+                    if device.name == "panel0" and brightness == 0:
+                        if stop_kind == "signal":
+                            manager.request_signal_shutdown(signal.SIGINT)
+                        else:
+                            manager._record_failure("Diagnostic channel failed")
+
+                with mock.patch.object(manager, "_set_backlight_brightness", side_effect=stop_after_first), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaises(burnbag.ShutdownRequested):
+                        manager._on_backlight_power_down()
+                    manager.teardown()
+                self.assertEqual(proxy.calls, [("panel0", 0), ("panel0", 42)])
+                self.assertTrue(manager.backlight_restore_verified)
+                self.assertFalse(any(device.changed for device in manager.backlight_devices))
+                self.assertEqual(manager.exit_code, 0 if stop_kind == "signal" else 1)
 
     def test_failed_off_verification_restores_device_and_exits_nonzero(self) -> None:
         device_path = self.add_device("panel0", brightness=42)

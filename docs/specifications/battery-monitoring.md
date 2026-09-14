@@ -210,8 +210,10 @@ Battery reads and calculations are strictly observational and must not delay or 
 restoration, inhibitor release, or power-profile restoration. Timer
 cancellation and final sampling occur inside handled teardown, but any
 battery-monitor failure is caught before persistent-state recovery begins.
-Plot or summary-rendering errors affect only terminal presentation and cannot interrupt
-or reverse completed teardown.
+Chart and statistics rendering are attempted independently. A rendering or
+output error selects nonzero status and is included in the final running-log
+outcome, but cannot interrupt or reverse completed teardown. If stdout fails,
+reporting tries stderr when available.
 
 `SIGKILL`, sudden power loss, and equivalent unhandled termination cannot
 render a plot or take a final sample. Previously synchronized periodic sample

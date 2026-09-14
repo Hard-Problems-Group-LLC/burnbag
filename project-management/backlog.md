@@ -8,6 +8,5 @@ specifications, and ISO 8601 timestamps.
 
 ## Current Queue
 
-- `BB-2026-09-14-P5` — Documentation and installer consistency. Created
-  2026-09-14; requestor: operator; owner: Codex.
-  [Scope and acceptance](../ROADMAP.md#p5--documentation-and-installation-consistency).
+No unstarted phases; remaining physical checks are tracked in
+[the human-request queue](ai-human-requests.md).

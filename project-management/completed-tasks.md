@@ -1,5 +1,34 @@
 # Completed Tasks
 
+- `BB-2026-09-14-P4` — Runtime and installer hardening. Started and completed
+  2026-09-14. Owner: Codex; requestor: operator.
+  Original request/acceptance: [roadmap P4](../ROADMAP.md#p4--error-and-exception-hardening).
+  - Runtime: capability checks before lid-dependent or sleep operations;
+    advertised power profiles and actual snapshots; readback-verified changes
+    and restoration; uncertain Set replies retain recovery obligations.
+    `normal` retains only a verified balanced result. Explicit method deadlines
+    are 10 seconds, or 30 seconds for interactive sleep requests.
+  - Recovery: each cleanup step and owned inhibitor close is attempted despite
+    earlier failures. GLib callback exceptions end the loop. SIGINT/SIGTERM/
+    SIGHUP and recorded failures prevent subsequent mutations even when they
+    arrive during a capability query. Reporting isolates narrative, chart, and
+    statistics, falls back to stderr, and finalizes the running log afterward.
+    Earlier failures cannot be overwritten by a successful lid cycle.
+  - Installer: validates options/targets before prerequisites, contains staged
+    paths, makes staging check-only for packages, preserves declined/EOF/default
+    launcher selection, detects isolated assistant homes, and diagnoses partial
+    installation while cleaning unpublished launcher files.
+  - Validation: 138 tests passed on native Ubuntu/aarch64 Python 3.13.7 with
+    PyGObject/GLib. Python 3.9.21 and 3.14.6 each ran 126 compatibility cases
+    successfully with one native-GLib module skip (those interpreters lack GI).
+    Seventeen installer regressions, shell syntax, ShellCheck, prerequisite and
+    installer readiness checks, and whitespace checks passed. Read-only live
+    capability checks confirmed lid telemetry, power-saver/balanced profiles,
+    and clean rejection of unsupported hibernation.
+  - Remaining platform observations are already owned by P2/P3 and the human
+    requests. No live suspend, hibernate, profile, or backlight mutation was
+    used as automated validation. ACP without review is operator-authorized.
+
 - `BB-2026-09-14-P1` — Ubuntu support. Started, deferred, and completed
   2026-09-14. Owner: Codex; requestor and validation authority: operator.
   Original request/acceptance: [roadmap P1](../ROADMAP.md#p1--ubuntu-support).

@@ -307,10 +307,15 @@ class RunningLogTests(unittest.TestCase):
                 return self.value
 
         class FakePowerProxy:
-            def call_sync(self, method: str, *_arguments: object) -> FakeResult | None:
+            active_profile = "balanced"
+
+            def call_sync(self, method: str, parameters: FakeVariant, *_arguments: object) -> FakeResult | None:
                 if method == "Get":
-                    return FakeResult(("balanced",))
+                    if parameters.values[1] == "Profiles":
+                        return FakeResult(([{"Profile": "balanced"}, {"Profile": "power-saver"}],))
+                    return FakeResult((self.active_profile,))
                 boundaries.append(("power", latest_event()))
+                self.active_profile = parameters.values[2].values
                 return None
 
         inhibitor_read_fd, inhibitor_write_fd = os.pipe()

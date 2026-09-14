@@ -1,6 +1,28 @@
 #!/usr/bin/bash
 
-set -euo pipefail
+set -Eeuo pipefail
+
+BURNBAG_INSTALL_ACTION="validating installation options"
+BURNBAG_TEMP_LAUNCHER=""
+
+cleanup_temporary_launcher() {
+    if [[ -n "${BURNBAG_TEMP_LAUNCHER}" ]]; then
+        if ! rm -f -- "${BURNBAG_TEMP_LAUNCHER}"; then
+            printf '[WARNING] Could not remove temporary launcher: %s\n' \
+                "${BURNBAG_TEMP_LAUNCHER}" >&2
+        fi
+    fi
+}
+
+report_install_failure() {
+    local burnbag_status="$1"
+    printf '[ERROR] Installer failed while %s (exit %s). Earlier steps may have completed; resolve the error above and rerun.\n' \
+        "${BURNBAG_INSTALL_ACTION}" "${burnbag_status}" >&2
+    exit "${burnbag_status}"
+}
+
+trap cleanup_temporary_launcher EXIT
+trap 'report_install_failure "$?"' ERR
 
 BURNBAG_PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly BURNBAG_PROJECT_ROOT
@@ -16,7 +38,7 @@ Install burnbag and its manual page. The default prefix is /usr/local.
 
 Options:
   --check                 Verify sources and prerequisites without installing.
-  --destdir DIR           Stage files beneath absolute DIR without sudo or mandb.
+  --destdir DIR           Stage beneath absolute non-root DIR without sudo or mandb.
   --dev-command MODE      In dev mode, select prompt, local, or system command
                           resolution (default: prompt).
   --force                 Allow replacement of an unmanaged user launcher.
@@ -28,7 +50,10 @@ Options:
 
 For non-interactive dev setup, BURNBAG_DEV_LAUNCHER_MODE may select local or
 system explicitly. Without an explicit selection, command resolution is left
-unchanged.
+unchanged. Declining the interactive prompt or reaching EOF also preserves it.
+Paths must not contain parent-directory (..) components. Staging refuses
+symlinks that lead outside DIR; file targets must not be directories or symlinks.
+Staging checks prerequisites without installing host packages.
 EOF
 }
 
@@ -41,6 +66,34 @@ require_absolute_path() {
             "${burnbag_option_name}" "${burnbag_path}" >&2
         return 2
     fi
+    case "/${burnbag_path#/}/" in
+        */../*)
+            printf '[ERROR] %s must not contain parent-directory (..) components: %s\n' \
+                "${burnbag_option_name}" "${burnbag_path}" >&2
+            return 2
+            ;;
+    esac
+}
+
+validate_standard_targets() {
+    local burnbag_target
+    local burnbag_resolved_target
+
+    for burnbag_target in "${BURNBAG_BIN_DIR}/burnbag" "${BURNBAG_MAN_DIR}/burnbag.1"; do
+        if [[ -d "${burnbag_target}" || -L "${burnbag_target}" ]]; then
+            printf '[ERROR] Installation target must not be a directory or symlink: %s\n' \
+                "${burnbag_target}" >&2
+            return 2
+        fi
+        if [[ -n "${BURNBAG_DESTDIR}" ]]; then
+            burnbag_resolved_target="$(realpath -m -- "${burnbag_target}")"
+            if [[ "${burnbag_resolved_target}" != "${BURNBAG_DESTDIR}/"* ]]; then
+                printf '[ERROR] Installation target escapes --destdir through a symlink: %s\n' \
+                    "${burnbag_target}" >&2
+                return 2
+            fi
+        fi
+    done
 }
 
 run_privileged() {
@@ -84,14 +137,6 @@ select_user_home() {
         burnbag_selected_home="${BURNBAG_USER_HOME}"
     else
         burnbag_selected_home="${HOME:-}"
-        case "${burnbag_selected_home##*/}" in
-            .claude-home|.codex-home)
-                printf '[ERROR] HOME is an isolated assistant environment: %s\n' \
-                    "${burnbag_selected_home}" >&2
-                printf '[HINT] Rerun with --user-home /absolute/operator/home.\n' >&2
-                return 1
-                ;;
-        esac
     fi
 
     if [[ -z "${burnbag_selected_home}" ]]; then
@@ -106,6 +151,17 @@ select_user_home() {
     fi
 
     BURNBAG_EFFECTIVE_USER_HOME="$(cd -- "${burnbag_selected_home}" && pwd -P)"
+    if [[ -z "${BURNBAG_USER_HOME}" ]]; then
+        case "${BURNBAG_EFFECTIVE_USER_HOME}" in
+            */.claude-home|*/.codex-home|*/claude-home|*/codex-home|\
+            "${BURNBAG_PROJECT_ROOT}/.local"|"${BURNBAG_PROJECT_ROOT}/.local/"*)
+                printf '[ERROR] HOME is an isolated assistant environment: %s\n' \
+                    "${burnbag_selected_home}" >&2
+                printf '[HINT] Rerun with --user-home /absolute/operator/home.\n' >&2
+                return 1
+                ;;
+        esac
+    fi
     BURNBAG_USER_BIN_DIR="${BURNBAG_EFFECTIVE_USER_HOME}/.local/bin"
     BURNBAG_USER_LAUNCHER="${BURNBAG_USER_BIN_DIR}/burnbag"
 }
@@ -187,7 +243,7 @@ resolve_dev_command_mode() {
         printf '[INFO] Non-interactive dev install: leaving burnbag command resolution unchanged.\n'
         printf '[HINT] Use --dev-command local or set %s=local to select the checkout.\n' \
             "${BURNBAG_DEV_LAUNCHER_MODE_ENV}"
-        BURNBAG_RESOLVED_DEV_COMMAND="system"
+        BURNBAG_RESOLVED_DEV_COMMAND="unchanged"
         return 0
     fi
 
@@ -195,19 +251,22 @@ resolve_dev_command_mode() {
     if [[ -z "${burnbag_alternate}" ]]; then
         burnbag_prompt="Install a managed user launcher so 'burnbag' uses this checkout? [y/N]: "
     fi
-    read -r -p "${burnbag_prompt}" burnbag_response
+    if ! read -r -p "${burnbag_prompt}" burnbag_response; then
+        printf '\n[INFO] No response received; leaving burnbag command resolution unchanged.\n'
+        BURNBAG_RESOLVED_DEV_COMMAND="unchanged"
+        return 0
+    fi
     case "${burnbag_response}" in
         y|Y|yes|YES|Yes)
             BURNBAG_RESOLVED_DEV_COMMAND="local"
             ;;
         *)
-            BURNBAG_RESOLVED_DEV_COMMAND="system"
+            BURNBAG_RESOLVED_DEV_COMMAND="unchanged"
             ;;
     esac
 }
 
 write_managed_dev_launcher() {
-    local burnbag_temp_launcher
     local burnbag_resolved_command
 
     case ":${PATH:-}:" in
@@ -227,6 +286,11 @@ write_managed_dev_launcher() {
         return 1
     fi
 
+    if [[ -d "${BURNBAG_USER_LAUNCHER}" ]]; then
+        printf '[ERROR] Refusing to replace a launcher directory, including with --force: %s\n' \
+            "${BURNBAG_USER_LAUNCHER}" >&2
+        return 1
+    fi
     if [[ -e "${BURNBAG_USER_LAUNCHER}" || -L "${BURNBAG_USER_LAUNCHER}" ]]; then
         if ! is_managed_dev_launcher "${BURNBAG_USER_LAUNCHER}"; then
             if [[ "${BURNBAG_FORCE}" != true ]]; then
@@ -240,8 +304,9 @@ write_managed_dev_launcher() {
         fi
     fi
 
+    BURNBAG_INSTALL_ACTION="writing the managed user launcher"
     install -d -m 0755 "${BURNBAG_USER_BIN_DIR}"
-    burnbag_temp_launcher="$(mktemp "${BURNBAG_USER_BIN_DIR}/.burnbag-launcher.XXXXXXXX")"
+    BURNBAG_TEMP_LAUNCHER="$(mktemp "${BURNBAG_USER_BIN_DIR}/.burnbag-launcher.XXXXXXXX")"
     {
         printf '#!/usr/bin/bash\n'
         printf '%s\n' "${BURNBAG_DEV_LAUNCHER_MARKER}"
@@ -251,9 +316,10 @@ write_managed_dev_launcher() {
         printf '%s\n' '    exit 1'
         printf '%s\n' 'fi'
         printf '%s\n' "exec \"\${BURNBAG_TARGET}\" \"\$@\""
-    } >"${burnbag_temp_launcher}"
-    chmod 0755 "${burnbag_temp_launcher}"
-    mv -f -- "${burnbag_temp_launcher}" "${BURNBAG_USER_LAUNCHER}"
+    } >"${BURNBAG_TEMP_LAUNCHER}"
+    chmod 0755 "${BURNBAG_TEMP_LAUNCHER}"
+    mv -fT -- "${BURNBAG_TEMP_LAUNCHER}" "${BURNBAG_USER_LAUNCHER}"
+    BURNBAG_TEMP_LAUNCHER=""
 
     hash -r
     burnbag_resolved_command="$(command -v burnbag || true)"
@@ -296,11 +362,11 @@ install_dev_mode() {
     local burnbag_dev_bin_dir="${BURNBAG_PROJECT_ROOT}/.local/bin"
     local burnbag_dev_man_dir="${BURNBAG_PROJECT_ROOT}/.local/share/man/man1"
 
-    select_user_home
     printf '[INFO] Development launcher user home: %s\n' \
         "${BURNBAG_EFFECTIVE_USER_HOME}"
     resolve_dev_command_mode
 
+    BURNBAG_INSTALL_ACTION="creating repository-local development links"
     install -d -m 0755 "${burnbag_dev_bin_dir}" "${burnbag_dev_man_dir}"
     ensure_dev_link \
         "${BURNBAG_PROJECT_ROOT}/burnbag.py" "${burnbag_dev_bin_dir}/burnbag"
@@ -314,14 +380,18 @@ install_dev_mode() {
 
     if [[ "${BURNBAG_RESOLVED_DEV_COMMAND}" == "local" ]]; then
         write_managed_dev_launcher
-    else
+    elif [[ "${BURNBAG_RESOLVED_DEV_COMMAND}" == "system" ]]; then
+        BURNBAG_INSTALL_ACTION="restoring system command resolution"
         keep_system_command_resolution
+    else
+        printf '[INFO] Existing user launcher and command resolution were left unchanged.\n'
     fi
 }
 
 main() {
     BURNBAG_CHECK_ONLY=false
     BURNBAG_DESTDIR=""
+    BURNBAG_DESTDIR_WAS_SET=false
     BURNBAG_DEV_COMMAND="${BURNBAG_DEV_LAUNCHER_MODE:-prompt}"
     BURNBAG_DEV_COMMAND_WAS_SET=false
     BURNBAG_EFFECTIVE_USER_HOME=""
@@ -348,6 +418,7 @@ main() {
                     return 2
                 fi
                 BURNBAG_DESTDIR="$2"
+                BURNBAG_DESTDIR_WAS_SET=true
                 shift 2
                 ;;
             --dev-command)
@@ -425,11 +496,19 @@ main() {
     esac
 
     if [[ "${BURNBAG_MODE}" == "dev" ]]; then
+        case "${BURNBAG_DEV_COMMAND}" in
+            prompt|local|system) ;;
+            *)
+                printf '[ERROR] Dev command mode must be prompt, local, or system: %s\n' \
+                    "${BURNBAG_DEV_COMMAND}" >&2
+                return 2
+                ;;
+        esac
         if [[ ${EUID} -eq 0 ]]; then
             printf '[ERROR] --mode dev must run as the intended non-root user.\n' >&2
             return 2
         fi
-        if [[ -n "${BURNBAG_DESTDIR}" ]]; then
+        if [[ "${BURNBAG_DESTDIR_WAS_SET}" == true ]]; then
             printf '[ERROR] --destdir cannot be combined with --mode dev.\n' >&2
             return 2
         fi
@@ -437,6 +516,10 @@ main() {
             printf '[ERROR] --prefix cannot be combined with --mode dev.\n' >&2
             return 2
         fi
+        if [[ "${BURNBAG_USER_HOME_WAS_SET}" == true ]]; then
+            require_absolute_path --user-home "${BURNBAG_USER_HOME}"
+        fi
+        select_user_home
     else
         if [[ "${BURNBAG_DEV_COMMAND_WAS_SET}" == true ]]; then
             printf '[ERROR] --dev-command requires --mode dev.\n' >&2
@@ -453,12 +536,20 @@ main() {
     fi
 
     require_absolute_path --prefix "${BURNBAG_PREFIX}"
-    if [[ -n "${BURNBAG_DESTDIR}" ]]; then
+    if [[ "${BURNBAG_DESTDIR_WAS_SET}" == true ]]; then
         require_absolute_path --destdir "${BURNBAG_DESTDIR}"
+        BURNBAG_DESTDIR="$(realpath -m -- "${BURNBAG_DESTDIR}")"
         if [[ "${BURNBAG_DESTDIR}" == "/" ]]; then
             printf '[ERROR] --destdir must not be the filesystem root.\n' >&2
             return 2
         fi
+    fi
+
+    BURNBAG_INSTALL_ROOT="${BURNBAG_DESTDIR%/}${BURNBAG_PREFIX%/}"
+    BURNBAG_BIN_DIR="${BURNBAG_INSTALL_ROOT}/bin"
+    BURNBAG_MAN_DIR="${BURNBAG_INSTALL_ROOT}/share/man/man1"
+    if [[ "${BURNBAG_MODE}" == "standard" ]]; then
+        validate_standard_targets
     fi
 
     local burnbag_source
@@ -474,7 +565,8 @@ main() {
     done
 
     if [[ "${BURNBAG_SKIP_PREREQUISITES}" == false ]]; then
-        if [[ "${BURNBAG_CHECK_ONLY}" == true ]]; then
+        BURNBAG_INSTALL_ACTION="checking or installing prerequisite packages"
+        if [[ "${BURNBAG_CHECK_ONLY}" == true || "${BURNBAG_DESTDIR_WAS_SET}" == true ]]; then
             "${BURNBAG_PREREQUISITE_INSTALLER}" --check
         else
             "${BURNBAG_PREREQUISITE_INSTALLER}"
@@ -492,22 +584,21 @@ main() {
         return 0
     fi
 
-    local burnbag_install_root="${BURNBAG_DESTDIR%/}${BURNBAG_PREFIX%/}"
-    local burnbag_bin_dir="${burnbag_install_root}/bin"
-    local burnbag_man_dir="${burnbag_install_root}/share/man/man1"
-
-    run_privileged install -d -m 0755 "${burnbag_bin_dir}" "${burnbag_man_dir}"
-    run_privileged install -m 0755 \
-        "${BURNBAG_PROJECT_ROOT}/burnbag.py" "${burnbag_bin_dir}/burnbag"
-    run_privileged install -m 0644 \
-        "${BURNBAG_PROJECT_ROOT}/burnbag.1" "${burnbag_man_dir}/burnbag.1"
+    BURNBAG_INSTALL_ACTION="installing the executable and manual page"
+    run_privileged install -d -m 0755 "${BURNBAG_BIN_DIR}" "${BURNBAG_MAN_DIR}"
+    validate_standard_targets
+    run_privileged install -T -m 0755 \
+        "${BURNBAG_PROJECT_ROOT}/burnbag.py" "${BURNBAG_BIN_DIR}/burnbag"
+    run_privileged install -T -m 0644 \
+        "${BURNBAG_PROJECT_ROOT}/burnbag.1" "${BURNBAG_MAN_DIR}/burnbag.1"
 
     if [[ -z "${BURNBAG_DESTDIR}" ]] && command -v mandb >/dev/null 2>&1; then
+        BURNBAG_INSTALL_ACTION="updating the manual-page index"
         run_privileged mandb --quiet
     fi
 
     printf '[OK] Installed burnbag to %s and its manual page to %s.\n' \
-        "${burnbag_bin_dir}/burnbag" "${burnbag_man_dir}/burnbag.1"
+        "${BURNBAG_BIN_DIR}/burnbag" "${BURNBAG_MAN_DIR}/burnbag.1"
 }
 
 main "$@"
