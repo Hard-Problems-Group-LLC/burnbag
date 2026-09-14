@@ -20,4 +20,7 @@ ordered backlog and the active-task record; it does not replace either.
 
 ## Phases
 
-No phases recorded.
+The operator requested a root [ROADMAP.md](../ROADMAP.md) on 2026-09-14.
+It is the canonical phase design for Ubuntu support, ARM support, shutdown
+reporting, exception hardening, and documentation/installer consistency.
+See [current phase and slice state](state/phase-slice-stack.md) for progress.

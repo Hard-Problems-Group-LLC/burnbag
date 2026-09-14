@@ -2,7 +2,7 @@
 
 **Ephemeral clamshell mode, battery monitoring, backlight control, power profiles, and sleep inhibition for Linux laptops.**
 
-`burnbag` is a desktop-agnostic, ephemeral D-Bus control utility for Fedora and Red Hat Enterprise Linux family systems running GNOME or standard systemd/freedesktop stacks. It allows a laptop (such as a ThinkPad T480) to continue operating with its lid closed—whether docked on a desk or thrown into a backpack—while managing performance profiles and enforcing optional safety countdowns.
+`burnbag` is a desktop-agnostic, ephemeral D-Bus control utility for Ubuntu/Debian and Fedora/Red Hat Enterprise Linux family systems running GNOME or standard systemd/freedesktop stacks. It allows a laptop (such as a ThinkPad T480) to continue operating with its lid closed—whether docked on a desk or thrown into a backpack—while managing performance profiles and enforcing optional safety countdowns.
 
 ---
 
@@ -29,12 +29,12 @@ Unlike traditional lid-close scripts that permanently mutate `/etc/systemd/login
 
 ## Requirements
 
-* **OS:** Fedora 44 / RHEL family distributions
+* **OS:** Ubuntu/Debian or Fedora/RHEL family Linux with systemd-logind; x86-64 and ARM64
 * **Python:** Distribution `/usr/bin/python3` (Python 3.9+)
-* **System Libraries:** `python3-gobject` (`PyGObject`)
+* **System Libraries:** PyGObject: `python3-gi gir1.2-glib-2.0` on Ubuntu/Debian; `python3-gobject` on Fedora/RHEL
 * **D-Bus Services:** `systemd-logind`, `power-profiles-daemon`, `UPower`
 
-Install or verify the RPM-provided Python binding from the checkout:
+Install or verify the distribution-provided Python binding from the checkout:
 
 ```bash
 ./scripts/install_prerequisites.sh

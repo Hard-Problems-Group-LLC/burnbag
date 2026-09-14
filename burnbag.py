@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
-burnbag — Clamshell Mode & Power Profile Management Utility for Fedora / GNOME
-Target Platform: Fedora 44 / Red Hat Enterprise Linux family (Python 3.9+)
+burnbag — Clamshell Mode & Power Profile Management Utility for Linux
+Target Platforms: Ubuntu/Debian and Fedora/RHEL; x86-64 and ARM64 (Python 3.9+)
 
 This utility temporarily inhibits systemd-logind lid-switch and idle-suspend events,
 manages power-profiles-daemon profiles, monitors UPower lid state, and samples installed
@@ -580,11 +580,14 @@ def load_pygobject(
         message = (
             "PyGObject is unavailable to the active Python interpreter.\n"
             f"Active interpreter: {sys.executable}\n"
-            "burnbag uses the Fedora/RHEL system package 'python3-gobject'.\n"
+            "burnbag uses distribution packages for /usr/bin/python3.\n"
             "Install or verify it with:\n"
             "    ./scripts/install_prerequisites.sh\n"
-            "or:\n"
+            "Ubuntu/Debian:\n"
+            "    sudo apt-get install python3-gi gir1.2-glib-2.0\n"
+            "Fedora/RHEL:\n"
             "    sudo dnf install python3-gobject\n"
+            "If these packages are already installed, launch burnbag with /usr/bin/python3.\n"
             "The PyPI package named 'gobject' is unrelated and does not provide 'gi'.\n"
             f"Underlying exception details: {exc}"
         )
@@ -607,7 +610,7 @@ def load_pygobject(
 # CONSTANTS & D-BUS IDENTIFIERS
 # ==============================================================================
 
-# D-Bus Names, Paths, and Interfaces used across Fedora/GNOME
+# D-Bus names, paths, and interfaces shared by supported Linux desktops
 LOGIND_BUS_NAME = "org.freedesktop.login1"
 LOGIND_OBJECT_PATH = "/org/freedesktop/login1"
 LOGIND_MANAGER_IFACE = "org.freedesktop.login1.Manager"
@@ -3100,7 +3103,7 @@ class LidCloseManager:
             return
         try:
             result = self.upower_proxy.call_sync(
-                "Get",
+                "org.freedesktop.DBus.Properties.Get",
                 GLib.Variant("(ss)", (UPOWER_IFACE, "LidIsClosed")),
                 Gio.DBusCallFlags.NONE,
                 -1,
@@ -3638,7 +3641,7 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
     """Build the dependency-free CLI, including styled help and examples."""
     parser = StyledArgumentParser(
         prog="burnbag",
-        description="Fedora 44 / GNOME Clamshell & Power Profile Control Utility ('burnbag')",
+        description="Linux Clamshell & Power Profile Control Utility ('burnbag')",
         epilog=(
             "Examples:\n"
             "  burnbag run-cool --suspend-after-minutes 20\n"

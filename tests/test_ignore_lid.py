@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import unittest
+from unittest import mock
 
 import burnbag
 
@@ -95,6 +96,25 @@ class IgnoreLidTests(unittest.TestCase):
                     manager.print_startup_narrative()
 
                 self.assertIn(expected, output.getvalue())
+
+    def test_starting_with_closed_lid_arms_countdown_through_properties_interface(self):
+        manager = self.make_manager(ignore_lid=True)
+
+        class UPowerProxy:
+            def call_sync(self, method, *args):
+                # UPower has no Get method; Get belongs to D-Bus Properties.
+                if method != "org.freedesktop.DBus.Properties.Get":
+                    raise RuntimeError("org.freedesktop.DBus.Error.UnknownMethod")
+                return type("Result", (), {"unpack": lambda self: (True,)})()
+
+        manager.upower_proxy = UPowerProxy()
+        with mock.patch.object(FakeGLib, "Variant", create=True), \
+                mock.patch.object(burnbag, "Gio"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            manager.check_initial_lid_state()
+        self.assertTrue(manager.current_lid_closed_state)
+        self.assertEqual(manager.suspend_timer_id, 23)
+        self.assertEqual(FakeGLib.added_timeouts, [1200])
 
 
 if __name__ == "__main__":
