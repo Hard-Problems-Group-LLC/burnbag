@@ -1,5 +1,18 @@
 # Deferred Tasks
 
+- `BB-2026-09-14-P2` — ARM support. Started and deferred 2026-09-14;
+  owner: Codex; authority: operator's manual-validation deferral instruction.
+  Original request and acceptance: [roadmap P2](../ROADMAP.md#p2--arm-platform-support).
+  - Root cause: this ARM kernel battery supplies energy but no capacity
+    percentage. Rejection produced zero samples, explaining the reported
+    missing Ctrl-C graph. Fixed native/energy/charge source selection,
+    validated whole-percent conversion, fixed-source gaps, and log provenance.
+  - Evidence: 77 tests passed natively on Ubuntu/aarch64; read-only real
+    battery sampling returned a valid 70% observation from energy_now/energy_full
+    without errors. Tests cover driver-shaped fixtures and invalid sources.
+  - Reactivation: `BB-MANUAL-01` physical backlight/lid/profile observations.
+    Suspend and unsupported performance-profile handling continue under P4.
+
 - `BB-2026-09-14-P1` — Ubuntu support. Started and deferred 2026-09-14;
   owner: Codex; authority: operator requested automatic progress with manual
   validation deferred when needed. Original request and acceptance:

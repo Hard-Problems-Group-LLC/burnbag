@@ -9,15 +9,15 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: active
 
-Notes: Ubuntu automation passed; physical checks deferred. ARM battery fallback in progress.
+Notes: Ubuntu and ARM automated checks passed; physical checks deferred. Shutdown finalization is active.
 
 ## Phases
 
 | ID | State | Title |
 | --- | --- | --- |
 | P1 | blocked | Ubuntu support |
-| P2 | active | ARM platform support |
-| P3 | pending | Shutdown graph and summary |
+| P2 | blocked | ARM platform support |
+| P3 | active | Shutdown graph and summary |
 | P4 | pending | Error and exception hardening |
 | P5 | pending | Documentation and installation |
 | V | pending | Manual validation and final closure |
@@ -31,11 +31,11 @@ Notes: Ubuntu automation passed; physical checks deferred. ARM battery fallback 
 | P1.3 | P1 | done | Verify packages and staged install |
 | P1.4 | P1 | blocked | Confirm desktop and lid hardware |
 | P2.1 | P2 | done | Inventory ARM platform capabilities |
-| P2.2 | P2 | active | Repair driver compatibility |
-| P2.3 | P2 | pending | Verify native ARM battery sampling |
-| P2.4 | P2 | pending | Confirm backlight and profiles |
-| P3.1 | P3 | pending | Reproduce missing shutdown report |
-| P3.2 | P3 | pending | Unify handled finalization |
+| P2.2 | P2 | done | Repair driver compatibility |
+| P2.3 | P2 | done | Verify native ARM battery sampling |
+| P2.4 | P2 | blocked | Confirm backlight and profiles |
+| P3.1 | P3 | done | Reproduce missing shutdown report |
+| P3.2 | P3 | active | Unify handled finalization |
 | P3.3 | P3 | pending | Test signals through actual GLib |
 | P3.4 | P3 | pending | Confirm visible shutdown output |
 | P4.1 | P4 | pending | Audit runtime and installer errors |

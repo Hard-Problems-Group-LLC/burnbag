@@ -2,7 +2,7 @@
 
 - Status: Implemented; ready for operator validation
 - Owner: burnbag maintainers
-- Last reviewed: 2026-08-13
+- Last reviewed: 2026-09-14
 - Authorization: direct operator request `BB-2026-08-13-01` and approved
   [battery-statistics proposal](../../project-management/proposals/approved/BB-PROP-2026-08-13-02-battery-statistics.md)
   with direct per-minute extension `BB-2026-08-13-03`
@@ -19,10 +19,30 @@ the safety priority of teardown.
 
 Burnbag discovers Linux power-supply entries under
 `/sys/class/power_supply`. An entry is eligible when its `type` is `Battery`,
-its optional `present` value is not zero, and it exposes a `capacity`
-attribute. Every sampling cycle independently validates that attribute as a
-percentage from 0 through 100 inclusive. Kernel power-supply names provide
-stable series labels within one run.
+its optional `present` value is not zero, and it exposes one of these sources,
+in priority order:
+
+1. Native `capacity`, validated as a whole percentage from 0 through 100.
+2. A complete `energy_now` / `energy_full` pair.
+3. A complete `charge_now` / `charge_full` pair.
+
+Some ARM drivers expose energy without native percentages. Matched energy or
+charge values are converted to `100 * now / full`, rounded to the nearest
+whole percentage with half values rounded up. Every sample requires integer
+values with `0 <= now <= full` and `full > 0`; invalid or unreadable values
+produce explicit gaps. Energy and charge units are never mixed, and design
+capacity, current, voltage, and power are not substitutes for a missing source.
+This is a derived fuel-gauge percentage, not an electrical power measurement.
+The [Linux power-supply contract](https://docs.kernel.org/power/power_supply_class.html)
+allows drivers to omit attributes and distinguishes energy, charge, and
+percentage units.
+
+The chosen source remains fixed for the entire run. A native percentage or
+selected ratio that becomes invalid or disappears produces a gap, even if a
+lower-priority source is available. A recovered source contributes readings
+again. Burnbag identifies derived sources at startup and records every selected
+source in discovery, sample, and summary log details. Kernel power-supply names
+provide stable series labels within one run.
 
 Devices are selected in lexical kernel-name order. Burnbag monitors one or
 two installed batteries independently. If a machine exposes more than two
@@ -200,7 +220,11 @@ records remain the forensic result in those cases.
 ## Acceptance Criteria
 
 - Real temporary sysfs fixtures cover discovery, absence, presence filtering,
-  two-battery selection, percentages, and malformed or failed reads.
+  two-battery selection, percentages, and malformed or failed reads. An
+  energy-only Qualcomm-shaped fixture produces observations, chart, statistics,
+  and source records. Charge fallback, source priority, half-up quantization,
+  invalid ratios, missing source recovery, and mixed-unit/design rejection are
+  covered without touching host state.
 - Timer tests verify an immediate sample, 15,000-millisecond cadence, handled
   cancellation, and a final sample.
 - Chart tests verify 25 data rows, selected terminal width, observed-only Y

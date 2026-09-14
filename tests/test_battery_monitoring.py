@@ -103,6 +103,12 @@ class BatteryMonitoringTests(unittest.TestCase):
         )
         return manager
 
+    def add_ratio_supply(self, name, quantity="energy", remaining=46096000, full=64607000):
+        supply = self.add_supply(name, capacity=None, status="Discharging")
+        (supply / f"{quantity}_now").write_text(f"{remaining}\n", encoding="ascii")
+        (supply / f"{quantity}_full").write_text(f"{full}\n", encoding="ascii")
+        return supply
+
     def test_discovery_selects_two_present_batteries_in_kernel_name_order(self):
         self.add_supply("AC", supply_type="Mains", capacity=None, present=None)
         self.add_supply("BAT1", capacity=71, status="Discharging")
@@ -135,6 +141,96 @@ class BatteryMonitoringTests(unittest.TestCase):
 
         self.assertEqual(errors, [])
         self.assertEqual(sample.elapsed_seconds, 15.25)
+
+    def test_arm_energy_only_battery_generates_plot_statistics_and_source_records(self):
+        name = "qcom-battmgr-bat"
+        supply = self.add_ratio_supply(name)
+        # This driver also exports charge attributes that return ENODATA on
+        # hardware. Energy must be selected before an unusable charge pair.
+        (supply / "charge_now").write_text("unavailable\n", encoding="ascii")
+        (supply / "charge_full").write_text("unavailable\n", encoding="ascii")
+        self.add_supply("qcom-battmgr-usb", supply_type="USB", capacity=None)
+        log = CapturingLog()
+        manager = self.make_manager(running_log=log)
+
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            manager.start_battery_monitoring()
+            (supply / "energy_now").write_text("45224900\n", encoding="ascii")
+            manager.teardown()
+            manager.print_battery_plot()
+
+        self.assertEqual(manager.exit_code, 0)
+        self.assertEqual(manager.battery_monitor.samples[0].percentages, {name: 71})
+        self.assertEqual(manager.battery_monitor.samples[-1].percentages, {name: 70})
+        self.assertIn("1=qcom-battmgr-bat", output.getvalue())
+        self.assertIn("BATTERY SUMMARY", output.getvalue())
+        self.assertIn("deriving whole percentages from energy_now/energy_full", output.getvalue())
+        self.assertEqual(manager.battery_statistics[0].net_change_pp, -1)
+        for event, _level, _message, details in log.records:
+            if event in {"battery_discovery_completed", "battery_sample", "battery_monitor_summary"}:
+                self.assertEqual(details["percentage_sources"], {name: "energy_now/energy_full"})
+
+    def test_charge_fallback_uses_matching_full_value_and_rounds_half_up(self):
+        supply = self.add_ratio_supply("BAT0", quantity="charge", remaining=140, full=200)
+        (supply / "charge_full_design").write_text("1000\n", encoding="ascii")
+        monitor = burnbag.BatteryMonitor(self.sysfs_root, 0.0)
+        self.assertEqual(monitor.discover(), [])
+        self.assertEqual(monitor.devices[0].percentage_source, "charge_now/charge_full")
+
+        for remaining, expected in ((0, 0), (140, 70), (141, 71), (200, 100)):
+            with self.subTest(remaining=remaining):
+                (supply / "charge_now").write_text(f"{remaining}\n", encoding="ascii")
+                sample, errors = monitor.sample(elapsed_seconds=0)
+                self.assertEqual(errors, [])
+                self.assertEqual(sample.percentages, {"BAT0": expected})
+
+    def test_native_capacity_remains_selected_through_invalid_or_missing_reads(self):
+        supply = self.add_ratio_supply("BAT0", remaining=60, full=100)
+        (supply / "capacity").write_text("83\n", encoding="ascii")
+        monitor = burnbag.BatteryMonitor(self.sysfs_root, 0.0)
+        self.assertEqual(monitor.discover(), [])
+        self.assertEqual(monitor.devices[0].percentage_source, "capacity")
+        self.assertEqual(monitor.sample(elapsed_seconds=0)[0].percentages, {"BAT0": 83})
+
+        (supply / "capacity").write_text("invalid\n", encoding="ascii")
+        for missing in (False, True):
+            if missing:
+                (supply / "capacity").unlink()
+            sample, errors = monitor.sample(elapsed_seconds=15)
+            self.assertEqual(sample.percentages, {})
+            self.assertEqual(len(errors), 1)
+        (supply / "capacity").write_text("82\n", encoding="ascii")
+        self.assertEqual(monitor.sample(elapsed_seconds=30)[0].percentages, {"BAT0": 82})
+
+    def test_invalid_selected_energy_is_a_gap_without_switching_to_charge(self):
+        supply = self.add_ratio_supply("BAT0", remaining=60, full=100)
+        (supply / "charge_now").write_text("90\n", encoding="ascii")
+        (supply / "charge_full").write_text("100\n", encoding="ascii")
+        monitor = burnbag.BatteryMonitor(self.sysfs_root, 0.0)
+        self.assertEqual(monitor.discover(), [])
+        for remaining, full in ((-1, 100), (0, 0), (1, -1), (101, 100), ("bad", 100)):
+            with self.subTest(remaining=remaining, full=full):
+                (supply / "energy_now").write_text(f"{remaining}\n", encoding="ascii")
+                (supply / "energy_full").write_text(f"{full}\n", encoding="ascii")
+                sample, errors = monitor.sample(elapsed_seconds=15)
+                self.assertEqual(sample.percentages, {})
+                self.assertEqual(len(errors), 1)
+        (supply / "energy_now").unlink()
+        sample, errors = monitor.sample(elapsed_seconds=30)
+        self.assertEqual(sample.percentages, {})
+        self.assertEqual(len(errors), 1)
+        (supply / "energy_now").write_text("59\n", encoding="ascii")
+        self.assertEqual(monitor.sample(elapsed_seconds=45)[0].percentages, {"BAT0": 59})
+
+    def test_discovery_rejects_mixed_units_and_design_only_denominators(self):
+        supply = self.add_supply("BAT0", capacity=None)
+        for attribute, value in (("energy_now", 80), ("charge_full", 100), ("energy_full_design", 100)):
+            (supply / attribute).write_text(f"{value}\n", encoding="ascii")
+        monitor = burnbag.BatteryMonitor(self.sysfs_root, 0.0)
+        errors = monitor.discover()
+        self.assertEqual(monitor.devices, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("complete energy_now/energy_full", errors[0])
 
     def test_missing_invalid_and_failed_capacity_reads_are_explicit_gaps(self):
         self.add_supply("BAT0", capacity=None)

@@ -2,7 +2,7 @@
 
 - Status: Implemented; ready for operator validation
 - Owner: burnbag maintainers
-- Last reviewed: 2026-08-13
+- Last reviewed: 2026-09-14
 - Authorization:
   [BB-PROP-2026-08-07-01](../../project-management/proposals/approved/BB-PROP-2026-08-07-01-durable-running-log.md)
 
@@ -130,7 +130,16 @@ before the mutation and an outcome or deviation record afterward.
 
 Battery sample details use a separate suspend-inclusive `CLOCK_BOOTTIME`
 elapsed value for plotting and rate calculations and include per-device
-percentage plus optional presence and kernel status. The final summary and
+percentage plus optional presence and kernel status. Discovery, each sample,
+and the battery summary also include `percentage_sources`, a kernel-name map
+whose values are `capacity`, `energy_now/energy_full`, or
+`charge_now/charge_full`. Derived-source startup records use the
+`battery_percentage_source` event and identify `nearest_integer_half_up`
+quantization. Sources are fixed at discovery; read failures remain gaps rather
+than silently switching gauge definitions. These are additive event details;
+the record schema remains version 1.
+
+The final summary and
 `session_end` contain versioned, unit-bearing per-battery derived statistics:
 coverage, endpoints, whole-run OLS gauge trend and `R²`, eligible reported
 level transitions, duration-weighted gauge-rate standard deviation, robust MAD

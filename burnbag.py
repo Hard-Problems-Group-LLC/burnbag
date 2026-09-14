@@ -683,9 +683,20 @@ class BatteryDevice:
     """One read-only Linux power-supply battery selected for this run."""
 
     name: str
-    capacity_path: Path
+    capacity_path: Optional[Path]
     present_path: Optional[Path] = None
     status_path: Optional[Path] = None
+    remaining_path: Optional[Path] = None
+    full_path: Optional[Path] = None
+
+    @property
+    def percentage_source(self) -> str:
+        """Identify the fixed native or matched-unit gauge source for this run."""
+        if self.capacity_path is not None:
+            return "capacity"
+        if self.remaining_path is None or self.full_path is None:
+            raise ValueError(f"Battery {self.name!r} has no percentage source")
+        return f"{self.remaining_path.name}/{self.full_path.name}"
 
 
 @dataclass(frozen=True)
@@ -902,12 +913,28 @@ class BatteryMonitor:
                 )
                 continue
 
-            capacity_path = entry / "capacity"
+            capacity_path: Optional[Path] = entry / "capacity"
+            remaining_path: Optional[Path] = None
+            full_path: Optional[Path] = None
             if not capacity_path.exists():
-                errors.append(
-                    f"Battery {entry.name!r} does not expose a capacity percentage."
-                )
-                continue
+                capacity_path = None
+                # Not every kernel driver exposes a percentage. Prefer real
+                # energy, then charge, with matching current/full units. Never
+                # substitute design capacity, voltage, or mixed-unit values.
+                for quantity in ("energy", "charge"):
+                    candidate_now = entry / f"{quantity}_now"
+                    candidate_full = entry / f"{quantity}_full"
+                    if candidate_now.exists() and candidate_full.exists():
+                        remaining_path = candidate_now
+                        full_path = candidate_full
+                        break
+                if remaining_path is None:
+                    errors.append(
+                        f"Battery {entry.name!r} does not expose a capacity "
+                        "percentage or a complete energy_now/energy_full or "
+                        "charge_now/charge_full pair."
+                    )
+                    continue
             present_path = entry / "present"
             status_path = entry / "status"
             eligible.append(
@@ -916,6 +943,8 @@ class BatteryMonitor:
                     capacity_path,
                     present_path if present_path.exists() else None,
                     status_path if status_path.exists() else None,
+                    remaining_path,
+                    full_path,
                 )
             )
 
@@ -924,6 +953,30 @@ class BatteryMonitor:
             device.name for device in eligible[self.MAX_PLOTTED_BATTERIES :]
         ]
         return errors
+
+    def _read_percentage(self, device: BatteryDevice) -> int:
+        """Read the selected gauge source without switching sources on failure."""
+        if device.capacity_path is not None:
+            capacity = int(self._read_sysfs_text(device.capacity_path), 10)
+            if not 0 <= capacity <= 100:
+                raise ValueError(
+                    f"percentage {capacity} is outside the inclusive 0--100 range"
+                )
+            return capacity
+
+        if device.remaining_path is None or device.full_path is None:
+            raise ValueError("no selected percentage source")
+        remaining = int(self._read_sysfs_text(device.remaining_path), 10)
+        full = int(self._read_sysfs_text(device.full_path), 10)
+        if full <= 0 or remaining < 0 or remaining > full:
+            raise ValueError(
+                f"invalid {device.percentage_source} values "
+                f"({remaining}/{full}); require 0 <= now <= full and full > 0"
+            )
+        # Round half up to whole percentage points. Integer arithmetic avoids
+        # floating-point precision loss and keeps the quantized statistics
+        # contract identical for native and derived gauges.
+        return (200 * remaining + full) // (2 * full)
 
     def sample(
         self,
@@ -980,12 +1033,7 @@ class BatteryMonitor:
                     pass
 
             try:
-                raw_capacity = self._read_sysfs_text(device.capacity_path)
-                capacity = int(raw_capacity, 10)
-                if not 0 <= capacity <= 100:
-                    raise ValueError(
-                        f"percentage {capacity} is outside the inclusive 0--100 range"
-                    )
+                capacity = self._read_percentage(device)
             except (OSError, ValueError) as exc:
                 errors.append(f"Could not read battery {device.name!r}: {exc}")
                 continue
@@ -2169,6 +2217,10 @@ class LidCloseManager:
                 "elapsed_seconds": round(sample.elapsed_seconds, 6),
                 "timebase": "CLOCK_BOOTTIME",
                 "percentages": dict(sample.percentages),
+                "percentage_sources": {
+                    device.name: device.percentage_source
+                    for device in self.battery_monitor.devices
+                },
                 "statuses": dict(sample.statuses),
                 "present": dict(sample.present),
                 "errors": errors,
@@ -2202,12 +2254,29 @@ class LidCloseManager:
             "Completed read-only battery discovery.",
             {
                 "selected_batteries": selected_names,
+                "percentage_sources": {
+                    device.name: device.percentage_source
+                    for device in self.battery_monitor.devices
+                },
                 "unselected_batteries": self.battery_monitor.unselected_names,
                 "errors": discovery_errors,
             },
         )
         for error in discovery_errors:
             self._record_battery_error(error)
+
+        for device in self.battery_monitor.devices:
+            if device.capacity_path is None:
+                self._info(
+                    f"Battery {device.name!r}: deriving whole percentages from "
+                    f"{device.percentage_source} (rounded to nearest percent).",
+                    event="battery_percentage_source",
+                    details={
+                        "battery": device.name,
+                        "percentage_source": device.percentage_source,
+                        "quantization": "nearest_integer_half_up",
+                    },
+                )
 
         if self.battery_monitor.unselected_names:
             message = (
@@ -2303,6 +2372,10 @@ class LidCloseManager:
                 {
                     "sample_count": len(self.battery_monitor.samples),
                     "last_percentages": dict(last_percentages),
+                    "percentage_sources": {
+                        device.name: device.percentage_source
+                        for device in self.battery_monitor.devices
+                    },
                     "plot_suppressed": self.no_plot,
                     "statistics": [
                         result.to_log_details()
