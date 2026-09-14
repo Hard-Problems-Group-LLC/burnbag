@@ -1,5 +1,20 @@
 # Completed Tasks
 
+- `BB-2026-09-14-P1` — Ubuntu support. Started, deferred, and completed
+  2026-09-14. Owner: Codex; requestor and validation authority: operator.
+  Original request/acceptance: [roadmap P1](../ROADMAP.md#p1--ubuntu-support).
+  - Delivered in `0d842f3`: apt/dnf package selection, actionable GI dependency
+    guidance, and qualified UPower initial-lid Properties query. 72 native tests,
+    ShellCheck, prerequisite checks, and isolated staged installation passed.
+  - Operator supplied a real installed-baseline run confirming physical lid
+    closure/opening events, delayed backlight power-down, verified visible
+    restoration, and inhibitor release on this Ubuntu/ARM host. That run also
+    exhibited the two already-repaired battery/query defects. It is evidence
+    for platform integration, not a claim that the revised binary was tested.
+  - Native read-only querying verifies the corrected initial-lid method. Final
+    revised-build graph and profile-transition confirmation remain explicitly
+    tracked in P2/P3 and `BB-MANUAL-01`; no suspend/resume claim is made.
+
 Record completed work with newest entries at the top. Use dated bullets and
 include concise outcomes, owners, ISO 8601 completion timestamps, validation
 evidence, important decisions or risk acceptances, and follow-up records.

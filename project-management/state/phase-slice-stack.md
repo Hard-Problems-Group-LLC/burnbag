@@ -9,13 +9,13 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: active
 
-Notes: Ubuntu, ARM, and signal regressions pass; physical observations deferred. Runtime and installer hardening active.
+Notes: Operator baseline confirms Ubuntu lid and backlight; P1 closed. Revised ARM graph/profile checks remain; hardening active.
 
 ## Phases
 
 | ID | State | Title |
 | --- | --- | --- |
-| P1 | blocked | Ubuntu support |
+| P1 | done | Ubuntu support |
 | P2 | blocked | ARM platform support |
 | P3 | blocked | Shutdown graph and summary |
 | P4 | active | Error and exception hardening |
@@ -29,7 +29,7 @@ Notes: Ubuntu, ARM, and signal regressions pass; physical observations deferred.
 | P1.1 | P1 | done | Inventory Ubuntu services and bindings |
 | P1.2 | P1 | done | Repair prerequisite portability |
 | P1.3 | P1 | done | Verify packages and staged install |
-| P1.4 | P1 | blocked | Confirm desktop and lid hardware |
+| P1.4 | P1 | done | Confirm desktop and lid hardware |
 | P2.1 | P2 | done | Inventory ARM platform capabilities |
 | P2.2 | P2 | done | Repair driver compatibility |
 | P2.3 | P2 | done | Verify native ARM battery sampling |
