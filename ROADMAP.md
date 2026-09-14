@@ -51,7 +51,8 @@ As before, address what you can, then ask for manual testing.”
 - **P2.3 Verification:** run native ARM tests plus representative driver-shaped
   fixtures and read-only real battery discovery/sampling.
 - **P2.4 Hardware:** verify visible backlight restoration, lid behavior, and
-  available power profiles with the operator; avoid claiming unsupported modes.
+  available power profiles, and supervised suspend/resume with the operator;
+  avoid claiming unsupported modes.
 
 Acceptance: meaningful battery observations on this ARM host; no x86-only
 assumptions; unavailable hardware capabilities are clear; automated and manual
@@ -71,7 +72,8 @@ operations.”
 - **P3.3 Regression:** exercise actual GLib/subprocess signal delivery with
   external hardware boundaries substituted, including `--ignore-lid`.
 - **P3.4 Confirmation:** ask the operator to verify the original visible symptom
-  after install; retain explicit `--no-plot` and unavailable-output semantics.
+  using the verified checkout or development launcher; retain explicit
+  `--no-plot` and unavailable-output semantics.
 
 Acceptance: every handled operational exit attempts reporting after safe
 restoration, with no duplicate summaries or bypassed log finalization. Help and
@@ -108,7 +110,9 @@ installer.”
 - **P5.2 Generated docs:** update `makedocs.py`, regenerate README/man page,
   and check help/man/source consistency and reproducibility.
 - **P5.3 Delivery:** validate standard/staged/dev installer paths; install the
-  verified application and manual for operator checks when needed.
+  verified application and manual for operator checks when needed. The operator
+  selected self-installation with `./install.sh --mode dev` on 2026-09-14;
+  delivery readiness and exact launcher instructions complete the agent slice.
 - **P5.4 Closeout:** publish evidence and exact remaining manual steps, refresh
   tracking, and ACP this phase.
 

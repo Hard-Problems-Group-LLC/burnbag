@@ -2,7 +2,7 @@
 
 - Status: Implemented; ready for operator validation
 - Owner: burnbag maintainers
-- Last reviewed: 2026-08-13
+- Last reviewed: 2026-09-14
 
 ## Scope
 
@@ -38,7 +38,7 @@ its own policy boundary so `--no-color` and the environmental controls behave
 consistently across supported Python versions.
 
 The handled-exit battery chart and statistical summary follow this same color capability policy but
-is otherwise governed by the canonical
+are otherwise governed by the canonical
 [battery-monitoring specification](battery-monitoring.md). Its plain symbols
 must distinguish both series and overlap without relying on ANSI color.
 Battery identity and trend reuse the yellow/blue series colors; gauge-rate
@@ -49,6 +49,15 @@ change per minute and its nonnegative standard deviation in `pp/min`; `n/a`
 preserves the estimator's evidence gates. Summary layout supports one to three
 lines per battery at terminal widths of 40 columns or more. Compact output may
 use `avgΔ` and `σrate`, with a footer defining their gauge-only meaning.
+
+## Reporting failures
+
+Handled shutdown restores host state before attempting the narrative, chart,
+and statistics. Their failure boundaries are independent. Failed writes or
+flushes select nonzero status; if stdout fails, the program tries stderr.
+The final running-log record follows these attempts so it includes observed
+output failures. A failed channel cannot prevent remaining cleanup or log
+closure. See [shutdown lifecycle](shutdown-lifecycle.md) for the contract.
 
 ## Zero-Argument Invocation
 

@@ -9,9 +9,9 @@ manages power-profiles-daemon profiles, monitors UPower lid state, and samples i
 battery percentages to allow a laptop to continue running when the lid is shut (e.g.,
 while inside a bag or docked) with an observable depletion history.
 
-It uses D-Bus inhibitor file descriptors so that all overrides are strictly ephemeral:
-if this script terminates, crashes, or is killed, systemd automatically drops the locks
-and restores normal safety defaults.
+Its D-Bus inhibitor file descriptors are process-owned: termination releases
+these locks. Handled exits separately attempt and verify backlight and temporary
+power-profile restoration; abrupt process death cannot restore persistent changes.
 
 Copyright (C)2026 Hard Problems Group, LLC.
 Released under the MIT License.
@@ -3503,7 +3503,7 @@ class LidCloseManager:
             message = f"Lid monitoring is unavailable: {exc}"
             if self._lid_monitoring_required():
                 self._fatal_error(message)
-            self._warn(message + "; --ignore-lid without a timeout will await SIGINT/SIGTERM.")
+            self._warn(message + "; --ignore-lid without a timeout will await SIGINT/SIGTERM/SIGHUP.")
         if self.suspend_after_minutes is not None:
             try:
                 self._require_sleep_capability("Suspend")
@@ -3602,8 +3602,8 @@ class LidCloseManager:
             if delay_seconds > 2 ** 32 - 1:
                 self._fatal_error("Suspend timeout exceeds the GLib timer's supported range.")
             self._info(
-                "Starting suspend countdown timer: machine will unconditionally "
-                f"suspend in {self.suspend_after_minutes} minute(s).",
+                "Starting suspend countdown timer: requesting sleep after "
+                f"{self.suspend_after_minutes} minute(s) of continuous lid closure.",
                 event="suspend_timer_start_intent",
                 details={"minutes": self.suspend_after_minutes},
             )
@@ -3844,11 +3844,11 @@ class LidCloseManager:
 
             if self.suspend_after_minutes:
                 self._narrative_field(
-                    "Unconditional Timeout",
+                    "Lid-Closed Countdown",
                     f"{self.suspend_after_minutes} minute(s) after lid close",
                 )
             else:
-                self._narrative_field("Unconditional Timeout", "Disabled")
+                self._narrative_field("Lid-Closed Countdown", "Disabled")
             backlight_str = (
                 "UNTOUCHED (--do-not-touch-backlight active)"
                 if self.do_not_touch_backlight
@@ -3869,13 +3869,13 @@ class LidCloseManager:
                     "Expected Lifecycle",
                     "Persist across lid openings until a configured timer",
                 )
-                print("                              expires, SIGINT, or SIGTERM is received.")
+                print("                              expires, or SIGINT/SIGTERM/SIGHUP is received.")
             else:
                 self._narrative_field(
                     "Expected Lifecycle",
                     "Persist until lid is closed and subsequently reopened,",
                 )
-                print("                              timer expires, SIGINT, or SIGTERM is received.")
+                print("                              timer expires, or SIGINT/SIGTERM/SIGHUP is received.")
         else:
             self._narrative_field(
                 "Expected Lifecycle", "Execute requested action immediately and exit."
@@ -4102,12 +4102,12 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
         help=(
             "Operational mode:\n"
             "  suspend       : Immediately suspend system when called.\n"
-            "  hibernate     : Immediately hibernate system (requires disk swap).\n"
+            "  hibernate     : Request hibernation after checking system capability.\n"
             "  run           : Inhibit lid-close suspend; maintain current power profile.\n"
             "  run-cool      : Inhibit lid-close suspend; switch to 'power-saver' profile.\n"
             "  run-balanced  : Inhibit lid-close suspend; switch to 'balanced' profile.\n"
             "  run-hot       : Inhibit lid-close suspend; switch to 'performance' profile.\n"
-            "  normal        : Clear overrides and restore system defaults ('balanced' mode)."
+            "  normal        : Select, verify, and retain the 'balanced' power profile."
         ),
     )
 
@@ -4116,7 +4116,7 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
         type=int,
         default=None,
         metavar="MIN",
-        help="Unconditionally suspend after MIN minutes of continuous lid closure.",
+        help="Request suspend after MIN minutes of continuous lid closure.",
     )
 
     parser.add_argument(

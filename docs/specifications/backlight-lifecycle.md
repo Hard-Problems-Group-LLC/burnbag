@@ -48,7 +48,7 @@ the backlight as untouched.
 
 ## Lifecycle Limits
 
-Normal completion, lid-triggered completion, handled `SIGINT`/`SIGTERM`, fatal
+Normal completion, lid-triggered completion, handled `SIGINT`/`SIGTERM`/`SIGHUP`, fatal
 application errors, and caught main-loop exceptions use the verified teardown
 path. No userspace program can run cleanup after `SIGKILL`, sudden power loss,
 or an equivalent process destruction; documentation must not promise

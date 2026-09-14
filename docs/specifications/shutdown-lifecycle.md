@@ -13,12 +13,12 @@ Failures can make individual recovery steps unsuccessful; the report must
 describe the available evidence rather than fabricate successful recovery.
 
 SIGINT (including Ctrl-C), SIGTERM, and SIGHUP apply during setup and to every
-operating mode. Signal handlers remember the first request without logging or raising
-inside mutation bookkeeping. Setup stops at the next safe boundary before
+operating mode. Signal handlers remember the first request without logging or
+raising inside mutation bookkeeping. Setup stops at the next safe boundary before
 beginning another operation. Internal checkpoints also run after capability
 and profile reads and immediately before each new host mutation; recovery
-operations remain available after cancellation. A signal received immediately before event-loop
-entry remains pending and stops the loop. Repeated signals cannot interrupt
+operations remain available after cancellation. A signal received immediately
+before event-loop entry remains pending and stops the loop. Repeated signals cannot interrupt
 the cleanup phase. Existing process signal handlers are restored on return.
 Synchronous external operations already in progress finish or time out before
 their safe boundary is reached.

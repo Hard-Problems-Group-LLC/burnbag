@@ -1,6 +1,6 @@
 .\" Man page for burnbag(1)
 .\" Target platform: Ubuntu/Debian and Fedora/RHEL; x86-64 and ARM64
-.TH BURNBAG 1 "August 2026" "burnbag 1.0" "User Commands"
+.TH BURNBAG 1 "September 2026" "burnbag 1.0" "User Commands"
 .SH NAME
 burnbag \- ephemeral clamshell mode, battery monitoring, power profile, and sleep inhibition for Linux laptops
 .SH SYNOPSIS
@@ -17,9 +17,9 @@ performance profiles, monitors installed batteries, and monitors hardware lid st
 .PP
 Unlike static configuration overrides,
 .B burnbag
-relies on ephemeral D\-Bus inhibitor file descriptors. Holding these file descriptors open blocks the operating system from suspending when the laptop lid is shut. Upon normal exit, interrupt (\fBSIGINT\fR/\fBSIGTERM\fR), or process death (\fBSIGKILL\fR), the kernel releases the file descriptors, instructing
+relies on ephemeral D\-Bus inhibitor file descriptors. Holding these file descriptors open blocks the operating system from suspending when the laptop lid is shut. Upon normal exit, interrupt (\fBSIGINT\fR/\fBSIGTERM\fR/\fBSIGHUP\fR), or process death (\fBSIGKILL\fR), the kernel releases the file descriptors, instructing
 .B systemd-logind
-to automatically drop all inhibitor locks and restore normal OS safety defaults.
+to drop this process's inhibitor locks. Other inhibitors and OS policy still apply.
 .PP
 Persistent run modes use the caller\(aqs
 .B org.freedesktop.login1.Session.SetBrightness
@@ -27,7 +27,7 @@ interface to turn every discovered kernel screen backlight off three seconds aft
 .PP
 The control session is resolved from the process session, inherited XDG_SESSION_ID, or the user\(aqs primary graphical logind session. A candidate must belong to the effective UID, be active, and be local. This supports tmux and user-service launchers whose PIDs are not assigned directly to a logind session.
 .PP
-Explicit backlight and power\-profile restoration can run after normal completion, handled SIGINT/SIGTERM, and caught application errors. It cannot run after SIGKILL, sudden power loss, or equivalent process destruction. Inhibitor file descriptors remain kernel\-released in those cases.
+Explicit backlight and power\-profile restoration can run after normal completion, handled SIGINT/SIGTERM/SIGHUP, and caught application errors. It cannot run after SIGKILL, sudden power loss, or equivalent process destruction. Inhibitor file descriptors remain kernel\-released in those cases.
 .PP
 .B burnbag
 provides narrative console logging on startup and exit, detailing intended system mutations, operational deviations, and the final shutdown state of D\-Bus locks and power profiles.
@@ -44,7 +44,7 @@ Inhibit lid\-close suspend events and maintain the currently active power profil
 .B run\-cool
 Inhibit lid\-close suspend events and switch the system power profile to
 .BR power\-saver .
-Runs as cool as possible to limit thermal buildup inside enclosed spaces.
+Requires the power-saver profile to be advertised by the system daemon; this is not a temperature guarantee.
 .TP
 .B run\-balanced
 Inhibit lid\-close suspend events and switch the system power profile to
@@ -58,20 +58,20 @@ Inhibit lid\-close suspend events and switch the system power profile to
 Immediately trigger a one\-shot system suspend via D\-Bus and exit.
 .TP
 .B hibernate
-Verify system hibernation capability via D\-Bus and immediately hibernate. Fails early with an explicit error if disk swap is unavailable (e.g., standard Fedora
-.B zram
-configurations without dedicated swap storage).
+Verify system hibernation capability via D\-Bus, then request hibernation. Unsupported platform capabilities, missing prerequisites, or denied policy produce an explicit failure.
 .TP
 .B normal
-Immediately restore system defaults: reset power profile to
+Select, verify, and retain the power profile
 .BR balanced ,
-clear any active overrides, and exit.
+then exit. Other running processes retain their own inhibitor descriptors; end those processes to release their locks.
+.PP
+Requested profiles must be advertised by power-profiles-daemon and are verified after changes and restoration. Unavailable profiles fail before inhibitor acquisition. Plain run can operate without the profile daemon. Lid-driven termination and countdowns require valid UPower lid telemetry; --ignore-lid without a countdown can await a signal without a sensor.
 .SH OPTIONS
 .TP
 .BI \-\-suspend\-after\-minutes " MIN"
-Unconditionally suspend the system after
+Request system suspend after
 .I MIN
-minutes of continuous lid closure. Designed as a safety fuse when running inside a backpack or bag. If the lid is reopened before
+minutes of continuous lid closure. The countdown does not measure temperature. If the lid is reopened before
 .I MIN
 elapses, the countdown timer is cancelled.
 .TP
@@ -115,10 +115,12 @@ to suppress only the graph.
 Below the graph, or by itself when the graph is suppressed, burnbag prints one to three summary lines per battery. Endpoints, net percentage-point change, elapsed span, a whole-run least-squares gauge trend, fit, and coverage are shown. When enough reported whole-percentage transitions exist, gauge depletion-rate variability sigma is reported in percentage points per hour as the duration-weighted standard deviation of transition-to-transition gauge rates. The summary also shows signed average reported-gauge change per minute and its nonnegative standard deviation in pp/min; falling state of charge is negative and rising state of charge is positive. These are conversions of the same gated transition-rate distribution, not raw 15-second derivatives or an independent physical measurement. They describe uneven reported depletion velocity, not acceleration, watts, instantaneous load, or zero draw when the integer gauge stays flat. Missing readings, long intervals, and known charge-status changes break local-rate continuity; short, flat, mixed, and gapped histories are explicitly qualified with n/a where necessary.
 .PP
 SIGKILL, sudden power loss, and equivalent unhandled exits cannot render a chart or summary or take a final sample; previously synchronized records remain available.
+.PP
+Ctrl-C, SIGTERM, SIGHUP, lid-cycle completion, and handled errors attempt the same shutdown chart and summary once battery monitoring starts, including with --ignore-lid. Output failure selects nonzero status but cannot prevent restoration. Broken stdout falls back to stderr when possible; graph and statistics rendering are independent.
 .SH RUNNING LOG
 Every accepted operational invocation establishes a mandatory append-only running log before PyGObject is loaded or host state is changed. The default path is $XDG_STATE_HOME/burnbag/burnbag.log, falling back to $HOME/.local/state/burnbag/burnbag.log. There is no no-log option.
 .PP
-The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and every initial, periodic, and final battery sample are included; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown. Absence of session_end is retained as evidence of an unhandled process or power interruption.
+The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and every initial, periodic, and final battery sample are included; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown and final reporting attempts, including observed output failures. Absence of session_end is retained as evidence of an unhandled process or power interruption.
 .PP
 Each record is appended under an exclusive advisory lock and followed by fsync before execution continues. Safety-relevant mutation intent is synchronized before the mutation. Failure to resolve, open, validate, lock, append, or synchronize the log prevents further host mutation and returns nonzero. Logging failure never prevents backlight, inhibitor, or power-profile teardown.
 .PP
@@ -137,9 +139,9 @@ The daemon returns a file descriptor handle for each lock. As long as
 .B burnbag
 holds the handle open, sleep is blocked. When
 .B burnbag
-terminates for any reason, the descriptor closes and default sleep safety policies immediately resume.
+terminates, its owned descriptors close. Other processes and system policy may still inhibit sleep.
 .SH EXAMPLES
-Run in performance mode with a 15\-minute thermal safety fuse:
+Request performance mode with a 15\-minute continuous-lid-closure countdown:
 .PP
 .RS 4
 .B burnbag run\-hot \-\-suspend\-after\-minutes 15
@@ -151,7 +153,7 @@ Run in power\-saver mode indefinitely until the lid is opened or Ctrl\-C is pres
 .B burnbag run\-cool
 .RE
 .PP
-Stay active across repeated lid cycles while retaining a 20\-minute closed-lid safety fuse:
+Stay active across repeated lid cycles with a 20\-minute continuous-lid-closure countdown:
 .PP
 .RS 4
 .B burnbag run\-cool \-\-ignore\-lid \-\-suspend\-after\-minutes 20
@@ -175,7 +177,7 @@ Run with battery monitoring and durable samples but no exit chart:
 .B burnbag run\-cool \-\-no\-plot
 .RE
 .PP
-Restore normal system defaults immediately:
+Select and retain the balanced power profile:
 .PP
 .RS 4
 .B burnbag normal
@@ -183,11 +185,11 @@ Restore normal system defaults immediately:
 .SH EXIT STATUS
 .TP
 .B 0
-Successful execution, complete lid cycle observed, or clean termination via interrupt (\fBSIGINT\fR/\fBSIGTERM\fR).
+Successful execution, complete lid cycle observed, or clean termination via interrupt (\fBSIGINT\fR/\fBSIGTERM\fR/\fBSIGHUP\fR).
 .TP
 .B 1
 Fatal error or unverified required state encountered (e.g., missing
-.B python3\-gobject
+.B PyGObject
 dependencies, D\-Bus connection failure, running-log durability failure, unsupported hibernation request, battery observation failure, or backlight mutation/restoration failure).
 .TP
 .B 2
@@ -208,9 +210,11 @@ Non\-interactive callers select checkout resolution explicitly with:
 .B ./install.sh \-\-mode dev \-\-dev\-command local
 .PP
 or set BURNBAG_DEV_LAUNCHER_MODE=local. Use \-\-dev\-command system to remove the managed user launcher and retain the other PATH result. Use \-\-user\-home with an explicit operator home when automation supplies an isolated assistant HOME.
+.PP
+Use ./install.sh --check for a read-only readiness check. Staged --destdir installation checks prerequisites but does not install host packages, use sudo, or run mandb. Invalid paths and escaping symlinks are rejected. Noninteractive defaults and declined/EOF prompts preserve existing user launchers; explicit --dev-command system removes the managed launcher.
 .SH SYSTEM REQUIREMENTS
 Requires the distribution /usr/bin/python3 (Python 3.9+),
-.BR python3\-gobject ,
+PyGObject (python3-gi and gir1.2-glib-2.0 on Ubuntu/Debian; python3-gobject on Fedora/RHEL),
 .BR systemd\-logind ,
 .BR power\-profiles\-daemon ,
 and

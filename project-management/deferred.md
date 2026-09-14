@@ -10,7 +10,8 @@
     regressions covering SIGINT, SIGTERM, early setup, one-shot setup, repeated
     signals, loop-entry race, setup failure, lid cycle, and `--no-plot`.
   - Reactivation: visible Ctrl-C report confirmation in `BB-MANUAL-01`.
-    General output/cleanup failure isolation proceeds in P4.
+    P4 hardening is delivered in `eab9d1d`; final native suite passes 138 tests.
+    Exact revised-build instructions are in [the testing guide](../docs/testing.md).
 
 - `BB-2026-09-14-P2` — ARM support. Started and deferred 2026-09-14;
   owner: Codex; authority: operator's manual-validation deferral instruction.
@@ -22,8 +23,10 @@
   - Evidence: 77 tests passed natively on Ubuntu/aarch64; read-only real
     battery sampling returned a valid 70% observation from energy_now/energy_full
     without errors. Tests cover driver-shaped fixtures and invalid sources.
-  - Reactivation: `BB-MANUAL-01` physical backlight/lid/profile observations.
-    Suspend and unsupported performance-profile handling continue under P4.
+  - Reactivation: `BB-MANUAL-01` physical backlight/lid/profile observations
+    and `BB-MANUAL-02` supervised suspend/resume. P4 now verifies profiles,
+    rejects unavailable performance/hibernation capabilities, and preserves
+    recovery on uncertain results. No physical sleep success is claimed.
 
 
 Use this file for intentionally paused work moved from the backlog or

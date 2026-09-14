@@ -7,9 +7,9 @@ records; this file provides the recovery anchor for the current plan.
 
 ## Publication
 
-Delivery: active
+Delivery: blocked
 
-Notes: P4 verified with 138 native tests plus Python compatibility suites. Documentation delivery active; operator owns dev installation.
+Notes: Automated delivery complete: 138 native tests pass. Await operator dev install and BB-MANUAL-01/02 observations; P2/P3 retained.
 
 ## Phases
 
@@ -19,8 +19,8 @@ Notes: P4 verified with 138 native tests plus Python compatibility suites. Docum
 | P2 | blocked | ARM platform support |
 | P3 | blocked | Shutdown graph and summary |
 | P4 | done | Error and exception hardening |
-| P5 | active | Documentation and installation |
-| V | pending | Manual validation and final closure |
+| P5 | done | Documentation and installation |
+| V | active | Manual validation and final closure |
 
 ## Slices
 
@@ -33,7 +33,7 @@ Notes: P4 verified with 138 native tests plus Python compatibility suites. Docum
 | P2.1 | P2 | done | Inventory ARM platform capabilities |
 | P2.2 | P2 | done | Repair driver compatibility |
 | P2.3 | P2 | done | Verify native ARM battery sampling |
-| P2.4 | P2 | blocked | Confirm backlight and profiles |
+| P2.4 | P2 | blocked | Confirm backlight, profiles, and suspend |
 | P3.1 | P3 | done | Reproduce missing shutdown report |
 | P3.2 | P3 | done | Unify handled finalization |
 | P3.3 | P3 | done | Test signals through actual GLib |
@@ -42,11 +42,11 @@ Notes: P4 verified with 138 native tests plus Python compatibility suites. Docum
 | P4.2 | P4 | done | Harden runtime recovery |
 | P4.3 | P4 | done | Harden installer failures |
 | P4.4 | P4 | done | Verify injected failures and suite |
-| P5.1 | P5 | active | Synchronize behavior contracts |
-| P5.2 | P5 | pending | Regenerate README and manual |
-| P5.3 | P5 | pending | Validate and install delivery |
-| P5.4 | P5 | pending | Publish evidence and handoff |
-| V.1 | V | pending | Collect manual observations |
+| P5.1 | P5 | done | Synchronize behavior contracts |
+| P5.2 | P5 | done | Regenerate README and manual |
+| P5.3 | P5 | done | Validate delivery and installer handoff |
+| P5.4 | P5 | done | Publish evidence and handoff |
+| V.1 | V | active | Collect manual observations |
 | V.2 | V | pending | Repair and verify reported defects |
 | V.3 | V | pending | Close requests and publish closure |
 

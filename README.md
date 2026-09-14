@@ -8,18 +8,18 @@
 
 ## Why "burnbag"?
 
-In intelligence and government work, a burn bag is where classified documents go for destruction. In systems engineering, it is what your backpack turns into when you throw a running laptop compiling code inside with zero airflow. `burnbag` gives you explicit control over your thermals and sleep timers so you don't cook your hardware.
+In intelligence and government work, a burn bag is where classified documents go for destruction. In systems engineering, it is what your backpack turns into when you throw a running laptop compiling code inside with zero airflow. `burnbag` controls power profiles and optional sleep countdowns. A countdown measures continuous lid-closed time; it does not measure temperature or establish a safe temperature limit.
 
 ---
 
-## Architecture & Safety Guarantees
+## Architecture and recovery
 
 Unlike traditional lid-close scripts that permanently mutate `/etc/systemd/logind.conf` or set permanent `gsettings` overrides, `burnbag` uses **ephemeral D-Bus inhibitor file descriptors** (`org.freedesktop.login1.Manager.Inhibit`).
 
-* **Crash & Kill Immune Inhibitors:** Holding the returned Unix file descriptor open maintains the sleep/lid prohibition. If `burnbag` terminates normally, crashes, or is killed (`SIGINT`, `SIGTERM`, `SIGKILL`), the kernel closes the file descriptors, signaling `systemd-logind` to immediately drop the inhibitor locks and restore standard OS sleep behavior.
+* **Process-owned inhibitors:** Holding the returned Unix file descriptor open maintains the sleep/lid prohibition. If `burnbag` terminates normally, crashes, or is killed (`SIGINT`, `SIGTERM`, `SIGKILL`), the kernel closes the file descriptors, signaling `systemd-logind` to drop this process's inhibitor locks. Other inhibitors and OS policy still apply.
 * **Default Backlight Control:** Persistent `run*` modes record every kernel screen-backlight device, turn the backlight off three seconds after process startup, verify it is off, and restore and verify a nonzero brightness before every handled exit. `--do-not-touch-backlight` explicitly opts out.
 * **Validated Display Session:** Backlight control prefers the process's active local logind session. Launchers outside direct PID accounting, including tmux and user-service scopes, fall back through an inherited session ID to the operator's primary graphical session. Every candidate must match the effective UID, be active, and be local.
-* **Explicit State Restoration:** On normal completion, handled `SIGINT`/`SIGTERM`, or a caught application error, `burnbag` restores the recorded backlight and power profile. `SIGKILL`, sudden power loss, and equivalent process destruction cannot run userspace teardown; unlike inhibitor FDs, explicit brightness and profile changes cannot be promised restoration in those cases.
+* **Explicit State Restoration:** On normal completion, handled `SIGINT`/`SIGTERM`/`SIGHUP`, or a caught application error, `burnbag` attempts and verifies restoration of the backlight and any temporary power-profile change. Unverified restoration returns nonzero. `SIGKILL`, sudden power loss, and equivalent process destruction cannot run userspace teardown; unlike inhibitor FDs, explicit brightness and profile changes cannot be promised restoration in those cases.
 * **Narrative Verification:** Prints an explicit startup narrative before touching system state, and a structured teardown report upon exit detailing whether goals were achieved and any deviations observed.
 * **Adaptive Terminal Presentation:** Interactive terminals receive ANSI color and stronger visual hierarchy in runtime messages, help, usage tips, and errors. Redirected streams and explicit plain-output controls remain free of terminal escapes, and status meaning is always retained in text labels.
 * **Durable Running Log:** Every accepted operational session appends structured JSON Lines under the invoking user's XDG state directory. Each record is serialized across concurrent processes and synchronized with `fsync`; mutation intent is durable before safety-relevant host changes, and handled teardown is recorded before exit.
@@ -32,7 +32,7 @@ Unlike traditional lid-close scripts that permanently mutate `/etc/systemd/login
 * **OS:** Ubuntu/Debian or Fedora/RHEL family Linux with systemd-logind; x86-64 and ARM64
 * **Python:** Distribution `/usr/bin/python3` (Python 3.9+)
 * **System Libraries:** PyGObject: `python3-gi gir1.2-glib-2.0` on Ubuntu/Debian; `python3-gobject` on Fedora/RHEL
-* **D-Bus Services:** `systemd-logind`, `power-profiles-daemon`, `UPower`
+* **D-Bus Services:** `systemd-logind`; `UPower` for lid-driven behavior; `power-profiles-daemon` for requested profile changes.
 
 Install or verify the distribution-provided Python binding from the checkout:
 
@@ -53,7 +53,7 @@ Install prerequisites, the executable, and the manual page under `/usr/local`:
 ./install.sh
 ```
 
-The installer requests `sudo` only when package or system-file installation requires it. Use `./install.sh --help` for staging and prefix options.
+The installer requests `sudo` only when package or system-file installation requires it. Use `./install.sh --check` for a read-only readiness check. `--destdir /absolute/staging/root` stages files without installing host packages, using sudo, or updating the host manual index. Paths containing `..`, escaping staging symlinks, and directory/symlink file targets are rejected. Use `./install.sh --help` for all options.
 
 For a repository-local development install, run:
 
@@ -64,7 +64,7 @@ command -v burnbag
 
 In an interactive terminal, dev mode reports any competing `burnbag` command and asks whether bare invocations should prefer this checkout. If accepted, it installs a managed launcher at `~/.local/bin/burnbag` and verifies that command lookup selects it. The user bin directory must already precede the installed command on `PATH`; the installer cannot change its parent shell's environment.
 
-Non-interactive dev installs leave command resolution unchanged unless policy is explicit:
+Non-interactive dev installs leave existing launchers and command resolution unchanged unless policy is explicit. Declining the interactive prompt or reaching end-of-input also preserves them:
 
 ```bash
 ./install.sh --mode dev --dev-command local
@@ -90,12 +90,14 @@ burnbag <MODE> [OPTIONS]
 | `run-balanced` | Inhibit lid-close suspend; switch to `balanced` profile. |
 | `run-hot` | Inhibit lid-close suspend; switch to `performance` profile. |
 | `suspend` | Immediately trigger a one-shot system suspend. |
-| `hibernate` | Immediately trigger a one-shot system hibernate (requires disk swap). |
-| `normal` | Clear active overrides and restore system defaults (`balanced` profile). |
+| `hibernate` | Request system hibernation after checking platform support and policy. |
+| `normal` | Select, verify, and retain the `balanced` profile. Other running processes retain their own inhibitors. |
+
+Profiles are checked before a requested change. If `performance` is not advertised, `run-hot` fails clearly; use `powerprofilesctl list` to inspect available profiles. Plain `run` can leave profiles untouched when the profile daemon is unavailable. Lid-dependent runs require valid lid telemetry; `--ignore-lid` without a suspend countdown can operate without it. Suspend and hibernate requests check the system-reported capability first.
 
 ### Options
 
-* `--suspend-after-minutes <MIN>`: Unconditionally suspend after `MIN` minutes of continuous lid closure. If the lid is opened before the timer expires, the timer is cancelled.
+* `--suspend-after-minutes <MIN>`: Request suspend after `MIN` minutes of continuous lid closure. If the lid is opened before the timer expires, the timer is cancelled.
 * `--no-inhibit-auto-suspend`: Allow standard OS background idle timers to suspend the system normally while lid-switch sleep remains blocked.
 * `--ignore-lid`: Keep a `run*` mode active when the lid opens. Lid opening still cancels an active suspend countdown; a later closure starts a fresh countdown. Without this option, the first observed close/open cycle ends the program.
 * `--do-not-touch-backlight`: Leave the screen backlight untouched. Without this opt-out, persistent `run*` modes turn every discovered backlight off three seconds after process startup and restore and verify it as on before handled exit.
@@ -130,11 +132,13 @@ Below the graph, or by itself under `--no-plot`, burnbag prints one to three lin
 
 ---
 
+Ctrl-C, SIGTERM, SIGHUP, a completed lid cycle, and handled errors all attempt the same final chart and summary once battery monitoring has begun, including with `--ignore-lid`. A broken stdout falls back to stderr when possible; output failure still selects nonzero status and cannot bypass restoration. Graph and statistics rendering are independent, so failure in one does not suppress the other.
+
 ## Durable Running Log
 
 Every accepted operational invocation must establish its running log before PyGObject is loaded or host state is changed. The default path is `$XDG_STATE_HOME/burnbag/burnbag.log`, or `$HOME/.local/state/burnbag/burnbag.log` when `XDG_STATE_HOME` is unset. `--log-file /absolute/path` selects another file; there is deliberately no no-log option.
 
-The log is UTF-8 JSON Lines. Records include UTC and monotonic time, a session UUID, sequence number, process and user IDs, selected mode, stable event code, severity, message, and structured details. Battery discovery and each initial, periodic, and final battery sample are recorded alongside the power lifecycle; the final summary includes versioned, unit-bearing derived statistics, signed per-minute average and standard deviation fields, and explicit validity reasons. `session_start` is synchronized before runtime initialization. A handled `session_end` is synchronized after backlight restoration, inhibitor release, and power-profile restoration. If a process or the machine dies before handled teardown, the missing `session_end` remains useful evidence instead of being fabricated later.
+The log is UTF-8 JSON Lines. Records include UTC and monotonic time, a session UUID, sequence number, process and user IDs, selected mode, stable event code, severity, message, and structured details. Battery discovery and each initial, periodic, and final battery sample are recorded alongside the power lifecycle; the final summary includes versioned, unit-bearing derived statistics, signed per-minute average and standard deviation fields, and explicit validity reasons. `session_start` is synchronized before runtime initialization. A handled `session_end` is synchronized after backlight restoration, inhibitor release, power-profile restoration, and final reporting attempts, including observed output failures. If a process or the machine dies before handled teardown, the missing `session_end` remains useful evidence instead of being fabricated later.
 
 Each complete record is appended while holding an exclusive advisory lock and is followed by `fsync` before the operation continues. The managed directory is mode `0700` and the log is mode `0600`; symlink targets, non-regular files, multiply linked files, wrong ownership, and unsafe parent permissions are rejected. Failure to open, append, lock, or synchronize the log prevents further host mutation and returns nonzero. If logging fails after state has changed, teardown still takes precedence and runs to completion.
 
@@ -150,7 +154,7 @@ tail -n 20 "${XDG_STATE_HOME:-$HOME/.local/state}/burnbag/burnbag.log"
 
 ## Usage Examples
 
-**1. Run at maximum performance inside a bag with a 20-minute thermal/battery safety fuse:**
+**1. Request performance mode with a 20-minute continuous-lid-closure countdown:**
 ```bash
 burnbag run-hot --suspend-after-minutes 20
 ```
@@ -165,7 +169,7 @@ burnbag run-cool
 burnbag run --no-inhibit-auto-suspend
 ```
 
-**4. Immediately restore normal system power and sleep behavior:**
+**4. Select and retain the balanced power profile:**
 ```bash
 burnbag normal
 ```
@@ -189,3 +193,7 @@ burnbag run-cool --log-file /absolute/path/to/automation.jsonl
 ```bash
 burnbag run-cool --no-plot
 ```
+
+## Development and verification
+
+See [the roadmap](ROADMAP.md), [behavior specifications](docs/specifications/README.md), and [automated/manual verification](docs/testing.md). Run `/usr/bin/python3 -B -m unittest discover -s tests` for the native suite. README and manual sources are in `makedocs.py`; `./makedocs.py --check` checks consistency without writing.

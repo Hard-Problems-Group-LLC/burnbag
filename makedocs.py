@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-make_docs.py — Generates README.md and burnbag.1 cleanly with UNIX line endings.
+makedocs.py — Generates or checks checkout README.md and burnbag.1.
 Bypasses web UI markdown parser bugs by avoiding nested code-fence literals.
 """
 
+import argparse
 import os
+from pathlib import Path
+import tempfile
+import sys
 
 # Programmatic code-fence delimiter to prevent UI markdown parser collisions
 CB = chr(96) * 3
@@ -21,18 +25,18 @@ readme_lines = [
     "",
     "## Why \"burnbag\"?",
     "",
-    "In intelligence and government work, a burn bag is where classified documents go for destruction. In systems engineering, it is what your backpack turns into when you throw a running laptop compiling code inside with zero airflow. `burnbag` gives you explicit control over your thermals and sleep timers so you don't cook your hardware.",
+    "In intelligence and government work, a burn bag is where classified documents go for destruction. In systems engineering, it is what your backpack turns into when you throw a running laptop compiling code inside with zero airflow. `burnbag` controls power profiles and optional sleep countdowns. A countdown measures continuous lid-closed time; it does not measure temperature or establish a safe temperature limit.",
     "",
     "---",
     "",
-    "## Architecture & Safety Guarantees",
+    "## Architecture and recovery",
     "",
     "Unlike traditional lid-close scripts that permanently mutate `/etc/systemd/logind.conf` or set permanent `gsettings` overrides, `burnbag` uses **ephemeral D-Bus inhibitor file descriptors** (`org.freedesktop.login1.Manager.Inhibit`).",
     "",
-    "* **Crash & Kill Immune Inhibitors:** Holding the returned Unix file descriptor open maintains the sleep/lid prohibition. If `burnbag` terminates normally, crashes, or is killed (`SIGINT`, `SIGTERM`, `SIGKILL`), the kernel closes the file descriptors, signaling `systemd-logind` to immediately drop the inhibitor locks and restore standard OS sleep behavior.",
+    "* **Process-owned inhibitors:** Holding the returned Unix file descriptor open maintains the sleep/lid prohibition. If `burnbag` terminates normally, crashes, or is killed (`SIGINT`, `SIGTERM`, `SIGKILL`), the kernel closes the file descriptors, signaling `systemd-logind` to drop this process's inhibitor locks. Other inhibitors and OS policy still apply.",
     "* **Default Backlight Control:** Persistent `run*` modes record every kernel screen-backlight device, turn the backlight off three seconds after process startup, verify it is off, and restore and verify a nonzero brightness before every handled exit. `--do-not-touch-backlight` explicitly opts out.",
     "* **Validated Display Session:** Backlight control prefers the process's active local logind session. Launchers outside direct PID accounting, including tmux and user-service scopes, fall back through an inherited session ID to the operator's primary graphical session. Every candidate must match the effective UID, be active, and be local.",
-    "* **Explicit State Restoration:** On normal completion, handled `SIGINT`/`SIGTERM`, or a caught application error, `burnbag` restores the recorded backlight and power profile. `SIGKILL`, sudden power loss, and equivalent process destruction cannot run userspace teardown; unlike inhibitor FDs, explicit brightness and profile changes cannot be promised restoration in those cases.",
+    "* **Explicit State Restoration:** On normal completion, handled `SIGINT`/`SIGTERM`/`SIGHUP`, or a caught application error, `burnbag` attempts and verifies restoration of the backlight and any temporary power-profile change. Unverified restoration returns nonzero. `SIGKILL`, sudden power loss, and equivalent process destruction cannot run userspace teardown; unlike inhibitor FDs, explicit brightness and profile changes cannot be promised restoration in those cases.",
     "* **Narrative Verification:** Prints an explicit startup narrative before touching system state, and a structured teardown report upon exit detailing whether goals were achieved and any deviations observed.",
     "* **Adaptive Terminal Presentation:** Interactive terminals receive ANSI color and stronger visual hierarchy in runtime messages, help, usage tips, and errors. Redirected streams and explicit plain-output controls remain free of terminal escapes, and status meaning is always retained in text labels.",
     "* **Durable Running Log:** Every accepted operational session appends structured JSON Lines under the invoking user's XDG state directory. Each record is serialized across concurrent processes and synchronized with `fsync`; mutation intent is durable before safety-relevant host changes, and handled teardown is recorded before exit.",
@@ -45,7 +49,7 @@ readme_lines = [
     "* **OS:** Ubuntu/Debian or Fedora/RHEL family Linux with systemd-logind; x86-64 and ARM64",
     "* **Python:** Distribution `/usr/bin/python3` (Python 3.9+)",
     "* **System Libraries:** PyGObject: `python3-gi gir1.2-glib-2.0` on Ubuntu/Debian; `python3-gobject` on Fedora/RHEL",
-    "* **D-Bus Services:** `systemd-logind`, `power-profiles-daemon`, `UPower`",
+    "* **D-Bus Services:** `systemd-logind`; `UPower` for lid-driven behavior; `power-profiles-daemon` for requested profile changes.",
     "",
     "Install or verify the distribution-provided Python binding from the checkout:",
     "",
@@ -66,7 +70,7 @@ readme_lines = [
     "./install.sh",
     CB,
     "",
-    "The installer requests `sudo` only when package or system-file installation requires it. Use `./install.sh --help` for staging and prefix options.",
+    "The installer requests `sudo` only when package or system-file installation requires it. Use `./install.sh --check` for a read-only readiness check. `--destdir /absolute/staging/root` stages files without installing host packages, using sudo, or updating the host manual index. Paths containing `..`, escaping staging symlinks, and directory/symlink file targets are rejected. Use `./install.sh --help` for all options.",
     "",
     "For a repository-local development install, run:",
     "",
@@ -77,7 +81,7 @@ readme_lines = [
     "",
     "In an interactive terminal, dev mode reports any competing `burnbag` command and asks whether bare invocations should prefer this checkout. If accepted, it installs a managed launcher at `~/.local/bin/burnbag` and verifies that command lookup selects it. The user bin directory must already precede the installed command on `PATH`; the installer cannot change its parent shell's environment.",
     "",
-    "Non-interactive dev installs leave command resolution unchanged unless policy is explicit:",
+    "Non-interactive dev installs leave existing launchers and command resolution unchanged unless policy is explicit. Declining the interactive prompt or reaching end-of-input also preserves them:",
     "",
     f"{CB}bash",
     "./install.sh --mode dev --dev-command local",
@@ -103,12 +107,14 @@ readme_lines = [
     "| `run-balanced` | Inhibit lid-close suspend; switch to `balanced` profile. |",
     "| `run-hot` | Inhibit lid-close suspend; switch to `performance` profile. |",
     "| `suspend` | Immediately trigger a one-shot system suspend. |",
-    "| `hibernate` | Immediately trigger a one-shot system hibernate (requires disk swap). |",
-    "| `normal` | Clear active overrides and restore system defaults (`balanced` profile). |",
+    "| `hibernate` | Request system hibernation after checking platform support and policy. |",
+    "| `normal` | Select, verify, and retain the `balanced` profile. Other running processes retain their own inhibitors. |",
+    "",
+    "Profiles are checked before a requested change. If `performance` is not advertised, `run-hot` fails clearly; use `powerprofilesctl list` to inspect available profiles. Plain `run` can leave profiles untouched when the profile daemon is unavailable. Lid-dependent runs require valid lid telemetry; `--ignore-lid` without a suspend countdown can operate without it. Suspend and hibernate requests check the system-reported capability first.",
     "",
     "### Options",
     "",
-    "* `--suspend-after-minutes <MIN>`: Unconditionally suspend after `MIN` minutes of continuous lid closure. If the lid is opened before the timer expires, the timer is cancelled.",
+    "* `--suspend-after-minutes <MIN>`: Request suspend after `MIN` minutes of continuous lid closure. If the lid is opened before the timer expires, the timer is cancelled.",
     "* `--no-inhibit-auto-suspend`: Allow standard OS background idle timers to suspend the system normally while lid-switch sleep remains blocked.",
     "* `--ignore-lid`: Keep a `run*` mode active when the lid opens. Lid opening still cancels an active suspend countdown; a later closure starts a fresh countdown. Without this option, the first observed close/open cycle ends the program.",
     "* `--do-not-touch-backlight`: Leave the screen backlight untouched. Without this opt-out, persistent `run*` modes turn every discovered backlight off three seconds after process startup and restore and verify it as on before handled exit.",
@@ -143,11 +149,13 @@ readme_lines = [
     "",
     "---",
     "",
+    "Ctrl-C, SIGTERM, SIGHUP, a completed lid cycle, and handled errors all attempt the same final chart and summary once battery monitoring has begun, including with `--ignore-lid`. A broken stdout falls back to stderr when possible; output failure still selects nonzero status and cannot bypass restoration. Graph and statistics rendering are independent, so failure in one does not suppress the other.",
+    "",
     "## Durable Running Log",
     "",
     "Every accepted operational invocation must establish its running log before PyGObject is loaded or host state is changed. The default path is `$XDG_STATE_HOME/burnbag/burnbag.log`, or `$HOME/.local/state/burnbag/burnbag.log` when `XDG_STATE_HOME` is unset. `--log-file /absolute/path` selects another file; there is deliberately no no-log option.",
     "",
-    "The log is UTF-8 JSON Lines. Records include UTC and monotonic time, a session UUID, sequence number, process and user IDs, selected mode, stable event code, severity, message, and structured details. Battery discovery and each initial, periodic, and final battery sample are recorded alongside the power lifecycle; the final summary includes versioned, unit-bearing derived statistics, signed per-minute average and standard deviation fields, and explicit validity reasons. `session_start` is synchronized before runtime initialization. A handled `session_end` is synchronized after backlight restoration, inhibitor release, and power-profile restoration. If a process or the machine dies before handled teardown, the missing `session_end` remains useful evidence instead of being fabricated later.",
+    "The log is UTF-8 JSON Lines. Records include UTC and monotonic time, a session UUID, sequence number, process and user IDs, selected mode, stable event code, severity, message, and structured details. Battery discovery and each initial, periodic, and final battery sample are recorded alongside the power lifecycle; the final summary includes versioned, unit-bearing derived statistics, signed per-minute average and standard deviation fields, and explicit validity reasons. `session_start` is synchronized before runtime initialization. A handled `session_end` is synchronized after backlight restoration, inhibitor release, power-profile restoration, and final reporting attempts, including observed output failures. If a process or the machine dies before handled teardown, the missing `session_end` remains useful evidence instead of being fabricated later.",
     "",
     "Each complete record is appended while holding an exclusive advisory lock and is followed by `fsync` before the operation continues. The managed directory is mode `0700` and the log is mode `0600`; symlink targets, non-regular files, multiply linked files, wrong ownership, and unsafe parent permissions are rejected. Failure to open, append, lock, or synchronize the log prevents further host mutation and returns nonzero. If logging fails after state has changed, teardown still takes precedence and runs to completion.",
     "",
@@ -163,7 +171,7 @@ readme_lines = [
     "",
     "## Usage Examples",
     "",
-    "**1. Run at maximum performance inside a bag with a 20-minute thermal/battery safety fuse:**",
+    "**1. Request performance mode with a 20-minute continuous-lid-closure countdown:**",
     f"{CB}bash",
     "burnbag run-hot --suspend-after-minutes 20",
     CB,
@@ -178,7 +186,7 @@ readme_lines = [
     "burnbag run --no-inhibit-auto-suspend",
     CB,
     "",
-    "**4. Immediately restore normal system power and sleep behavior:**",
+    "**4. Select and retain the balanced power profile:**",
     f"{CB}bash",
     "burnbag normal",
     CB,
@@ -202,12 +210,16 @@ readme_lines = [
     f"{CB}bash",
     "burnbag run-cool --no-plot",
     CB,
+    "",
+    "## Development and verification",
+    "",
+    "See [the roadmap](ROADMAP.md), [behavior specifications](docs/specifications/README.md), and [automated/manual verification](docs/testing.md). Run `/usr/bin/python3 -B -m unittest discover -s tests` for the native suite. README and manual sources are in `makedocs.py`; `./makedocs.py --check` checks consistency without writing.",
 ]
 
 man_lines = [
     '.\\" Man page for burnbag(1)',
     '.\\" Target platform: Ubuntu/Debian and Fedora/RHEL; x86-64 and ARM64',
-    '.TH BURNBAG 1 "August 2026" "burnbag 1.0" "User Commands"',
+    '.TH BURNBAG 1 "September 2026" "burnbag 1.0" "User Commands"',
     '.SH NAME',
     'burnbag \\- ephemeral clamshell mode, battery monitoring, power profile, and sleep inhibition for Linux laptops',
     '.SH SYNOPSIS',
@@ -224,9 +236,9 @@ man_lines = [
     '.PP',
     'Unlike static configuration overrides,',
     '.B burnbag',
-    'relies on ephemeral D\\-Bus inhibitor file descriptors. Holding these file descriptors open blocks the operating system from suspending when the laptop lid is shut. Upon normal exit, interrupt (\\fBSIGINT\\fR/\\fBSIGTERM\\fR), or process death (\\fBSIGKILL\\fR), the kernel releases the file descriptors, instructing',
+    'relies on ephemeral D\\-Bus inhibitor file descriptors. Holding these file descriptors open blocks the operating system from suspending when the laptop lid is shut. Upon normal exit, interrupt (\\fBSIGINT\\fR/\\fBSIGTERM\\fR/\\fBSIGHUP\\fR), or process death (\\fBSIGKILL\\fR), the kernel releases the file descriptors, instructing',
     '.B systemd-logind',
-    'to automatically drop all inhibitor locks and restore normal OS safety defaults.',
+    "to drop this process's inhibitor locks. Other inhibitors and OS policy still apply.",
     '.PP',
     'Persistent run modes use the caller\\(aqs',
     '.B org.freedesktop.login1.Session.SetBrightness',
@@ -234,7 +246,7 @@ man_lines = [
     '.PP',
     'The control session is resolved from the process session, inherited XDG_SESSION_ID, or the user\\(aqs primary graphical logind session. A candidate must belong to the effective UID, be active, and be local. This supports tmux and user-service launchers whose PIDs are not assigned directly to a logind session.',
     '.PP',
-    'Explicit backlight and power\\-profile restoration can run after normal completion, handled SIGINT/SIGTERM, and caught application errors. It cannot run after SIGKILL, sudden power loss, or equivalent process destruction. Inhibitor file descriptors remain kernel\\-released in those cases.',
+    'Explicit backlight and power\\-profile restoration can run after normal completion, handled SIGINT/SIGTERM/SIGHUP, and caught application errors. It cannot run after SIGKILL, sudden power loss, or equivalent process destruction. Inhibitor file descriptors remain kernel\\-released in those cases.',
     '.PP',
     '.B burnbag',
     'provides narrative console logging on startup and exit, detailing intended system mutations, operational deviations, and the final shutdown state of D\\-Bus locks and power profiles.',
@@ -251,7 +263,7 @@ man_lines = [
     '.B run\\-cool',
     'Inhibit lid\\-close suspend events and switch the system power profile to',
     '.BR power\\-saver .',
-    'Runs as cool as possible to limit thermal buildup inside enclosed spaces.',
+    'Requires the power-saver profile to be advertised by the system daemon; this is not a temperature guarantee.',
     '.TP',
     '.B run\\-balanced',
     'Inhibit lid\\-close suspend events and switch the system power profile to',
@@ -265,20 +277,20 @@ man_lines = [
     'Immediately trigger a one\\-shot system suspend via D\\-Bus and exit.',
     '.TP',
     '.B hibernate',
-    'Verify system hibernation capability via D\\-Bus and immediately hibernate. Fails early with an explicit error if disk swap is unavailable (e.g., standard Fedora',
-    '.B zram',
-    'configurations without dedicated swap storage).',
+    'Verify system hibernation capability via D\\-Bus, then request hibernation. Unsupported platform capabilities, missing prerequisites, or denied policy produce an explicit failure.',
     '.TP',
     '.B normal',
-    'Immediately restore system defaults: reset power profile to',
+    'Select, verify, and retain the power profile',
     '.BR balanced ,',
-    'clear any active overrides, and exit.',
+    'then exit. Other running processes retain their own inhibitor descriptors; end those processes to release their locks.',
+    '.PP',
+    'Requested profiles must be advertised by power-profiles-daemon and are verified after changes and restoration. Unavailable profiles fail before inhibitor acquisition. Plain run can operate without the profile daemon. Lid-driven termination and countdowns require valid UPower lid telemetry; --ignore-lid without a countdown can await a signal without a sensor.',
     '.SH OPTIONS',
     '.TP',
     '.BI \\-\\-suspend\\-after\\-minutes " MIN"',
-    'Unconditionally suspend the system after',
+    'Request system suspend after',
     '.I MIN',
-    'minutes of continuous lid closure. Designed as a safety fuse when running inside a backpack or bag. If the lid is reopened before',
+    'minutes of continuous lid closure. The countdown does not measure temperature. If the lid is reopened before',
     '.I MIN',
     'elapses, the countdown timer is cancelled.',
     '.TP',
@@ -322,10 +334,12 @@ man_lines = [
     'Below the graph, or by itself when the graph is suppressed, burnbag prints one to three summary lines per battery. Endpoints, net percentage-point change, elapsed span, a whole-run least-squares gauge trend, fit, and coverage are shown. When enough reported whole-percentage transitions exist, gauge depletion-rate variability sigma is reported in percentage points per hour as the duration-weighted standard deviation of transition-to-transition gauge rates. The summary also shows signed average reported-gauge change per minute and its nonnegative standard deviation in pp/min; falling state of charge is negative and rising state of charge is positive. These are conversions of the same gated transition-rate distribution, not raw 15-second derivatives or an independent physical measurement. They describe uneven reported depletion velocity, not acceleration, watts, instantaneous load, or zero draw when the integer gauge stays flat. Missing readings, long intervals, and known charge-status changes break local-rate continuity; short, flat, mixed, and gapped histories are explicitly qualified with n/a where necessary.',
     '.PP',
     'SIGKILL, sudden power loss, and equivalent unhandled exits cannot render a chart or summary or take a final sample; previously synchronized records remain available.',
+    '.PP',
+    'Ctrl-C, SIGTERM, SIGHUP, lid-cycle completion, and handled errors attempt the same shutdown chart and summary once battery monitoring starts, including with --ignore-lid. Output failure selects nonzero status but cannot prevent restoration. Broken stdout falls back to stderr when possible; graph and statistics rendering are independent.',
     '.SH RUNNING LOG',
     'Every accepted operational invocation establishes a mandatory append-only running log before PyGObject is loaded or host state is changed. The default path is $XDG_STATE_HOME/burnbag/burnbag.log, falling back to $HOME/.local/state/burnbag/burnbag.log. There is no no-log option.',
     '.PP',
-    'The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and every initial, periodic, and final battery sample are included; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown. Absence of session_end is retained as evidence of an unhandled process or power interruption.',
+    'The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and every initial, periodic, and final battery sample are included; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown and final reporting attempts, including observed output failures. Absence of session_end is retained as evidence of an unhandled process or power interruption.',
     '.PP',
     'Each record is appended under an exclusive advisory lock and followed by fsync before execution continues. Safety-relevant mutation intent is synchronized before the mutation. Failure to resolve, open, validate, lock, append, or synchronize the log prevents further host mutation and returns nonzero. Logging failure never prevents backlight, inhibitor, or power-profile teardown.',
     '.PP',
@@ -344,9 +358,9 @@ man_lines = [
     '.B burnbag',
     'holds the handle open, sleep is blocked. When',
     '.B burnbag',
-    'terminates for any reason, the descriptor closes and default sleep safety policies immediately resume.',
+    'terminates, its owned descriptors close. Other processes and system policy may still inhibit sleep.',
     '.SH EXAMPLES',
-    'Run in performance mode with a 15\\-minute thermal safety fuse:',
+    'Request performance mode with a 15\\-minute continuous-lid-closure countdown:',
     '.PP',
     '.RS 4',
     '.B burnbag run\\-hot \\-\\-suspend\\-after\\-minutes 15',
@@ -358,7 +372,7 @@ man_lines = [
     '.B burnbag run\\-cool',
     '.RE',
     '.PP',
-    'Stay active across repeated lid cycles while retaining a 20\\-minute closed-lid safety fuse:',
+    'Stay active across repeated lid cycles with a 20\\-minute continuous-lid-closure countdown:',
     '.PP',
     '.RS 4',
     '.B burnbag run\\-cool \\-\\-ignore\\-lid \\-\\-suspend\\-after\\-minutes 20',
@@ -382,7 +396,7 @@ man_lines = [
     '.B burnbag run\\-cool \\-\\-no\\-plot',
     '.RE',
     '.PP',
-    'Restore normal system defaults immediately:',
+    'Select and retain the balanced power profile:',
     '.PP',
     '.RS 4',
     '.B burnbag normal',
@@ -390,11 +404,11 @@ man_lines = [
     '.SH EXIT STATUS',
     '.TP',
     '.B 0',
-    'Successful execution, complete lid cycle observed, or clean termination via interrupt (\\fBSIGINT\\fR/\\fBSIGTERM\\fR).',
+    'Successful execution, complete lid cycle observed, or clean termination via interrupt (\\fBSIGINT\\fR/\\fBSIGTERM\\fR/\\fBSIGHUP\\fR).',
     '.TP',
     '.B 1',
     'Fatal error or unverified required state encountered (e.g., missing',
-    '.B python3\\-gobject',
+    '.B PyGObject',
     'dependencies, D\\-Bus connection failure, running-log durability failure, unsupported hibernation request, battery observation failure, or backlight mutation/restoration failure).',
     '.TP',
     '.B 2',
@@ -415,9 +429,11 @@ man_lines = [
     '.B ./install.sh \\-\\-mode dev \\-\\-dev\\-command local',
     '.PP',
     'or set BURNBAG_DEV_LAUNCHER_MODE=local. Use \\-\\-dev\\-command system to remove the managed user launcher and retain the other PATH result. Use \\-\\-user\\-home with an explicit operator home when automation supplies an isolated assistant HOME.',
+    '.PP',
+    'Use ./install.sh --check for a read-only readiness check. Staged --destdir installation checks prerequisites but does not install host packages, use sudo, or run mandb. Invalid paths and escaping symlinks are rejected. Noninteractive defaults and declined/EOF prompts preserve existing user launchers; explicit --dev-command system removes the managed launcher.',
     '.SH SYSTEM REQUIREMENTS',
     'Requires the distribution /usr/bin/python3 (Python 3.9+),',
-    '.BR python3\\-gobject ,',
+    'PyGObject (python3-gi and gir1.2-glib-2.0 on Ubuntu/Debian; python3-gobject on Fedora/RHEL),',
     '.BR systemd\\-logind ,',
     '.BR power\\-profiles\\-daemon ,',
     'and',
@@ -431,16 +447,45 @@ man_lines = [
     '.BR powerprofilesctl (1)',
 ]
 
-def main():
-    with open("README.md", "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(readme_lines) + "\n")
+def main(argv=None):
+    """Anchor generated files to this checkout and publish each file atomically."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="verify generated files without writing")
+    args = parser.parse_args(argv)
+    root = Path(__file__).resolve().parent
+    outputs = {"README.md": readme_lines, "burnbag.1": man_lines}
+    try:
+        mismatches = []
+        for name, lines in outputs.items():
+            target = root / name
+            if target.is_symlink() or (target.exists() and not target.is_file()):
+                raise OSError(f"Refusing non-regular generated target: {target}")
+            content = ("\n".join(lines) + "\n").encode("utf-8")
+            if args.check:
+                if not target.exists() or target.read_bytes() != content:
+                    mismatches.append(name)
+                continue
+            # Atomic replacement requires a temporary sibling on the same
+            # filesystem, rather than the general .local/tmp test workspace.
+            descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=root)
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(content)
+                    os.fchmod(stream.fileno(), 0o644)
+                os.replace(temporary, target)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        if mismatches:
+            print("[ERROR] Generated documentation is out of date: " + ", ".join(mismatches), file=sys.stderr)
+            return 1
+    except OSError as exc:
+        print(f"[ERROR] Documentation generation failed: {exc}", file=sys.stderr)
+        return 1
+    print("[OK] Generated documentation matches source." if args.check else
+          "[OK] Generated README.md and burnbag.1 from checkout sources.")
+    return 0
 
-    with open("burnbag.1", "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(man_lines) + "\n")
-
-    os.chmod("README.md", 0o644)
-    os.chmod("burnbag.1", 0o644)
-    print("[INFO] Successfully generated README.md and burnbag.1 with clean UNIX line endings.")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

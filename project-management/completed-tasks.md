@@ -1,5 +1,30 @@
 # Completed Tasks
 
+- `BB-2026-09-14-P5` — Documentation and installation consistency. Started and
+  completed 2026-09-14. Owner: Codex; requestor: operator.
+  Original request/acceptance: [roadmap P5](../ROADMAP.md#p5--documentation-and-installation-consistency).
+  - Synchronized CLI/source comments, README, man page, and behavior contracts
+    for Ubuntu/ARM prerequisites, derived percentages, handled exits, verified
+    profiles, capability failures, logging order, and recovery limits. Corrected
+    `normal` and countdown wording. Added a specification index and exact
+    automated/manual verification guide.
+  - Hardened `makedocs.py`: outputs are anchored to its checkout, each file is
+    replaced atomically, unsafe targets fail clearly, and `--check` detects
+    stale outputs without writing. Generator anchoring, stale detection,
+    symlink refusal, and cleanup were exercised in a disposable fixture.
+  - Validation: final native suite 138/138 passed; generated docs match source;
+    man rendering has no warnings; ShellCheck, Bash syntax, standard/dev
+    readiness, and whitespace checks pass. A real isolated staged install
+    delivered byte-identical executable/manual with modes 0755/0644 and passed
+    installed help and man rendering. P4's Python 3.9/3.14 compatibility results
+    remain recorded below.
+  - Delivery: operator selected self-installation with `./install.sh --mode dev`;
+    readiness and launcher selection instructions are supplied. Live installation
+    and physical observations remain in `BB-MANUAL-01`/`BB-MANUAL-02`, owned by
+    final validation and deferred P2/P3. All automated scope is complete.
+  - Repository boundaries: FieldManual remains pinned and clean; unrelated
+    operator `.gitignore` edits are preserved outside the phase commits.
+
 - `BB-2026-09-14-P4` — Runtime and installer hardening. Started and completed
   2026-09-14. Owner: Codex; requestor: operator.
   Original request/acceptance: [roadmap P4](../ROADMAP.md#p4--error-and-exception-hardening).

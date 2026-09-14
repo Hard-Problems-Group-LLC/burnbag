@@ -1,6 +1,7 @@
 # Linux platform support
 
-Status: implemented Ubuntu package selection; physical validation pending.
+Status: implemented; Ubuntu baseline lid/backlight confirmed by the operator.
+Revised-build ARM profile, visible reporting, and suspend/resume checks pending.
 Reviewed: 2026-09-14. Authorization: [roadmap P1/P2](../../ROADMAP.md).
 
 Burnbag targets Linux systems with systemd-logind, UPower, and optional
@@ -17,6 +18,11 @@ or `dnf` with `python3-gobject` for Fedora/RHEL derivatives. `ID` takes preceden
 over `ID_LIKE`. Other distributions may pass a working-binding check but do
 not receive a guessed package installation. `--check` never installs packages;
 package command failure is nonzero and actionable. Help is dependency-free.
+
+The application installer also uses prerequisite check-only mode for
+`--destdir` staging, so staging cannot install host packages. See
+[installation and development command selection](installation.md) for the
+staging boundary, destination checks, and user-launcher policy.
 
 References: [PyGObject installation guidance](https://pygobject.gnome.org/getting_started.html)
 and [Ubuntu's python3-gi package](https://packages.ubuntu.com/questing/python3-gi).
