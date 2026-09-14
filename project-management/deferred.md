@@ -1,5 +1,17 @@
 # Deferred Tasks
 
+- `BB-2026-09-14-P3` — Shutdown reporting. Started and deferred 2026-09-14;
+  owner: Codex; authority: operator's manual-validation deferral instruction.
+  Original request: [roadmap P3](../ROADMAP.md#p3--reliable-shutdown-graph-and-summary).
+  - Outcome: signals during setup and all operational modes now request a safe
+    unwind; handlers preserve resource bookkeeping and repeated signals cannot
+    interrupt recovery. Reports remain available with `--ignore-lid`.
+  - Evidence: 86 native tests passed, including nine real subprocess/GLib
+    regressions covering SIGINT, SIGTERM, early setup, one-shot setup, repeated
+    signals, loop-entry race, setup failure, lid cycle, and `--no-plot`.
+  - Reactivation: visible Ctrl-C report confirmation in `BB-MANUAL-01`.
+    General output/cleanup failure isolation proceeds in P4.
+
 - `BB-2026-09-14-P2` — ARM support. Started and deferred 2026-09-14;
   owner: Codex; authority: operator's manual-validation deferral instruction.
   Original request and acceptance: [roadmap P2](../ROADMAP.md#p2--arm-platform-support).

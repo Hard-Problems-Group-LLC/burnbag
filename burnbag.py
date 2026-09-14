@@ -42,6 +42,10 @@ Gio: Any = None
 GLib: Any = None
 
 
+class ShutdownRequested(Exception):
+    """Unwind at an explicit lifecycle boundary after a termination signal."""
+
+
 @dataclass(frozen=True)
 class TerminalStyle:
     """Render optional ANSI styling without making color carry meaning."""
@@ -1981,6 +1985,8 @@ class LidCloseManager:
         self.battery_plot_printed: bool = False
         self.battery_statistics: List[BatteryStatistics] = []
         self.reported_battery_errors: set[str] = set()
+        self.shutdown_signal: Optional[int] = None
+        self.shutdown_signal_source_id: Optional[int] = None
 
         # D-Bus connection and proxy placeholders
         self.bus: Optional[Gio.DBusConnection] = None
@@ -1991,6 +1997,55 @@ class LidCloseManager:
         self.power_proxy: Optional[Gio.DBusProxy] = None
         self.upower_proxy: Optional[Gio.DBusProxy] = None
         self.mainloop: Optional[GLib.MainLoop] = None
+
+    def request_signal_shutdown(self, signum: int) -> None:
+        """Remember termination without interrupting mutation bookkeeping.
+
+        Queue loop exit so a signal immediately before MainLoop.run cannot be
+        lost. Repeated signals do not interrupt recovery or duplicate sources.
+        Logging is deliberately left to the ordinary finalization path.
+        """
+        if self.shutdown_signal is None:
+            self.shutdown_signal = signum
+        if (
+            self.mainloop is not None
+            and not self.teardown_in_progress
+            and self.shutdown_signal_source_id is None
+        ):
+            self.shutdown_signal_source_id = GLib.idle_add(self._quit_for_signal)
+
+    def _quit_for_signal(self) -> bool:
+        """Dispatch a pending signal after the GLib loop has actually started."""
+        self.shutdown_signal_source_id = None
+        if self.mainloop is not None:
+            self.mainloop.quit()
+        return False
+
+    def check_shutdown_requested(self) -> None:
+        """Stop setup at a safe boundary before starting another operation."""
+        if self.shutdown_signal is not None:
+            raise ShutdownRequested()
+
+    def record_signal_shutdown(self) -> None:
+        """Record the first termination signal outside its interrupt handler."""
+        if self.shutdown_signal is None:
+            return
+        signum = self.shutdown_signal
+        sig_name = "SIGINT (Ctrl-C)" if signum == signal.SIGINT else "SIGTERM"
+        if self.shutdown_reason == "Unknown / Undefined" or self.exit_code == 0:
+            self.shutdown_reason = f"User termination signal received ({sig_name})"
+            self.goal_achieved = self.exit_code == 0
+        try:
+            self._log_only(
+                "signal_received",
+                "EVENT",
+                f"Received interrupt signal: {sig_name}.",
+                {"signal": signum, "name": sig_name},
+            )
+        except RunningLogError:
+            # The durability failure is already marked; cleanup still owns
+            # restoration and the best available shutdown report.
+            pass
 
     def _mark_running_log_failure(self, error: RunningLogError) -> None:
         """Mark a durability failure without routing the report back into the log."""
@@ -2933,6 +2988,15 @@ class LidCloseManager:
         # From this point forward a failed log write may change the final exit
         # status, but it must never interrupt restoration of persistent state.
         self.teardown_in_progress = True
+        if self.shutdown_signal_source_id is not None:
+            source_id = self.shutdown_signal_source_id
+            self.shutdown_signal_source_id = None
+            try:
+                GLib.source_remove(source_id)
+            except Exception:
+                # The event loop will not run again; a stale exit source must
+                # not prevent persistent-state restoration.
+                pass
         self._log_only(
             "teardown_started",
             "INFO",
@@ -3892,6 +3956,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     assert running_log is not None
 
     manager: Optional[LidCloseManager] = None
+    previous_signal_handlers: Dict[int, Any] = {}
     result_code = 1
     pre_manager_reason = "Runtime initialization did not complete."
     try:
@@ -3924,6 +3989,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             terminal_style=terminal_style,
             running_log=running_log,
         )
+
+        def sig_handler(signum: int, frame: Any) -> None:
+            manager.request_signal_shutdown(signum)
+
+        # Protect every operational mode and setup step. Handlers only request
+        # shutdown; safe checkpoints preserve resource ownership bookkeeping.
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous_signal_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, sig_handler)
+
         manager._log_only(
             "startup_plan",
             "INFO",
@@ -3942,8 +4017,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # host mutation. Persistent modes schedule subsequent samples on the
         # same GLib loop used for lid and backlight lifecycle events.
         manager.start_battery_monitoring()
+        manager.check_shutdown_requested()
         manager.print_startup_narrative()
+        manager.check_shutdown_requested()
         manager.connect_dbus()
+        manager.check_shutdown_requested()
 
         if not args.mode.startswith("run"):
             manager.execute_immediate_action()
@@ -3951,46 +4029,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             # --------------------------------------------------------------
             # PERSISTENT 'RUN*' MODE LIFECYCLE
             # --------------------------------------------------------------
-            def sig_handler(signum: int, frame: Any) -> None:
-                sig_name = (
-                    "SIGINT (Ctrl-C)" if signum == signal.SIGINT else "SIGTERM"
-                )
-                manager._event(
-                    f"Received interrupt signal: {sig_name}.",
-                    event="signal_received",
-                    details={"signal": signum, "name": sig_name},
-                )
-                manager.shutdown_reason = (
-                    f"User termination signal received ({sig_name})"
-                )
-                manager.goal_achieved = True
-                if manager.mainloop:
-                    manager.mainloop.quit()
-
             try:
                 # 1. Snapshot screen-backlight state and bind the caller's
                 # logind session. The opt-out returns before discovery.
                 manager.prepare_backlight_control()
+                manager.check_shutdown_requested()
 
                 # 2. Set requested power profile.
                 target_prof = PROFILE_MAP.get(args.mode, None)
                 manager.save_and_set_power_profile(target_prof)
+                manager.check_shutdown_requested()
 
                 # 3. Acquire D-Bus inhibitor locks.
                 manager.acquire_inhibitor_locks()
+                manager.check_shutdown_requested()
 
                 # 4. Register UPower listener for physical lid events.
                 manager.setup_upower_signal_listener()
+                manager.check_shutdown_requested()
                 manager.check_initial_lid_state()
+                manager.check_shutdown_requested()
 
-                # 5. Set up signal handling for clean Ctrl-C/SIGTERM exit.
-                signal.signal(signal.SIGINT, sig_handler)
-                signal.signal(signal.SIGTERM, sig_handler)
-
-                # 6. Run the event loop. Backlight delay remains measured from
+                # 5. Run the event loop. Backlight delay remains measured from
                 # process start, not from completion of setup.
                 manager.mainloop = GLib.MainLoop()
                 manager.schedule_backlight_power_down()
+                manager.check_shutdown_requested()
                 wait_target = "lid events" if args.ignore_lid else "lid cycle"
                 manager._info(
                     "Entering persistent event loop. "
@@ -3998,17 +4062,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     event="event_loop_entered",
                     details={"wait_target": wait_target},
                 )
+                manager.check_shutdown_requested()
                 manager.mainloop.run()
                 manager._log_only(
                     "event_loop_exited",
                     "INFO",
                     "Persistent event loop returned to handled teardown.",
                 )
-            except KeyboardInterrupt:
-                manager.shutdown_reason = (
-                    "User termination signal received (SIGINT / Ctrl-C)"
-                )
-                manager.goal_achieved = True
+            except (ShutdownRequested, KeyboardInterrupt):
+                raise
             except RunningLogError:
                 # The manager already marked the durability failure, requested
                 # loop exit, and selected nonzero status. Do not log recursively.
@@ -4026,6 +4088,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 manager.exit_code = 1
 
         result_code = manager.exit_code
+    except ShutdownRequested:
+        # The first signal is recorded below, after setup has safely unwound.
+        pass
+    except KeyboardInterrupt:
+        if manager is not None:
+            manager.request_signal_shutdown(signal.SIGINT)
+        else:
+            pre_manager_reason = "Interrupted during runtime initialization."
     except RunningLogError as exc:
         if manager is not None:
             if not manager.log_failure_reported:
@@ -4039,13 +4109,35 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             pre_manager_reason = f"Running-log synchronization failed: {exc}"
             result_code = 1
+    except Exception as exc:
+        if manager is None:
+            pre_manager_reason = f"Runtime initialization failed: {exc}"
+            terminal_style.write_status("FATAL ERROR", pre_manager_reason, sys.stderr)
+        else:
+            manager.shutdown_reason = f"Operational lifecycle failed: {exc}"
+            manager.deviations.append(manager.shutdown_reason)
+            manager.goal_achieved = False
+            manager.exit_code = 1
+            try:
+                manager._warn(manager.shutdown_reason)
+            except (RunningLogError, OSError, ValueError):
+                pass
     finally:
         if manager is not None:
             # Explicit brightness and profile mutations require cleanup;
             # logging failures are not permitted to interrupt this path.
-            manager.teardown()
-            manager.print_shutdown_narrative()
-            result_code = manager.exit_code
+            try:
+                try:
+                    manager.record_signal_shutdown()
+                except (RunningLogError, OSError, ValueError):
+                    manager.exit_code = 1
+                    manager.goal_achieved = False
+                manager.teardown()
+                manager.print_shutdown_narrative()
+                result_code = manager.exit_code
+            finally:
+                for signum, previous_handler in previous_signal_handlers.items():
+                    signal.signal(signum, previous_handler)
         elif running_log.file_descriptor is not None:
             # Dependency or controller setup failed after session_start but
             # before a manager could own the final record.
