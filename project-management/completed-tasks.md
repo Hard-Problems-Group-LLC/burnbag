@@ -1,5 +1,25 @@
 # Completed Tasks
 
+- `BB-2026-09-14-P3` — Shutdown graph and summary. Started, deferred, and
+  completed 2026-09-14. Owner: Codex; manual validation: operator.
+  Original request/acceptance: [roadmap P3](../ROADMAP.md#p3--reliable-shutdown-graph-and-summary).
+  - Delivered in `4eebb8d`, with P4 hardening in `eab9d1d` and synchronized
+    documentation in `e405325`. Signals and handled errors preserve teardown,
+    graph/statistics attempts, and the final running-log record.
+  - Operator confirmed that the first revised-build Ctrl-C test worked in a
+    small terminal panel, with the lid open and backlight control disabled.
+    Read-only inspection of its real log corroborated approximately 25 seconds,
+    three valid energy-derived battery observations, initial lid-state success,
+    SIGINT, inhibitor release, no deviations, exit zero, completed teardown,
+    and no recorded terminal-output failure.
+  - The 138-test native suite already covers handled signal/error cases through
+    actual GLib, plus rendering and cleanup boundaries. Visible graph/summary
+    confirmation now closes P3.4. The operator is additionally checking a
+    maximized terminal; any layout finding will be handled in final validation.
+  - P2's revised-build physical lid/backlight/profile and supervised sleep
+    observations remain active in `BB-MANUAL-01`/`BB-MANUAL-02`. This lid-open
+    test does not establish those behaviors.
+
 - `BB-2026-09-14-P5` — Documentation and installation consistency. Started and
   completed 2026-09-14. Owner: Codex; requestor: operator.
   Original request/acceptance: [roadmap P5](../ROADMAP.md#p5--documentation-and-installation-consistency).

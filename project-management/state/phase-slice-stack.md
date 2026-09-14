@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Automated delivery complete: 138 native tests pass. Await operator dev install and BB-MANUAL-01/02 observations; P2/P3 retained.
+Notes: P3 closed: operator confirms visible Ctrl-C graph and summary. Wider layout check ongoing; P2 awaits physical lid/profile/suspend tests.
 
 ## Phases
 
@@ -17,7 +17,7 @@ Notes: Automated delivery complete: 138 native tests pass. Await operator dev in
 | --- | --- | --- |
 | P1 | done | Ubuntu support |
 | P2 | blocked | ARM platform support |
-| P3 | blocked | Shutdown graph and summary |
+| P3 | done | Shutdown graph and summary |
 | P4 | done | Error and exception hardening |
 | P5 | done | Documentation and installation |
 | V | active | Manual validation and final closure |
@@ -37,7 +37,7 @@ Notes: Automated delivery complete: 138 native tests pass. Await operator dev in
 | P3.1 | P3 | done | Reproduce missing shutdown report |
 | P3.2 | P3 | done | Unify handled finalization |
 | P3.3 | P3 | done | Test signals through actual GLib |
-| P3.4 | P3 | blocked | Confirm visible shutdown output |
+| P3.4 | P3 | done | Confirm visible shutdown output |
 | P4.1 | P4 | done | Audit runtime and installer errors |
 | P4.2 | P4 | done | Harden runtime recovery |
 | P4.3 | P4 | done | Harden installer failures |

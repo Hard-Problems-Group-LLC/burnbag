@@ -11,14 +11,19 @@ No additional queued requests.
 
 - `BB-MANUAL-01` — Revised-build graph, lid, backlight, and profile confirmation.
   - Created and activated: 2026-09-14. Owner: operator. Requestor: Codex.
-  - Covers roadmap P2.4 and P3.4; all prerequisite automated work is complete.
+  - Remaining scope: roadmap P2.4; P3.4 passed and closed on 2026-09-14.
   - Operator selected self-installation with `./install.sh --mode dev` after
-    readiness. Accept checkout command selection at its prompt and run
-    `hash -r`. No agent installation into `/usr/local` is requested.
-  - Run [checks 1 and 2](../docs/testing.md#physical-validation-awaiting-the-operator):
-    first an untimed `--ignore-lid --do-not-touch-backlight` run for at least
-    20 seconds ending with Ctrl-C; then ordinary and repeated-ignore-lid cycles
-    with backlight control and a real balanced-to-power-saver transition.
+    readiness. Read-only inspection confirms the executable managed user
+    launcher selects this checkout. No agent installation into `/usr/local`
+    is requested.
+  - Check 1 passed: operator confirmed graph/summary and clean Ctrl-C return
+    in a small panel. The real log records three valid energy-derived samples
+    over approximately 25 seconds, no deviations, released inhibitors, and
+    completed teardown with exit zero. The operator is checking a maximized
+    terminal as an additional layout observation.
+  - Next: [check 2](../docs/testing.md#2-physical-lid-backlight-and-profile),
+    ordinary and repeated-ignore-lid cycles with backlight control and a real
+    balanced-to-power-saver transition.
   - Acceptance: one graph and summary, valid derived battery readings, clean
     shell return, visible screen restoration, correct profile restoration,
     and expected lid termination/continuation. Report pass/fail and errors.
@@ -40,4 +45,5 @@ No additional queued requests.
 
 ## Completed Requests
 
-No revised-build manual requests have completed yet.
+The graph/summary portion of `BB-MANUAL-01` passed on 2026-09-14 and closes
+P3.4. The request remains active for its remaining hardware observations.

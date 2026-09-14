@@ -55,24 +55,42 @@ The program must return to the shell without a traceback.
 
 ### 2. Physical lid, backlight, and profile
 
+The following helper saves your original preference, starts each test from
+`balanced`, checks the post-run profile, and restores your preference on exit.
+Setup failures stop the test before burnbag runs. Define it and run the first
+check from the checkout root:
+
 ```bash
-burnbag_test_original_profile=$(powerprofilesctl get)
-powerprofilesctl set balanced
-./burnbag.py run-cool
-powerprofilesctl get
-powerprofilesctl set "$burnbag_test_original_profile"
+burnbag_check_profile() (
+    burnbag_test_original_profile=$(powerprofilesctl get) || exit
+    trap 'powerprofilesctl set "$burnbag_test_original_profile" || exit 1' EXIT
+    powerprofilesctl set balanced || exit
+    ./burnbag.py "$@"
+    burnbag_test_status=$?
+    burnbag_test_restored_profile=$(powerprofilesctl get) || exit
+    printf 'Run exit: %s; restored profile: %s (expected balanced)\n' \
+        "$burnbag_test_status" "$burnbag_test_restored_profile"
+    [ "$burnbag_test_status" -eq 0 ] && [ "$burnbag_test_restored_profile" = balanced ]
+)
+burnbag_check_profile run-cool
 ```
 
-The screen should turn off approximately three seconds after startup. Close
-the lid and reopen it. The first complete close/open cycle should end the run,
-restore a visible backlight, restore `balanced`, and print the chart and
-summary. Starting from `balanced` ensures that this checks a real profile
-change and restoration; the last command returns to your pre-test preference.
-If needed, Ctrl-C also requests cleanup.
+The startup output should verify a switch to `power-saver`. The screen should
+turn off approximately three seconds after startup. Close the lid and reopen
+it. The first complete close/open cycle should end the run, restore a visible
+backlight, restore `balanced`, and print the chart and summary. If needed,
+Ctrl-C also requests cleanup. The helper then restores your pre-test preference.
 
-Then repeat with `./burnbag.py run-cool --ignore-lid`: close and reopen the lid
-twice, confirm reopening does not end the process, and press Ctrl-C to exit.
-Backlight/profile restoration and one final chart/summary are still required.
+Repeat with the same helper, which establishes a fresh `balanced` baseline:
+
+```bash
+burnbag_check_profile run-cool --ignore-lid
+```
+
+Close and reopen the lid twice, then press Ctrl-C. With `--ignore-lid`, reopening
+does not end the process or restore the screen: it stays dark until Ctrl-C.
+Afterward, confirm the output records both close/open cycles, continuation after
+opening, verified backlight/profile restoration, and one final chart/summary.
 
 Report each result as pass/fail, with the exact visible error and whether the
 screen and profile recovered. Relevant warnings and a concise error are enough.
