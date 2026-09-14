@@ -1,5 +1,32 @@
 # Completed Tasks
 
+- `BB-2026-09-14-02` — Lid-event diagnostics for `--ignore-lid`. Started and
+  completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP V.2.
+  - Shutdown reports separate detected close/open counts, including zero.
+    Initial snapshots and duplicate unchanged property notifications are
+    excluded. Observations survive a subsequent log failure; current telemetry
+    availability is reported accurately after read failure or recovery.
+  - Transition records include local observation time, battery-aligned
+    `CLOCK_BOOTTIME` elapsed time, and cumulative counts. The final state adds
+    counts without embedding an unbounded history array.
+  - Graph overlays use magenta close and yellow open lines, with C/O/B headers,
+    distinct plain markers, and alternating colors for shared columns. Battery
+    traces, fixed 25-row height, gaps, and all extrema labels remain intact.
+    Event times can extend the X domain without adding battery observations.
+    Counts remain when `--no-plot` is used or battery data is unavailable.
+  - Validation: 161 tests passed natively on Ubuntu/aarch64 Python 3.13.7.
+    Python 3.9.21 and 3.14.6 each passed 147 compatibility cases with one native
+    GLib module skip. Coverage includes duplicate/initial-state handling,
+    telemetry recovery, log failure, marker geometry at 20/40/190 columns,
+    color/plain output, clock changes, overlapping events, and actual GLib
+    callbacks through Ctrl-C and durable finalization, with and without plots.
+    Help, generated-document consistency, man rendering, guide shell syntax,
+    and whitespace checks pass. No live host mutation was needed.
+  - Manual follow-up: [event-count/marker check](../docs/testing.md#1a-lid-event-counts-and-graph-markers)
+    is ready through the development launcher. Existing P2 profile-change and
+    suspend/resume checks remain separate. The operator's ordinary lid/backlight
+    and extrema confirmations are recorded in `BB-MANUAL-01`.
+
 - `BB-BUG-2026-09-14-01` — Always label chart extrema, including equal values.
   Started and completed 2026-09-14 under roadmap V.2; owner: Codex;
   requestor: operator. Both axis boundaries now retain labels before interior

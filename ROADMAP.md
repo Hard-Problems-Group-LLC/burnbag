@@ -126,3 +126,14 @@ Collect the requested physical observations, address any defects they expose,
 rerun affected automated checks, close linked human requests and deferred
 phases, and ACP the resulting closure. Until then the overall delivery remains
 awaiting manual validation, even when every automated slice is complete.
+
+### Operator follow-up during V
+
+On 2026-09-14, after the ordinary lid/backlight and axis-extrema checks passed,
+the operator requested `BB-2026-09-14-02`: for `--ignore-lid`, report separate
+numbers of detected close/open transitions and show their times as magenta
+(close) and yellow (open) vertical graph lines. Preserve event timing and
+counts for switch troubleshooting, keep battery observations visible, and
+provide distinct plain-output markers and explicit overlap behavior. This is
+an authorized addition to V.2; it does not change the battery estimator or
+remove the outstanding physical profile/suspend checks.

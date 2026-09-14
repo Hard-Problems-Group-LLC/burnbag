@@ -720,6 +720,15 @@ class BatterySample:
 
 
 @dataclass(frozen=True)
+class LidEvent:
+    """One detected lid transition on the battery plot's elapsed timebase."""
+
+    captured_at: datetime
+    elapsed_seconds: float
+    closed: bool
+
+
+@dataclass(frozen=True)
 class BatteryStatistics:
     """Descriptive fuel-gauge statistics for one battery and handled run."""
 
@@ -1397,6 +1406,7 @@ def render_battery_depletion_chart(
     terminal_style: TerminalStyle,
     stream: Optional[TextIO] = None,
     columns: Optional[int] = None,
+    lid_events: Sequence[LidEvent] = (),
 ) -> str:
     """Return the full-width 25-row battery chart, or an empty string.
 
@@ -1448,13 +1458,13 @@ def render_battery_depletion_chart(
     plot_width = max(1, terminal_columns - axis_width - 2)
     canvas = [[0 for _ in range(plot_width)] for _ in range(BATTERY_PLOT_ROWS)]
 
-    # All sampling attempts define the time domain, including unreadable edge
-    # observations. Their timestamps remain known while their plot cells stay
-    # empty. For equal elapsed times, retain the first and last actual attempts.
-    first_sample = min(samples, key=lambda sample: sample.elapsed_seconds)
-    last_sample = max(reversed(samples), key=lambda sample: sample.elapsed_seconds)
-    first_elapsed = first_sample.elapsed_seconds
-    last_elapsed = last_sample.elapsed_seconds
+    # Include transition times even if the final battery read failed. Events
+    # can extend the visible time domain but never add battery observations.
+    timeline = [*samples, *lid_events]
+    first_observation = min(timeline, key=lambda item: item.elapsed_seconds)
+    last_observation = max(reversed(timeline), key=lambda item: item.elapsed_seconds)
+    first_elapsed = first_observation.elapsed_seconds
+    last_elapsed = last_observation.elapsed_seconds
 
     def column_for(elapsed: float) -> int:
         if last_elapsed == first_elapsed or plot_width == 1:
@@ -1481,10 +1491,29 @@ def render_battery_depletion_chart(
             previous_point = point
 
     color_enabled = terminal_style.enabled_for(selected_stream)
+    event_columns = [0 for _ in range(plot_width)]
+    for event in lid_events:
+        event_columns[column_for(event.elapsed_seconds)] |= 1 if event.closed else 2
 
-    def render_cell(mask: int) -> str:
+    def render_event(mask: int, row_index: int, header: bool = False) -> str:
         if mask == 0:
             return " "
+        if header:
+            symbol = {1: "C", 2: "O", 3: "B"}[mask]
+        else:
+            symbol = {1: "|", 2: "|" if color_enabled else ":", 3: "!"}[mask]
+        # Fast close/open pairs may occupy the same screen column. Preserve
+        # both colors down that column, with an explicit combined glyph.
+        color = (
+            TerminalStyle.MAGENTA
+            if mask == 1 or (mask == 3 and row_index % 2 == 0)
+            else TerminalStyle.YELLOW
+        )
+        return terminal_style.paint(symbol, color, selected_stream)
+
+    def render_cell(mask: int, event_mask: int, row_index: int) -> str:
+        if mask == 0:
+            return render_event(event_mask, row_index)
         if not color_enabled:
             return {1: "1", 2: "2", 3: "X"}[mask]
         color = {
@@ -1497,9 +1526,18 @@ def render_battery_depletion_chart(
     title = "BATTERY DEPLETION - 15-second samples"
     range_text = f"Observed Y range: {observed_min}%--{observed_max}%"
     output = [title[:terminal_columns], range_text[:terminal_columns]]
+    if lid_events:
+        # The marker header keeps events identifiable even where a battery
+        # trace covers their vertical line. It is outside the 25 data rows.
+        marker_header = "".join(render_event(mask, 0, header=True) for mask in event_columns)
+        output.append(f"{' ' * (axis_width + 2)}{marker_header}")
     for row_index, row in enumerate(canvas):
         label = labels_by_row.get(row_index, "").rjust(axis_width)
-        output.append(f"{label} |{''.join(render_cell(cell) for cell in row)}")
+        cells = "".join(
+            render_cell(cell, event_columns[column], row_index)
+            for column, cell in enumerate(row)
+        )
+        output.append(f"{label} |{cells}")
     # Group interior callouts by displayed minute, but never deduplicate the
     # two domain boundaries. Even a single observation has two labeled bounds.
     candidate_groups: List[List[BatterySample]] = []
@@ -1523,21 +1561,21 @@ def render_battery_depletion_chart(
     # Each tuple contains the tick's plot column and the inclusive screen-column
     # interval occupied by its centered (or edge-clamped) label.
     def make_callout(
-        sample: BatterySample, sample_column: int
+        captured_at: datetime, sample_column: int
     ) -> Tuple[int, str, int, int]:
-        label = sample.captured_at.astimezone().strftime("%H:%M")
+        label = captured_at.astimezone().strftime("%H:%M")
         start = max(
             0,
             min(plot_width - len(label), sample_column - len(label) // 2),
         )
         return sample_column, label, start, start + len(label) - 1
 
-    first_callout = make_callout(first_sample, 0)
-    final_callout = make_callout(last_sample, plot_width - 1)
+    first_callout = make_callout(first_observation.captured_at, 0)
+    final_callout = make_callout(last_observation.captured_at, plot_width - 1)
     callout_candidates: List[Tuple[int, str, int, int]] = []
     for index, group in enumerate(candidate_groups):
         sample = group[0]
-        candidate = make_callout(sample, column_for(sample.elapsed_seconds))
+        candidate = make_callout(sample.captured_at, column_for(sample.elapsed_seconds))
         # End groups are already represented by their boundary labels; equal
         # endpoint times still remain separately visible at the two edges.
         if index == 0 and candidate[1] == first_callout[1]:
@@ -1599,6 +1637,12 @@ def render_battery_depletion_chart(
         if len(selected_names) > 1:
             legend_parts.extend([f"2={selected_names[1]}", "X=overlap"])
     output.append("Legend: " + "  ".join(legend_parts))
+    if lid_events:
+        close_key = terminal_style.paint("C/|=close", TerminalStyle.MAGENTA, selected_stream)
+        open_key = terminal_style.paint(
+            "O/|=open" if color_enabled else "O/:=open", TerminalStyle.YELLOW, selected_stream
+        )
+        output.append(f"Lid: {close_key}  {open_key}  B/!=both in one column")
     return "\n".join(output) + "\n"
 
 
@@ -1976,6 +2020,9 @@ class LidCloseManager:
         self.inhibitor_fds: List[int] = []  # Open file descriptors holding systemd locks
         self.lid_was_closed_during_session: bool = False
         self.current_lid_closed_state: bool = False
+        self.lid_events: List[LidEvent] = []
+        self.lid_close_count: int = 0
+        self.lid_open_count: int = 0
         self.suspend_timer_id: Optional[int] = None
         self.backlight_timer_id: Optional[int] = None
         self.battery_timer_id: Optional[int] = None
@@ -2305,6 +2352,8 @@ class LidCloseManager:
                         "inhibitor_release_failed": getattr(self, "inhibitor_release_failed", False),
                         "terminal_output_failed": bool(self.failed_output_streams),
                         "lid_was_closed": self.lid_was_closed_during_session,
+                        "lid_close_count": self.lid_close_count,
+                        "lid_open_count": self.lid_open_count,
                         "battery_names": [
                             device.name for device in self.battery_monitor.devices
                         ],
@@ -2595,6 +2644,7 @@ class LidCloseManager:
                     self.battery_monitor.samples,
                     self.terminal_style,
                     preferred,
+                    lid_events=self.lid_events if self.ignore_lid else (),
                 )))
         renderers.append(("battery statistics", lambda: render_battery_statistics(
                 self.battery_statistics,
@@ -3518,11 +3568,13 @@ class LidCloseManager:
         try:
             self.current_lid_closed_state = self._read_upower_boolean_property("LidIsClosed")
         except Exception as exc:
+            self.lid_monitoring_available = False
             message = f"Could not read initial 'LidIsClosed' property from UPower: {exc}"
             if self._lid_monitoring_required():
                 self._fatal_error(message)
             self._warn(message + "; awaiting interrupt without lid monitoring.")
             return
+        self.lid_monitoring_available = True
         state_str = "CLOSED" if self.current_lid_closed_state else "OPEN"
         self._info(
             f"Initial hardware lid state detected as: {state_str}.",
@@ -3572,23 +3624,46 @@ class LidCloseManager:
             return
         if "LidIsClosed" not in unpacked_changes:
             return
+        # A valid state observation establishes usable telemetry even when
+        # recovery repeats the last state and therefore adds no transition.
+        self.lid_monitoring_available = True
         new_state = unpacked_changes["LidIsClosed"]
         if new_state == self.current_lid_closed_state:
             return
         self.current_lid_closed_state = new_state
+        # Retain the observation before crossing the logging boundary: a
+        # failed append must not erase a transition already seen in this run.
+        lid_event = LidEvent(
+            datetime.now().astimezone(),
+            max(0.0, linux_boottime() - self.started_boottime),
+            new_state,
+        )
+        self.lid_events.append(lid_event)
+        if new_state:
+            self.lid_close_count += 1
+            self.lid_was_closed_during_session = True
+        else:
+            self.lid_open_count += 1
+        event_details = {
+            "closed": new_state,
+            "captured_at_local": lid_event.captured_at.isoformat(timespec="microseconds"),
+            "elapsed_seconds": lid_event.elapsed_seconds,
+            "timebase": "CLOCK_BOOTTIME",
+            "lid_close_count": self.lid_close_count,
+            "lid_open_count": self.lid_open_count,
+        }
         if new_state:
             self._event(
                 "Lid closure detected.",
                 event="lid_closed",
-                details={"closed": True},
+                details=event_details,
             )
-            self.lid_was_closed_during_session = True
             self._handle_lid_closed_event()
         else:
             self._event(
                 "Lid opening detected.",
                 event="lid_opened",
-                details={"closed": False},
+                details=event_details,
             )
             self._handle_lid_opened_event()
 
@@ -3935,6 +4010,12 @@ class LidCloseManager:
         self._narrative_field("Primary Mission Status", status_str, status_color)
         self._narrative_field("Final Reason for Exit", self.shutdown_reason)
 
+        if self.ignore_lid:
+            lid_summary = f"close={self.lid_close_count}/open={self.lid_open_count}"
+            if self.lid_capability_checked and not self.lid_monitoring_available:
+                lid_summary += "; lid telemetry unavailable"
+            self._narrative_field("Lid Events Detected", lid_summary)
+
         if not self.deviations:
             self._narrative_field(
                 "Deviations Observed",
@@ -4129,7 +4210,8 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
         action="store_true",
         help=(
             "Keep a run mode active when the lid opens; lid opening still "
-            "cancels its active suspend countdown."
+            "cancels its active suspend countdown. Report close/open counts "
+            "and mark their times on the exit graph."
         ),
     )
 

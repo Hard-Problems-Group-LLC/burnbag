@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Both graph axes now always label both extrema; 141 native tests pass. P3 remains closed; awaiting P2 physical observations.
+Notes: Lid counts and colored event markers delivered; 161 native tests pass. Await P2 profile/suspend observations and optional marker check.
 
 ## Phases
 

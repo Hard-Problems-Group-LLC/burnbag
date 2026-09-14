@@ -79,7 +79,7 @@ elapses, the countdown timer is cancelled.
 Do not acquire inhibitor locks for background system idle timers. The laptop will stay awake when the lid is closed, but standard OS idle policies (e.g., GNOME inactivity timeouts) remain permitted to trigger sleep.
 .TP
 .B \-\-ignore\-lid
-Keep a run mode active when the lid opens instead of ending after the first observed close/open cycle. Opening the lid still cancels an active suspend countdown; a later closure starts a fresh countdown. Without this option, lid-open termination remains enabled by default.
+Keep a run mode active when the lid opens instead of ending after the first observed close/open cycle, and show detected lid transitions on the exit battery graph. Opening the lid still cancels an active suspend countdown; a later closure starts a fresh countdown. Without this option, lid-open termination remains enabled by default.
 .TP
 .B \-\-do\-not\-touch\-backlight
 Leave screen backlights untouched. Without this non-default opt-out, persistent run modes snapshot every kernel screen backlight, turn it off three seconds after process startup, verify it is off, and restore and verify a nonzero brightness before handled exit.
@@ -91,7 +91,7 @@ Write the mandatory synchronized running log to absolute FILE instead of the XDG
 Disable ANSI color in runtime messages, help, usage, and error output. Color remains automatic by default for interactive terminals.
 .TP
 .B \-\-no\-plot
-Suppress the 25-row battery depletion chart at exit. Battery discovery, fifteen-second sampling, synchronized log records, and per-battery statistics remain enabled.
+Suppress the 25-row battery depletion chart and its lid-event markers at exit. Battery discovery, fifteen-second sampling, synchronized log records, per-battery statistics, and detected lid-transition counts remain enabled.
 .TP
 .BR \-h ", " \-\-help
 Display syntax, mode descriptions, and usage examples, then exit.
@@ -108,7 +108,9 @@ Every cycle is retained in the synchronized running log. Discovery or read failu
 .PP
 The handled-exit chart contains exactly 25 data rows and uses the current standard-output terminal width, with a 20-column minimum and an 80-column fallback. Its Y axis spans only observed percentages. The top always labels the maximum and the bottom always labels the minimum, including equal percentages at both boundaries; constant data remains vertically centered. Each row has at most one observed percentage label.
 .PP
-The X axis uses elapsed-time ordering. Both boundaries always label the actual local wall-clock HH:mm of the earliest and latest sample attempts, including missing readings at either edge. Both endpoint callouts are reserved before interior labels, even when their displayed times are equal. A lone sample or a history with equal elapsed times repeats its true endpoint labels without inventing a duration, while its points remain at the left. Boundary ticks align with the axis edges; interior ticks mark actual elapsed-time sample positions, and adjacent callouts have at least two blank columns. Missing readings remain gaps.
+The X axis uses elapsed-time ordering. With --ignore-lid, it includes both sample-attempt and detected lid-event times so every event fits; otherwise sample attempts alone establish the range. Both boundaries always label the actual local wall-clock HH:mm of the earliest and latest entries, including missing readings or events outside the sample interval. Both endpoint callouts are reserved before interior labels, even when their displayed times are equal. If the entire plotted timeline has one elapsed value, its true endpoint labels repeat without inventing a duration and its points remain at the left. Boundary ticks align with the axis edges; interior ticks mark actual elapsed-time positions, and adjacent callouts have at least two blank columns. Missing readings remain gaps.
+.PP
+With --ignore-lid, vertical markers behind battery curves show detected closes in magenta and opens in yellow. Battery glyphs and series colors remain visible at intersections. A marker header uses C=close, O=open, and B=both; plain vertical lines use |=close, :=open, and !=both. A shared close/open column uses ! with alternating magenta/yellow color. The chart still has 25 data rows. Shutdown reports separate detected close/open counts, including zero, even when several events share a column. The initial snapshot and duplicate same-state notifications do not count. Counts and event logging remain enabled with --no-plot. Without valid battery observations there is no graph, but counts remain available.
 .PP
 With ANSI color enabled, the first battery is yellow, the second blue, and overlap green. Plain output uses 1, 2, and X. Use
 .B \-\-no\-plot
@@ -123,6 +125,8 @@ Ctrl-C, SIGTERM, SIGHUP, lid-cycle completion, and handled errors attempt the sa
 Every accepted operational invocation establishes a mandatory append-only running log before PyGObject is loaded or host state is changed. The default path is $XDG_STATE_HOME/burnbag/burnbag.log, falling back to $HOME/.local/state/burnbag/burnbag.log. There is no no-log option.
 .PP
 The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and every initial, periodic, and final battery sample are included; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown and final reporting attempts, including observed output failures. Absence of session_end is retained as evidence of an unhandled process or power interruption.
+.PP
+Actual lid property transitions include local wall-clock observation time, CLOCK_BOOTTIME elapsed time, and cumulative close/open counts. Lid events and battery samples share one process-start elapsed origin. Final state includes lid_close_count and lid_open_count; individual transition records retain the history without copying an unbounded event array into the final record.
 .PP
 Each record is appended under an exclusive advisory lock and followed by fsync before execution continues. Safety-relevant mutation intent is synchronized before the mutation. Failure to resolve, open, validate, lock, append, or synchronize the log prevents further host mutation and returns nonzero. Logging failure never prevents backlight, inhibitor, or power-profile teardown.
 .PP

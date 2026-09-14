@@ -108,14 +108,17 @@ remains vertically centered. The Y axis renders no more than one observed
 percentage callout per plot row.
 
 The X axis orders sample attempts by elapsed time and uses their actual local
-wall-clock `HH:mm` values for labels. Its left and right boundaries always
-label the earliest and latest elapsed sample attempts, including attempts
-with missing battery readings. These two callouts are reserved before any
-interior labels are selected. Equal `HH:mm` values are repeated at both
-boundaries. A lone sample or a history with equal elapsed times also retains
-both true endpoint labels without inventing a duration, and its plotted points
-remain at the left. Boundary ticks align with the axis edges; interior ticks
-retain actual elapsed-time sample positions.
+wall-clock `HH:mm` values for labels. With the `--ignore-lid` diagnostic overlay,
+its range includes the union of sample-attempt and lid-event timestamps, so
+every event falls within the plotted interval. Otherwise only sample attempts
+establish the range. Its left and right boundaries always label the earliest
+and latest entries in that range, including missing battery readings or events
+beyond the sample interval. These two callouts are reserved before any interior
+labels are selected. Equal `HH:mm` values are repeated at both boundaries.
+When the entire plotted timeline has one elapsed value, both true endpoint
+labels remain without inventing a duration, and plotted points remain at the
+left. Boundary ticks align with the axis edges; interior ticks retain actual
+elapsed-time positions.
 Callouts must leave at least two blank screen columns between adjacent labels,
 so neither axis may overlap or concatenate labels.
 
@@ -126,6 +129,26 @@ With ANSI output enabled, battery one is yellow, battery two is blue, and a
 cell occupied by both is green. Plain output and `--no-color` use the distinct
 ASCII symbols `1`, `2`, and `X`, respectively, so color is not the only series
 encoding. The legend identifies kernel battery names and overlap semantics.
+
+With `--ignore-lid`, actual detected lid transitions add vertical background
+markers across the data rows: magenta for a close and yellow for an open.
+Battery glyphs and series colors remain unchanged at intersections, taking
+precedence over event markers. A separate header marks event columns with `C`
+for close, `O` for open, or `B` for both. Plain vertical markers use `|`, `:`,
+or `!`, respectively. When close and open map to the same screen column, the
+combined `!` marker alternates magenta and yellow down the column in colored
+output. Markers add no data rows and do not connect battery lines across gaps.
+
+Several events can share a screen column; the overlay summarizes their kinds,
+while separate shutdown close/open counts retain the exact detected totals,
+including zero. The initial lid snapshot and duplicate same-state
+notifications are excluded. Event timestamps share the battery samples'
+process-start `CLOCK_BOOTTIME` origin and preserve actual local wall time.
+See [lid observation semantics](power-lifecycle.md) and
+[durable event fields](runtime-log.md). `--no-plot` suppresses this overlay
+along with the graph but does not suppress counts or event logging. Without
+any valid battery observation there is no graph, while counts remain available.
+Without `--ignore-lid`, the battery graph has no lid-event overlay.
 
 ## Derived Statistics Contract
 

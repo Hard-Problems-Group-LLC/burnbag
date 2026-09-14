@@ -76,10 +76,13 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
                     callback(self, None, [])
                     return False
                 glib.idle_add(invalid_signal)
-            if scenario == "lid":
+            if scenario in {"lid", "lid_events", "lid_events_no_plot"}:
                 def lid_cycle():
-                    for closed in (True, False):
+                    states = (True, False) if scenario == "lid" else (True, True, False, False, True, False)
+                    for closed in states:
                         callback(self, glib.Variant("a{sv}", {"LidIsClosed": glib.Variant("b", closed)}), [])
+                    if scenario != "lid":
+                        ready("loop")
                     return False
                 glib.idle_add(lid_cycle)
             return 1
@@ -114,7 +117,7 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
             "--do-not-touch-backlight", "--no-color", "--log-file", str(root / "run.log")]
     if scenario != "lid":
         args.append("--ignore-lid")
-    if scenario == "no_plot":
+    if scenario in {"no_plot", "lid_events_no_plot"}:
         args.append("--no-plot")
 
     with mock.patch.object(gio, "bus_get_sync", side_effect=connect_bus), \
@@ -180,7 +183,7 @@ class ShutdownSubprocessTests(unittest.TestCase):
             )
             os.close(writer)
             try:
-                if scenario in {"loop", "repeated", "no_plot", "setup", "setup_one_shot", "broken_output"}:
+                if scenario in {"loop", "repeated", "no_plot", "setup", "setup_one_shot", "broken_output", "lid_events", "lid_events_no_plot"}:
                     setup = scenario.startswith("setup")
                     self.wait_ready(reader, "setup" if setup else "loop")
                     if scenario == "broken_output":
@@ -209,7 +212,8 @@ class ShutdownSubprocessTests(unittest.TestCase):
         self.assertNotIn("Traceback", errors)
         self.assertEqual(output.count("BURNBAG — SHUTDOWN & TEARDOWN"), 1)
         self.assertEqual(output.count("BATTERY SUMMARY"), 1)
-        self.assertEqual(output.count("BATTERY DEPLETION - 15-second samples"), 0 if scenario == "no_plot" else 1)
+        no_plot = scenario in {"no_plot", "lid_events_no_plot"}
+        self.assertEqual(output.count("BATTERY DEPLETION - 15-second samples"), 0 if no_plot else 1)
         self.assertEqual(sum(row["event"] == "session_end" for row in records), 1)
         self.assertEqual(records[-1]["event"], "session_end")
         final = records[-1]["details"]
@@ -224,6 +228,23 @@ class ShutdownSubprocessTests(unittest.TestCase):
         if scenario not in {"failure", "lid", "callback_failure", "broken_output"}:
             self.assertEqual(sum(row["event"] == "signal_received" for row in records), 1)
             self.assertIn("User termination signal", final["shutdown_reason"])
+        if scenario in {"lid_events", "lid_events_no_plot"}:
+            self.assertIn("close=2/open=2", output)
+            self.assertEqual(final["final_state"]["lid_close_count"], 2)
+            self.assertEqual(final["final_state"]["lid_open_count"], 2)
+            transitions = [row for row in records if row["event"] in {"lid_closed", "lid_opened"}]
+            self.assertEqual([row["details"]["closed"] for row in transitions], [True, False, True, False])
+            self.assertTrue(all(row["details"]["timebase"] == "CLOCK_BOOTTIME" for row in transitions))
+            battery_times = [row["details"]["elapsed_seconds"] for row in records if row["event"] == "battery_sample"]
+            event_times = [row["details"]["elapsed_seconds"] for row in transitions]
+            self.assertEqual(event_times, sorted(event_times))
+            self.assertGreaterEqual(event_times[0], battery_times[0])
+            self.assertLessEqual(event_times[-1], battery_times[-1])
+            if no_plot:
+                self.assertNotIn("Lid: C/|=close", output)
+            else:
+                self.assertIn("Lid: C/|=close", output)
+                self.assertIn("O/:=open", output)
 
     def test_ignore_lid_sigint_reports_chart_and_summary(self):
         self.run_scenario("loop")
@@ -260,6 +281,12 @@ class ShutdownSubprocessTests(unittest.TestCase):
 
     def test_no_plot_still_reports_summary_on_signal(self):
         self.run_scenario("no_plot")
+
+    def test_ignore_lid_transitions_reach_counts_graph_and_durable_log(self):
+        self.run_scenario("lid_events")
+
+    def test_ignore_lid_counts_survive_no_plot(self):
+        self.run_scenario("lid_events_no_plot")
 
 
 if __name__ == "__main__":

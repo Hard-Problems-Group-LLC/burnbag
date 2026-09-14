@@ -142,6 +142,23 @@ quantization. Sources are fixed at discovery; read failures remain gaps rather
 than silently switching gauge definitions. These are additive event details;
 the record schema remains version 1.
 
+Actual lid property transitions use `lid_closed` and `lid_opened` records.
+Their details contain `closed`, `captured_at_local` (timezone-aware local
+wall-clock time with microseconds), `elapsed_seconds`,
+`timebase: "CLOCK_BOOTTIME"`, `lid_close_count`, and `lid_open_count`.
+The elapsed origin is shared with battery samples at process start; these
+event-detail times align graph markers with sampling even across suspend.
+They do not replace the record envelope's UTC timestamp and monotonic elapsed
+fields. The initial state observation is not a transition, and duplicate
+same-state property notifications do not create additional transition records.
+
+Handled `session_end` final state adds `lid_close_count` and `lid_open_count`,
+including zero, without embedding the complete lid-event history. The
+individual synchronized records carry that history. This additive detail
+preserves record schema version 1 and avoids an unbounded final-state array.
+Counting and event logging continue with `--no-plot` and when no valid battery
+observations are available.
+
 The final summary and
 `session_end` contain versioned, unit-bearing per-battery derived statistics:
 coverage, endpoints, whole-run OLS gauge trend and `R²`, eligible reported

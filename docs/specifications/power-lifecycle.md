@@ -68,6 +68,28 @@ timer. Changed values must be actual booleans; invalidated properties are
 reread. Losing a required lid sensor terminates the session through handled
 cleanup instead of pretending the old observation remains authoritative.
 
+Burnbag counts detected closes and opens separately. The initial lid snapshot
+establishes state and may arm a countdown, but is not a transition. A valid
+property notification counts only when it changes the last observed state;
+duplicate same-state notifications do not increment counts or add events.
+These are observed sensor transitions, which may include false triggers,
+rather than proof of physical lid movement.
+
+Every transition retains its actual local wall-clock observation time and
+suspend-inclusive `CLOCK_BOOTTIME` elapsed time. Lid events and battery samples
+share one process-start elapsed origin so their positions can be compared.
+With `--ignore-lid`, the shutdown narrative reports separate detected-close
+and detected-open totals, including zero. Unavailable lid telemetry is
+qualified; a later valid state observation clears that qualification without
+counting an unchanged state. Counting and durable event logging continue with
+`--no-plot` or without valid battery observations. The final structured state
+includes both totals; individual event history remains in transition records.
+
+`--ignore-lid` keeps the session alive across opens and enables the diagnostic
+lid-transition overlay defined by [battery monitoring](battery-monitoring.md).
+It does not disable sensor observation or change countdown semantics: an open
+still cancels the active countdown, and a later close starts a fresh one.
+
 ## Sleep Requests And Timeouts
 
 Immediate suspend, hibernate, and timer-triggered suspend check the relevant

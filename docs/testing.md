@@ -53,6 +53,28 @@ one 25-row battery chart, and a battery summary. This ARM driver should identify
 `n/a` for trends and variability; that is expected and must not remove the chart.
 The program must return to the shell without a traceback.
 
+### 1a. Lid event counts and graph markers
+
+For the new switch diagnostic, keep backlight control disabled so the output
+remains visible while exercising the lid:
+
+```bash
+./burnbag.py run --ignore-lid --do-not-touch-backlight
+```
+
+Starting with the lid open, wait a few seconds, close and reopen it, wait a few
+more seconds, then repeat. Press Ctrl-C after at least 20 seconds overall.
+Expect `Lid Events Detected: close=2/open=2` for two observed cycles. The chart
+should have magenta close lines and yellow open lines with `C`/`O` above them.
+If events share a screen column, `B` and a line alternating magenta/yellow
+identify both. Battery points and axis extrema labels must remain readable.
+Extra counts are useful evidence for the switch investigation; they should
+match the detected transition records rather than being silently discarded.
+
+For plain output, add `--no-color`: close lines use `|`, open lines use `:`, and
+shared columns use `!`. Counts remain present with `--no-plot` or no battery
+observations. The startup state itself is not counted as a transition.
+
 ### 2. Physical lid, backlight, and profile
 
 The following helper saves your original preference, starts each test from

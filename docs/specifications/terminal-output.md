@@ -50,6 +50,23 @@ preserves the estimator's evidence gates. Summary layout supports one to three
 lines per battery at terminal widths of 40 columns or more. Compact output may
 use `avgΔ` and `σrate`, with a footer defining their gauge-only meaning.
 
+The shutdown narrative reports detected lid closes and opens separately,
+including zero. These counters describe actual observed state changes; the
+initial snapshot and duplicate same-state notifications are excluded. Counts
+remain visible with `--no-plot` or when battery observations are unavailable.
+
+With `--ignore-lid`, the battery chart adds vertical lid-event markers behind
+the battery series: magenta for close and yellow for open. Battery glyphs and
+their series colors take precedence at intersections. A separate marker header
+uses `C` for close, `O` for open, and `B` for both in one column. Plain vertical
+markers use `|` for close, `:` for open, and `!` for both. A shared close/open
+column uses `!` with alternating magenta/yellow color down the column when
+ANSI is enabled. Text and symbols retain the distinction with color disabled.
+Exact narrative counts are unaffected when several events share a screen
+column. The chart still has 25 data rows; marker headers are outside them.
+These diagnostic markers are absent without `--ignore-lid` and do not create
+a chart when no valid battery observations exist.
+
 ## Reporting failures
 
 Handled shutdown restores host state before attempting the narrative, chart,

@@ -22,6 +22,16 @@ No additional queued requests.
     completed teardown with exit zero. The maximized-terminal check prompted
     `BB-BUG-2026-09-14-01`: always label both axis extrema, even equal values.
     That correction is verified and available on the next dev-launcher run.
+  - Ordinary lid/backlight check passed on 2026-09-14: operator confirmed
+    visible recovery, automatic exit, graph/summary, and corrected extrema.
+    Real log evidence confirms one close/open pair, verified off/on, released
+    inhibitor, and exit zero without deviations. Original and final profiles
+    were both power-saver, so actual profile restoration still needs its test.
+  - New diagnostic feature `BB-2026-09-14-02` is delivered: separate close/open
+    counts and colored transition markers for `--ignore-lid` runs. Optional
+    [check 1a](../docs/testing.md#1a-lid-event-counts-and-graph-markers) exercises
+    two known cycles with the screen left on; expect close=2/open=2 and matching
+    markers, or report extra detected transitions for switch investigation.
   - Next: [check 2](../docs/testing.md#2-physical-lid-backlight-and-profile),
     ordinary and repeated-ignore-lid cycles with backlight control and a real
     balanced-to-power-saver transition.
