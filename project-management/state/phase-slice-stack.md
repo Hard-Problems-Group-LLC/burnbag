@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: P3 closed: operator confirms visible Ctrl-C graph and summary. Wider layout check ongoing; P2 awaits physical lid/profile/suspend tests.
+Notes: Both graph axes now always label both extrema; 141 native tests pass. P3 remains closed; awaiting P2 physical observations.
 
 ## Phases
 

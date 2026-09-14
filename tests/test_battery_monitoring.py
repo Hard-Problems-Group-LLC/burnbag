@@ -362,6 +362,8 @@ class BatteryMonitoringTests(unittest.TestCase):
 
         self.assertEqual(len(plot_lines), 25)
         self.assertTrue(all(len(line) == 80 for line in plot_lines))
+        self.assertTrue(plot_lines[0].startswith("80% |"))
+        self.assertTrue(plot_lines[-1].startswith("70% |"))
         self.assertIn("Observed Y range: 70%--80%", rendered)
         self.assertNotRegex(rendered, r"(?m)^\s*0% \|")
         self.assertIn("80% |", rendered)
@@ -442,7 +444,7 @@ class BatteryMonitoringTests(unittest.TestCase):
         self.assertEqual(len(plot_lines), 25)
         self.assertTrue(all(len(line) == 72 for line in plot_lines))
 
-    def test_constant_series_is_centered_with_only_observed_y_label(self):
+    def test_constant_series_is_centered_with_both_y_extrema_labeled(self):
         device = burnbag.BatteryDevice("BAT0", Path("/unused/BAT0"))
         start = datetime(2026, 8, 13, 8, 0, tzinfo=timezone.utc)
         samples = [
@@ -459,8 +461,110 @@ class BatteryMonitoringTests(unittest.TestCase):
         plot_lines = [line for line in rendered.splitlines() if " |" in line]
 
         self.assertEqual(len(plot_lines), 25)
-        self.assertIn("95% |", plot_lines[12])
-        self.assertEqual(sum("% |" in line for line in plot_lines), 1)
+        self.assertTrue(plot_lines[0].startswith("95% |"))
+        self.assertTrue(plot_lines[-1].startswith("95% |"))
+        self.assertEqual(plot_lines[12].split("|", 1)[1], "1" * 55)
+        self.assertEqual(sum("% |" in line for line in plot_lines), 2)
+
+    def test_same_minute_and_zero_duration_charts_always_label_both_bounds(self):
+        device = burnbag.BatteryDevice("BAT0", Path("/unused/BAT0"))
+        start = datetime(2026, 9, 14, 8, 0, tzinfo=timezone.utc)
+        for columns in (20, 40, 190):
+            for elapsed_times in ((0.0,), (0.0, 0.0), (0.0, 25.0)):
+                for color in (False, True):
+                    with self.subTest(columns=columns, elapsed=elapsed_times, color=color):
+                        samples = [
+                            burnbag.BatterySample(
+                                start + timedelta(seconds=elapsed), elapsed, {"BAT0": 100}
+                            )
+                            for elapsed in elapsed_times
+                        ]
+                        rendered = burnbag.render_battery_depletion_chart(
+                            [device], samples, burnbag.TerminalStyle(color, False),
+                            io.StringIO(), columns=columns,
+                        )
+                        lines = ANSI_ESCAPE.sub("", rendered).splitlines()
+                        plot_lines = [line for line in lines if " |" in line]
+                        self.assertEqual(len(plot_lines), 25)
+                        self.assertTrue(all(len(line) == columns for line in plot_lines))
+                        self.assertTrue(plot_lines[0].startswith("100% |"))
+                        self.assertTrue(plot_lines[-1].startswith("100% |"))
+                        axis_index = next(i for i, line in enumerate(lines)
+                                          if re.match(r"^\s+\+[-+]", line))
+                        axis, labels = lines[axis_index:axis_index + 2]
+                        callouts = list(re.finditer(r"\d{2}:\d{2}", labels))
+                        self.assertEqual([m.group() for m in callouts],
+                                         [start.astimezone().strftime("%H:%M")] * 2)
+                        self.assertEqual(callouts[0].start(), 6)
+                        self.assertEqual(callouts[-1].end(), columns)
+                        self.assertGreaterEqual(callouts[-1].start() - callouts[0].end(), 2)
+                        self.assertEqual(len(axis), columns)
+                        self.assertEqual(axis[6], "+")
+                        self.assertEqual(axis[-1], "+")
+                        self.assertEqual(axis.count("+"), 2)
+                        cells = plot_lines[12].split("|", 1)[1]
+                        symbol = "*" if color else "1"
+                        expected_count = columns - 6 if elapsed_times[-1] > 0 else 1
+                        self.assertEqual(cells.count(symbol), expected_count)
+
+    def test_x_extrema_include_missing_edge_attempts_without_inventing_data(self):
+        device = burnbag.BatteryDevice("BAT0", Path("/unused/BAT0"))
+        start = datetime(2026, 9, 14, 8, 0, tzinfo=timezone.utc)
+        samples = [
+            burnbag.BatterySample(start + timedelta(seconds=elapsed), elapsed, values)
+            for elapsed, values in (
+                (0.0, {}), (15.0, {"BAT0": 93}), (30.0, {}),
+                (45.0, {"BAT0": 91}), (60.0, {}),
+            )
+        ]
+        for columns in (20, 40, 190):
+            with self.subTest(columns=columns):
+                lines = burnbag.render_battery_depletion_chart(
+                    [device], samples, burnbag.TerminalStyle(False, False),
+                    io.StringIO(), columns=columns,
+                ).splitlines()
+                plot_lines = [line for line in lines if " |" in line]
+                self.assertTrue(plot_lines[0].startswith("93% |"))
+                self.assertTrue(plot_lines[-1].startswith("91% |"))
+                cells = [line.split("|", 1)[1] for line in plot_lines]
+                self.assertEqual("".join(cells).count("1"), 2)
+                self.assertTrue(all(row[0] == row[-1] == " " for row in cells))
+                axis_index = next(i for i, line in enumerate(lines)
+                                  if re.match(r"^\s+\+[-+]", line))
+                axis, labels = lines[axis_index:axis_index + 2]
+                callouts = list(re.finditer(r"\d{2}:\d{2}", labels))
+                self.assertEqual(callouts[0].group(), start.astimezone().strftime("%H:%M"))
+                self.assertEqual(callouts[-1].group(), samples[-1].captured_at.astimezone().strftime("%H:%M"))
+                self.assertEqual(axis[5], "+")
+                self.assertEqual(axis[-1], "+")
+                self.assertEqual(callouts[0].start(), 5)
+                self.assertEqual(callouts[-1].end(), columns)
+
+    def test_x_endpoint_labels_follow_elapsed_order_across_clock_changes(self):
+        device = burnbag.BatteryDevice("BAT0", Path("/unused/BAT0"))
+        start = datetime(2026, 9, 14, 8, 0, tzinfo=timezone.utc)
+        samples = [
+            burnbag.BatterySample(start, 0.0, {"BAT0": 100}),
+            burnbag.BatterySample(start - timedelta(minutes=2), 60.0, {"BAT0": 50}),
+            burnbag.BatterySample(start - timedelta(minutes=1), 120.0, {"BAT0": 0}),
+        ]
+        for columns in (20, 40, 190):
+            with self.subTest(columns=columns):
+                lines = burnbag.render_battery_depletion_chart(
+                    [device], samples, burnbag.TerminalStyle(False, False),
+                    io.StringIO(), columns=columns,
+                ).splitlines()
+                plot_lines = [line for line in lines if " |" in line]
+                self.assertTrue(plot_lines[0].startswith("100% |"))
+                self.assertTrue(plot_lines[-1].startswith("  0% |"))
+                axis_index = next(i for i, line in enumerate(lines)
+                                  if re.match(r"^\s+\+[-+]", line))
+                labels = lines[axis_index + 1]
+                callouts = list(re.finditer(r"\d{2}:\d{2}", labels))
+                self.assertEqual(callouts[0].group(), samples[0].captured_at.astimezone().strftime("%H:%M"))
+                self.assertEqual(callouts[-1].group(), samples[-1].captured_at.astimezone().strftime("%H:%M"))
+                for previous, current in zip(callouts, callouts[1:]):
+                    self.assertGreaterEqual(current.start() - previous.end(), 2)
 
     def test_missing_middle_reading_is_not_interpolated(self):
         device = burnbag.BatteryDevice("BAT0", Path("/unused/BAT0"))

@@ -19,8 +19,9 @@ No additional queued requests.
   - Check 1 passed: operator confirmed graph/summary and clean Ctrl-C return
     in a small panel. The real log records three valid energy-derived samples
     over approximately 25 seconds, no deviations, released inhibitors, and
-    completed teardown with exit zero. The operator is checking a maximized
-    terminal as an additional layout observation.
+    completed teardown with exit zero. The maximized-terminal check prompted
+    `BB-BUG-2026-09-14-01`: always label both axis extrema, even equal values.
+    That correction is verified and available on the next dev-launcher run.
   - Next: [check 2](../docs/testing.md#2-physical-lid-backlight-and-profile),
     ordinary and repeated-ignore-lid cycles with backlight control and a real
     balanced-to-power-saver transition.

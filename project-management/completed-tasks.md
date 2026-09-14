@@ -1,5 +1,12 @@
 # Completed Tasks
 
+- `BB-BUG-2026-09-14-01` — Always label chart extrema, including equal values.
+  Started and completed 2026-09-14 under roadmap V.2; owner: Codex;
+  requestor: operator. Both axis boundaries now retain labels before interior
+  callouts, with aligned ticks and no fabricated data. 141 native tests,
+  Python 3.9/3.14 compatibility, real-session replay, and generated-doc/man
+  checks passed. See the [bug record](bugs/closed/BB-BUG-2026-09-14-01-chart-extrema-labels.md).
+
 - `BB-2026-09-14-P3` — Shutdown graph and summary. Started, deferred, and
   completed 2026-09-14. Owner: Codex; manual validation: operator.
   Original request/acceptance: [roadmap P3](../ROADMAP.md#p3--reliable-shutdown-graph-and-summary).

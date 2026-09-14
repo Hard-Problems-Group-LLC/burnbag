@@ -106,7 +106,9 @@ Burnbag discovers present entries of type Battery under /sys/class/power_supply 
 .PP
 Every cycle is retained in the synchronized running log. Discovery or read failures are reported as operational deviations and select nonzero exit status, but never prevent backlight, inhibitor, or power-profile recovery. More than two eligible devices produce an explicit warning identifying which first two devices were selected.
 .PP
-The handled-exit chart contains exactly 25 data rows and uses the current standard-output terminal width, with an 80-column fallback. Its Y axis spans only observed percentage values and labels at most one observed value per row. Its X axis uses monotonic ordering, marks real sample positions with ticks, and labels selected actual local times as HH:mm. A real endpoint is retained when it fits, and adjacent callouts have at least two blank columns. Missing readings remain gaps.
+The handled-exit chart contains exactly 25 data rows and uses the current standard-output terminal width, with a 20-column minimum and an 80-column fallback. Its Y axis spans only observed percentages. The top always labels the maximum and the bottom always labels the minimum, including equal percentages at both boundaries; constant data remains vertically centered. Each row has at most one observed percentage label.
+.PP
+The X axis uses elapsed-time ordering. Both boundaries always label the actual local wall-clock HH:mm of the earliest and latest sample attempts, including missing readings at either edge. Both endpoint callouts are reserved before interior labels, even when their displayed times are equal. A lone sample or a history with equal elapsed times repeats its true endpoint labels without inventing a duration, while its points remain at the left. Boundary ticks align with the axis edges; interior ticks mark actual elapsed-time sample positions, and adjacent callouts have at least two blank columns. Missing readings remain gaps.
 .PP
 With ANSI color enabled, the first battery is yellow, the second blue, and overlap green. Plain output uses 1, 2, and X. Use
 .B \-\-no\-plot

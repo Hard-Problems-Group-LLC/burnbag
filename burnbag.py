@@ -1432,11 +1432,14 @@ def render_battery_depletion_chart(
         fraction = (observed_max - value) / (observed_max - observed_min)
         return int(round(fraction * (BATTERY_PLOT_ROWS - 1)))
 
-    # Labels are intentionally restricted to observed percentages. When
-    # quantization maps several values to one row, retain the first value in
-    # descending order; the plotted range endpoints are inserted first.
-    labels_by_row: Dict[int, str] = {}
-    ordered_values = [observed_max, observed_min] + sorted(
+    # Reserve both scale boundaries even when the observed range is constant.
+    # The repeated value describes that degenerate range without inventing a
+    # percentage span; the constant series itself remains vertically centered.
+    labels_by_row: Dict[int, str] = {
+        0: f"{observed_max}%",
+        BATTERY_PLOT_ROWS - 1: f"{observed_min}%",
+    }
+    ordered_values = sorted(
         set(observed_values) - {observed_min, observed_max}, reverse=True
     )
     for value in ordered_values:
@@ -1445,9 +1448,13 @@ def render_battery_depletion_chart(
     plot_width = max(1, terminal_columns - axis_width - 2)
     canvas = [[0 for _ in range(plot_width)] for _ in range(BATTERY_PLOT_ROWS)]
 
-    elapsed_values = [sample.elapsed_seconds for sample in samples]
-    first_elapsed = min(elapsed_values)
-    last_elapsed = max(elapsed_values)
+    # All sampling attempts define the time domain, including unreadable edge
+    # observations. Their timestamps remain known while their plot cells stay
+    # empty. For equal elapsed times, retain the first and last actual attempts.
+    first_sample = min(samples, key=lambda sample: sample.elapsed_seconds)
+    last_sample = max(reversed(samples), key=lambda sample: sample.elapsed_seconds)
+    first_elapsed = first_sample.elapsed_seconds
+    last_elapsed = last_sample.elapsed_seconds
 
     def column_for(elapsed: float) -> int:
         if last_elapsed == first_elapsed or plot_width == 1:
@@ -1493,9 +1500,8 @@ def render_battery_depletion_chart(
     for row_index, row in enumerate(canvas):
         label = labels_by_row.get(row_index, "").rjust(axis_width)
         output.append(f"{label} |{''.join(render_cell(cell) for cell in row)}")
-    # Build callouts only from actual samples. Consecutive samples within one
-    # displayed wall-clock minute form one candidate group; the final group
-    # uses its last sample so a long run can retain its actual endpoint.
+    # Group interior callouts by displayed minute, but never deduplicate the
+    # two domain boundaries. Even a single observation has two labeled bounds.
     candidate_groups: List[List[BatterySample]] = []
     plottable_samples = [
         sample
@@ -1514,58 +1520,51 @@ def render_battery_depletion_chart(
             candidate_groups[-1].append(sample)
         else:
             candidate_groups.append([sample])
-    candidate_samples = [group[0] for group in candidate_groups]
-    candidate_samples[-1] = candidate_groups[-1][-1]
-
-    # Each tuple contains the sample's exact plot column and the inclusive
-    # screen-column interval occupied by its centered (or edge-clamped) label.
-    callout_candidates: List[Tuple[int, str, int, int]] = []
-    for sample in candidate_samples:
+    # Each tuple contains the tick's plot column and the inclusive screen-column
+    # interval occupied by its centered (or edge-clamped) label.
+    def make_callout(
+        sample: BatterySample, sample_column: int
+    ) -> Tuple[int, str, int, int]:
         label = sample.captured_at.astimezone().strftime("%H:%M")
-        sample_column = column_for(sample.elapsed_seconds)
         start = max(
             0,
             min(plot_width - len(label), sample_column - len(label) // 2),
         )
-        callout_candidates.append(
-            (sample_column, label, start, start + len(label) - 1)
-        )
+        return sample_column, label, start, start + len(label) - 1
+
+    first_callout = make_callout(first_sample, 0)
+    final_callout = make_callout(last_sample, plot_width - 1)
+    callout_candidates: List[Tuple[int, str, int, int]] = []
+    for index, group in enumerate(candidate_groups):
+        sample = group[0]
+        candidate = make_callout(sample, column_for(sample.elapsed_seconds))
+        # End groups are already represented by their boundary labels; equal
+        # endpoint times still remain separately visible at the two edges.
+        if index == 0 and candidate[1] == first_callout[1]:
+            continue
+        if index == len(candidate_groups) - 1 and candidate[1] == final_callout[1]:
+            continue
+        callout_candidates.append(candidate)
 
     # Two visible blanks make adjacent HH:mm values unambiguous. Reserve the
-    # final real sample first; a greedy interior pass then retains the densest
-    # readable set without allowing a late label to crowd that endpoint.
+    # two endpoints first; a greedy pass fills the remaining interior space.
+    # The minimum 20-column chart fits both five-character endpoint labels.
     minimum_blank_columns = 2
-    selected_callouts = [callout_candidates[0]]
-    final_callout: Optional[Tuple[int, str, int, int]] = None
-    if len(callout_candidates) > 1:
-        proposed_final = callout_candidates[-1]
-        if proposed_final[2] > selected_callouts[0][3] + minimum_blank_columns:
-            final_callout = proposed_final
-
-    interior_candidates = (
-        callout_candidates[1:-1]
-        if final_callout is not None
-        else callout_candidates[1:]
-    )
-    for candidate in interior_candidates:
+    selected_callouts = [first_callout]
+    for candidate in callout_candidates:
         if candidate[2] <= selected_callouts[-1][3] + minimum_blank_columns:
             continue
-        if (
-            final_callout is not None
-            and candidate[3] + minimum_blank_columns >= final_callout[2]
-        ):
+        if candidate[3] + minimum_blank_columns >= final_callout[2]:
             continue
         selected_callouts.append(candidate)
-    if final_callout is not None:
-        selected_callouts.append(final_callout)
+    selected_callouts.append(final_callout)
 
-    # Mark the exact sampled X positions on the axis. The leading corner is
-    # already the tick for column zero; interior/final callouts receive `+`.
+    # Align both boundary ticks with the corresponding data columns. In a
+    # zero-duration domain they annotate equal bounds, not an invented span.
     axis_cells = ["-" for _ in range(plot_width)]
     for sample_column, _label, _start, _end in selected_callouts:
-        if sample_column > 0:
-            axis_cells[sample_column] = "+"
-    output.append(f"{' ' * axis_width} +{''.join(axis_cells)}")
+        axis_cells[sample_column] = "+"
+    output.append(f"{' ' * (axis_width + 2)}{''.join(axis_cells)}")
 
     # Place the already collision-checked labels beneath their real ticks.
     label_line = [" " for _ in range(plot_width)]

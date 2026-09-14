@@ -5,7 +5,8 @@
 - Last reviewed: 2026-09-14
 - Authorization: direct operator request `BB-2026-08-13-01` and approved
   [battery-statistics proposal](../../project-management/proposals/approved/BB-PROP-2026-08-13-02-battery-statistics.md)
-  with direct per-minute extension `BB-2026-08-13-03`
+  with direct per-minute extension `BB-2026-08-13-03` and the direct
+  2026-09-14 requirement to always label both axis extrema
 
 ## Scope
 
@@ -96,20 +97,30 @@ one valid battery observation exists. `--no-plot` suppresses presentation
 only: discovery, sampling, logging, and the end summary remain active.
 
 The plot has exactly 25 data rows. At render time it uses the full reported
-standard-output terminal width; an 80-column fallback applies when terminal
-width cannot be determined. The percentage Y transform spans only the minimum
-through maximum values actually observed, never an automatic 0--100 range.
-Axis labels are drawn only from observed percentage values. A constant series
-is centered vertically and retains its one observed percentage label.
+standard-output terminal width, with a minimum of 20 columns; an 80-column
+fallback applies when terminal width cannot be determined. The percentage Y
+transform spans only the minimum through maximum values actually observed,
+never an automatic 0--100 range. Axis labels are drawn only from observed
+percentage values. The top data row always labels the observed maximum, and
+the bottom data row always labels the observed minimum. When both are equal,
+the same percentage appears at both boundaries while the constant series
+remains vertically centered. The Y axis renders no more than one observed
+percentage callout per plot row.
 
-The X axis orders samples by monotonic time and labels selected actual sample
-positions with local wall-clock `HH:mm`. Lines connect consecutive available
-samples; a missing reading creates a visible gap instead of being silently
-interpolated across. Each displayed time has a tick at its exact sample
-column. Callout selection reserves a final real sample when it fits and must
-leave at least two blank screen columns between adjacent labels. The Y axis
-similarly renders no more than one observed percentage callout per plot row,
+The X axis orders sample attempts by elapsed time and uses their actual local
+wall-clock `HH:mm` values for labels. Its left and right boundaries always
+label the earliest and latest elapsed sample attempts, including attempts
+with missing battery readings. These two callouts are reserved before any
+interior labels are selected. Equal `HH:mm` values are repeated at both
+boundaries. A lone sample or a history with equal elapsed times also retains
+both true endpoint labels without inventing a duration, and its plotted points
+remain at the left. Boundary ticks align with the axis edges; interior ticks
+retain actual elapsed-time sample positions.
+Callouts must leave at least two blank screen columns between adjacent labels,
 so neither axis may overlap or concatenate labels.
+
+Lines connect consecutive available samples; a missing reading creates a
+visible gap instead of being silently interpolated across.
 
 With ANSI output enabled, battery one is yellow, battery two is blue, and a
 cell occupied by both is green. Plain output and `--no-color` use the distinct
@@ -229,8 +240,11 @@ records remain the forensic result in those cases.
   covered without touching host state.
 - Timer tests verify an immediate sample, 15,000-millisecond cadence, handled
   cancellation, and a final sample.
-- Chart tests verify 25 data rows, selected terminal width, observed-only Y
-  range, non-overlapping real-sample `HH:mm` callouts and ticks, two series,
+- Chart tests verify 25 data rows, selected terminal width with a 20-column
+  minimum, observed-only Y range, unconditional top/bottom percentage labels,
+  and unconditional left/right sample-attempt `HH:mm` labels. Coverage includes
+  equal extrema, constant centered series, lone/equal-time samples at the left,
+  missing edge readings, non-overlapping callouts and ticks, two series,
   overlap, and ANSI/plain encodings.
 - Formula tests cover falling, constant, mixed, gapped, status-changing, and
   uneven quantized histories, validity gates, weighted variability, and

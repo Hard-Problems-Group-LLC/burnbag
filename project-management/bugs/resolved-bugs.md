@@ -5,6 +5,10 @@ closure timestamp, short outcome, and link to the authoritative record under
 `closed/`. Keep root cause, resolution, and validation evidence in that
 record.
 
+- `BB-BUG-2026-09-14-01` — Resolved 2026-09-14; both graph axes always label
+  both extrema, including equal values and short/flat histories. See the
+  [closed record](closed/BB-BUG-2026-09-14-01-chart-extrema-labels.md).
+
 - `BB-BUG-2026-08-13-01` — Resolved 2026-08-13T14:42:36-07:00; battery-chart
   axes retain only real observed callouts, mark selected sample positions, and
   guarantee visible separation between time labels. See the
