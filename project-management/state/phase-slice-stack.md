@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator slice 5000 warning/fallback results. Slice 6000 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Phase 1000 complete and pushed (754deab); 378 native tests and both compatibility suites passed.
+Notes: No open burnbag bugs are currently recorded. Awaiting operator slice 5000 warning/fallback results. Slice 6000 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Slice 2000 is reserved for any findings from those checks.
 
 ## Phases
 
@@ -76,7 +76,7 @@ Notes: Awaiting operator slice 5000 warning/fallback results. Slice 6000 service
 | 3000 | 1000 | done | Integrate CLI and synchronize docs |
 | 4000 | 1000 | done | Verify edge cases and publish |
 | 1000 | 2000 | blocked | Await profile and suspend checks |
-| 2000 | 2000 | pending | Repair and verify reported defects |
+| 2000 | 2000 | pending | Handle any validation findings |
 | 3000 | 2000 | pending | Close requests and publish closure |
 | 4000 | 2000 | done | Collector and history verified |
 | 5000 | 2000 | active | Await warning and fallback checks |
