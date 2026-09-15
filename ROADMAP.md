@@ -2,6 +2,29 @@
 
 Owner: burnbag maintainers. Authorized by the operator on 2026-09-14.
 
+## Phase 1000 — Relative history durations
+
+Authorized 2026-09-15. Phase and slice IDs now follow the spaced numbering
+policy in AGENTS.md; existing published P1–P10/V references remain stable.
+Current status: 1000.1000 active; numbering guidance is applied before feature
+implementation. Existing manual checks remain pending under V.
+
+- **1000.1000 — Numbering and contract:** publish the numbering rule and define
+  unambiguous duration grammar, units, range bounds and option conflicts.
+- **1000.2000 — Duration parsing and range calculation:** support numeric and
+  English quantities, case/space variants, seconds through millennia, and
+  right-aligned colon time (M:SS or H:MM:SS); preserve one common end instant.
+- **1000.3000 — CLI and documentation:** add `--last DURATION` to historical
+  graphs, synchronize help/README/man/specifications, and preserve warning
+  envelopes and read-only history behavior.
+- **1000.4000 — Verification and publication:** test every requested example,
+  unit families, invalid/overflowing values, CLI conflicts and real SQLite
+  selection; publish evidence and ACP the completed phase.
+
+Acceptance: every provided five-hour spelling selects the same interval;
+`5:00` selects five minutes; a valid duration ends at invocation time. Errors
+are actionable, and existing `--from`/`--to` behavior remains available.
+
 ## Continuous monitoring extension — authorized 2026-09-15
 
 The operator approved the batching policy and optional SQLite-backed systemd

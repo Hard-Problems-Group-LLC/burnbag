@@ -24,6 +24,20 @@ Put project-specific `AGENTS.md` content below this line and above the managed
 FieldManual footer.
 <!-- FIELDMANUAL_MANAGED_HEADER_END -->
 
+## Phase and slice numbering
+
+- Allocate new roadmap phases as `1000`, `2000`, `3000`, and so on. Within
+  each phase, allocate slices in the same increments, using the qualified
+  form `1000.1000`, `1000.2000`, `1000.3000`, and so on.
+- Reserve intervening numbers for later insertions (for example phase `1500`
+  or slice `1000.1500`). Keep assigned IDs stable when inserting work.
+- Apply these IDs consistently in `ROADMAP.md`, project-management records,
+  and the phase/slice stack that generates Ubersight. Update those records as
+  work advances, including completed and manually deferred slices.
+- The new series starts with phase `1000` for historical graph `--last`
+  durations. Existing published `P1`–`P10` and `V` IDs remain legacy references;
+  new phases and slices use the spaced numbering scheme above.
+
 <!-- FIELDMANUAL_MANAGED_FOOTER_START -->
 ---
 

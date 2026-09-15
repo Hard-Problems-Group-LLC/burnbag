@@ -7,9 +7,9 @@ records; this file provides the recovery anchor for the current plan.
 
 ## Publication
 
-Delivery: blocked
+Delivery: active
 
-Notes: V.4 live installation, service readiness and initial history passed. Next V.5 warnings/prudent fallback; V.6 continuous sleep and earlier platform checks pending. P6–P10 automated work complete (344 native tests).
+Notes: Phase 1000 active: spaced numbering guidance applied first; defining and implementing --last duration ranges. Earlier manual fallback and physical checks remain deferred under V.
 
 ## Phases
 
@@ -20,13 +20,14 @@ Notes: V.4 live installation, service readiness and initial history passed. Next
 | P3 | done | Shutdown graph and summary |
 | P4 | done | Error and exception hardening |
 | P5 | done | Documentation and installation |
-| V | active | Manual validation and final closure |
+| V | blocked | Manual validation and final closure |
 
 | P6 | done | Durable telemetry |
 | P7 | done | Collector services |
 | P8 | done | CLI and history graphs |
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
+| 1000 | active | Relative history durations |
 
 ## Slices
 
@@ -56,7 +57,7 @@ Notes: V.4 live installation, service readiness and initial history passed. Next
 | V.2 | V | pending | Repair and verify reported defects |
 | V.3 | V | pending | Close requests and publish closure |
 | V.4 | V | done | Verify installed collector and initial history |
-| V.5 | V | active | Verify warnings and foreground fallback |
+| V.5 | V | blocked | Verify warnings and foreground fallback |
 | V.6 | V | pending | Verify continuous service sleep coverage |
 
 | P6.1 | P6 | done | Specify approved behavior |
@@ -78,6 +79,10 @@ Notes: V.4 live installation, service readiness and initial history passed. Next
 | P10.1 | P10 | done | Run complete automated checks |
 | P10.2 | P10 | done | Smoke-test sampling and isolated daemon |
 | P10.3 | P10 | done | Publish evidence and manual handoff |
+| 1000.1000 | 1000 | active | Set numbering and duration contract |
+| 1000.2000 | 1000 | pending | Parse durations and calculate ranges |
+| 1000.3000 | 1000 | pending | Integrate CLI and synchronize docs |
+| 1000.4000 | 1000 | pending | Verify edge cases and publish |
 
 ## Regenerate local tracking
 
@@ -90,7 +95,9 @@ python3 scripts/update_ubersight.py
 
 The producer reads only the `Publication`, `Phases`, and `Slices` sections
 above. Keep their exact headings and table columns. IDs must be unique;
-slice IDs begin with their owning phase ID and a period. States are `pending`,
+slice IDs begin with their owning phase ID and a period. New IDs use 1000-step
+phase and slice numbering from AGENTS.md, for example 1000.2000; legacy IDs
+remain stable. States are `pending`,
 `active`, `done`, or `blocked`. Each phase needs at least one slice. Exactly
 one phase and one of its slices are active; slices in other phases cannot be
 active. A pending phase may contain already completed independent slices.

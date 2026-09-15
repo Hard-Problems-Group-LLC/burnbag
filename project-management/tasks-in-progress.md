@@ -1,5 +1,14 @@
 # Tasks In Progress
 
+- `BB-2026-09-15-1000` — Relative graph durations and spaced phase numbering.
+  Started 2026-09-15; owner: Codex; direct operator authorization.
+  - Scope: ROADMAP phase 1000, slices 1000.1000 through 1000.4000.
+  - Numbering guidance was added to AGENTS.md first and applied to this phase
+    and all of its slices. Existing manual work remains deferred under V.
+  - Implement `--last` duration strings through millennia, including all
+    requested five-hour spellings and five-minute `5:00`; validate, document
+    and ACP the completed phase without another review gate.
+
 - `BB-2026-09-14-V` — Manual validation and final closure; started 2026-09-14.
   Owner: Codex; observations: operator.
   - Scope: [roadmap V](../ROADMAP.md#v--manual-validation-and-final-closure).
