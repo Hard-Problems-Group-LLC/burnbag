@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator 2000.5000 warning/fallback results. 2000.6000 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Phase 1000 complete and pushed (754deab); 378 native tests and both compatibility suites passed.
+Notes: Awaiting operator slice 5000 warning/fallback results. Slice 6000 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Phase 1000 complete and pushed (754deab); 378 native tests and both compatibility suites passed.
 
 ## Phases
 
@@ -32,55 +32,55 @@ Notes: Awaiting operator 2000.5000 warning/fallback results. 2000.6000 service s
 
 | ID | Phase | State | Title |
 | --- | --- | --- | --- |
-| P1.1 | P1 | done | Inventory Ubuntu services and bindings |
-| P1.2 | P1 | done | Repair prerequisite portability |
-| P1.3 | P1 | done | Verify packages and staged install |
-| P1.4 | P1 | done | Confirm desktop and lid hardware |
-| P2.1 | P2 | done | Inventory ARM platform capabilities |
-| P2.2 | P2 | done | Repair driver compatibility |
-| P2.3 | P2 | done | Verify native ARM battery sampling |
-| P2.4 | P2 | blocked | Confirm backlight, profiles, and suspend |
-| P3.1 | P3 | done | Reproduce missing shutdown report |
-| P3.2 | P3 | done | Unify handled finalization |
-| P3.3 | P3 | done | Test signals through actual GLib |
-| P3.4 | P3 | done | Confirm visible shutdown output |
-| P4.1 | P4 | done | Audit runtime and installer errors |
-| P4.2 | P4 | done | Harden runtime recovery |
-| P4.3 | P4 | done | Harden installer failures |
-| P4.4 | P4 | done | Verify injected failures and suite |
-| P5.1 | P5 | done | Synchronize behavior contracts |
-| P5.2 | P5 | done | Regenerate README and manual |
-| P5.3 | P5 | done | Validate delivery and installer handoff |
-| P5.4 | P5 | done | Publish evidence and handoff |
-| P6.1 | P6 | done | Specify approved behavior |
-| P6.2 | P6 | done | Implement SQLite and bounded writer |
-| P6.3 | P6 | done | Collect sensors and merge history |
-| P6.4 | P6 | done | Verify storage and failure paths |
-| P7.1 | P7 | done | Enforce singleton and readiness |
-| P7.2 | P7 | done | Collect events and sleep transitions |
-| P7.3 | P7 | done | Coordinate fallback and prudent clients |
-| P7.4 | P7 | done | Verify concurrent service behavior |
-| P8.1 | P8 | done | Add management and warning envelopes |
-| P8.2 | P8 | done | Connect foreground telemetry |
-| P8.3 | P8 | done | Render arbitrary-time history graphs |
-| P8.4 | P8 | done | Verify CLI and reporting |
-| P9.1 | P9 | done | Install system and user services |
-| P9.2 | P9 | done | Add scoped uninstaller |
-| P9.3 | P9 | done | Synchronize contracts and generated docs |
-| P9.4 | P9 | done | Verify installation and recovery |
-| P10.1 | P10 | done | Run complete automated checks |
-| P10.2 | P10 | done | Smoke-test sampling and isolated daemon |
-| P10.3 | P10 | done | Publish evidence and manual handoff |
-| 1000.1000 | 1000 | done | Set numbering and duration contract |
-| 1000.2000 | 1000 | done | Parse durations and calculate ranges |
-| 1000.3000 | 1000 | done | Integrate CLI and synchronize docs |
-| 1000.4000 | 1000 | done | Verify edge cases and publish |
-| 2000.1000 | 2000 | blocked | Await profile and suspend checks |
-| 2000.2000 | 2000 | pending | Repair and verify reported defects |
-| 2000.3000 | 2000 | pending | Close requests and publish closure |
-| 2000.4000 | 2000 | done | Installed collector and history verified |
-| 2000.5000 | 2000 | active | Await warning and fallback checks |
-| 2000.6000 | 2000 | pending | Verify service sleep coverage |
+| 1000 | P1 | done | Inventory Ubuntu services and bindings |
+| 2000 | P1 | done | Repair prerequisite portability |
+| 3000 | P1 | done | Verify packages and staged install |
+| 4000 | P1 | done | Confirm desktop and lid hardware |
+| 1000 | P2 | done | Inventory ARM platform capabilities |
+| 2000 | P2 | done | Repair driver compatibility |
+| 3000 | P2 | done | Verify native ARM battery sampling |
+| 4000 | P2 | blocked | Confirm backlight, profiles, and suspend |
+| 1000 | P3 | done | Reproduce missing shutdown report |
+| 2000 | P3 | done | Unify handled finalization |
+| 3000 | P3 | done | Test signals through actual GLib |
+| 4000 | P3 | done | Confirm visible shutdown output |
+| 1000 | P4 | done | Audit runtime and installer errors |
+| 2000 | P4 | done | Harden runtime recovery |
+| 3000 | P4 | done | Harden installer failures |
+| 4000 | P4 | done | Verify injected failures and suite |
+| 1000 | P5 | done | Synchronize behavior contracts |
+| 2000 | P5 | done | Regenerate README and manual |
+| 3000 | P5 | done | Validate delivery and installer handoff |
+| 4000 | P5 | done | Publish evidence and handoff |
+| 1000 | P6 | done | Specify approved behavior |
+| 2000 | P6 | done | Implement SQLite and bounded writer |
+| 3000 | P6 | done | Collect sensors and merge history |
+| 4000 | P6 | done | Verify storage and failure paths |
+| 1000 | P7 | done | Enforce singleton and readiness |
+| 2000 | P7 | done | Collect events and sleep transitions |
+| 3000 | P7 | done | Coordinate fallback and prudent clients |
+| 4000 | P7 | done | Verify concurrent service behavior |
+| 1000 | P8 | done | Add management and warning envelopes |
+| 2000 | P8 | done | Connect foreground telemetry |
+| 3000 | P8 | done | Render arbitrary-time history graphs |
+| 4000 | P8 | done | Verify CLI and reporting |
+| 1000 | P9 | done | Install system and user services |
+| 2000 | P9 | done | Add scoped uninstaller |
+| 3000 | P9 | done | Synchronize contracts and generated docs |
+| 4000 | P9 | done | Verify installation and recovery |
+| 1000 | P10 | done | Run complete automated checks |
+| 2000 | P10 | done | Smoke-test sampling and isolated daemon |
+| 3000 | P10 | done | Publish evidence and manual handoff |
+| 1000 | 1000 | done | Set numbering and duration contract |
+| 2000 | 1000 | done | Parse durations and calculate ranges |
+| 3000 | 1000 | done | Integrate CLI and synchronize docs |
+| 4000 | 1000 | done | Verify edge cases and publish |
+| 1000 | 2000 | blocked | Await profile and suspend checks |
+| 2000 | 2000 | pending | Repair and verify reported defects |
+| 3000 | 2000 | pending | Close requests and publish closure |
+| 4000 | 2000 | done | Collector and history verified |
+| 5000 | 2000 | active | Await warning and fallback checks |
+| 6000 | 2000 | pending | Verify service sleep coverage |
 
 ## Regenerate local tracking
 
@@ -93,10 +93,13 @@ python3 scripts/update_ubersight.py
 ```
 
 The producer reads only the `Publication`, `Phases`, and `Slices` sections
-above. Keep their exact headings and table columns. IDs must be unique;
-slice IDs begin with their owning phase ID and a period. New IDs use 1000-step
-phase and slice numbering from AGENTS.md, for example 1000.2000; legacy IDs
-remain stable. States are `pending`,
+above. Keep their exact headings and table columns. Phase IDs are unique;
+slice IDs are unique only within their owning Phase column. Local slice IDs
+restart at 1000 in every phase and never include a phase prefix. A phase and
+a slice can share the same ID. The producer identifies a slice by the pair
+of owning phase and local ID, then publishes just the local ID for the current
+phase. All live slices use AGENTS.md's spaced numbering; historical references
+such as P2.4 map to phase P2, slice 4000. States are `pending`,
 `active`, `done`, or `blocked`. Each phase needs at least one slice. Exactly
 one phase and one of its slices are active; slices in other phases cannot be
 active. A pending phase may contain already completed independent slices.

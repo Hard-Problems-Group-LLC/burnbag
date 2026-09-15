@@ -13,16 +13,16 @@ pass; Python 3.9.21 and 3.14.7 each pass 359 compatibility tests with two
 expected native-GI skips. Staged installed queries and manual copies pass.
 Existing manual checks remain pending under phase 2000.
 
-- **1000.1000 — Numbering and contract:** publish the numbering rule and define
+- **1000 — Numbering and contract:** publish the numbering rule and define
   unambiguous duration grammar, units, range bounds and option conflicts.
-- **1000.2000 — Duration parsing and range calculation:** support numeric and
+- **2000 — Duration parsing and range calculation:** support numeric and
   English quantities, case/space variants, seconds through millennia, and
   right-aligned colon time (M:SS or H:MM:SS); preserve one common end instant.
-- **1000.3000 — CLI and documentation:** add `--last DURATION` to historical
+- **3000 — CLI and documentation:** add `--last DURATION` to historical
   graphs, synchronize help/README/man/specifications, and preserve warning
   envelopes and read-only history behavior. Verify installation of the generated
   manual in every mode and service scope.
-- **1000.4000 — Verification and publication:** test every requested example,
+- **4000 — Verification and publication:** test every requested example,
   unit families, invalid/overflowing values, CLI conflicts and real SQLite
   selection; publish evidence and ACP the completed phase.
 
@@ -52,23 +52,26 @@ BB-MANUAL-03, alongside earlier P2 and phase 2000 checks. The
 [phase stack](project-management/state/phase-slice-stack.md) retains detailed
 state and generates Ubersight, now awaiting BB-MANUAL-01/02/03 observations.
 
-- **P6 — Durable telemetry:** P6.1 specify approved behavior; P6.2 implement
-  SQLite schema, safe paths and bounded batched writer; P6.3 implement sensor
-  collection and merged history queries; P6.4 verify real storage/failure paths.
-- **P7 — Collector services:** P7.1 enforce global ownership and readiness;
-  P7.2 collect events/sleep with bounded lifecycle flushes; P7.3 coordinate
-  foreground fallback and prudent-write requests; P7.4 test concurrent clients,
-  failures and handoff without host mutations.
-- **P8 — CLI and history graphs:** P8.1 add service actions, scope inference and
-  warning envelopes; P8.2 connect existing run graphs to collector observations;
-  P8.3 add arbitrary-time merged history graphs; P8.4 verify all CLI exit paths.
-- **P9 — Installation and documentation:** P9.1 install system/user units and
-  supporting modules; P9.2 add scoped history-preserving uninstallation;
-  P9.3 synchronize specifications, generated README/man and installer;
-  P9.4 verify staging, dev paths and failure recovery.
-- **P10 — Integration and handoff:** P10.1 run full native/compatibility/static
-  checks; P10.2 conduct read-only real sampling and isolated daemon smoke tests;
-  P10.3 publish bounded operator service/sleep checks and ACP all phase work.
+- **P6 — Durable telemetry:** slice 1000 specify approved behavior; slice 2000
+  implement SQLite schema, safe paths and bounded batched writer; slice 3000
+  implement sensor collection and merged history queries; slice 4000 verify
+  real storage/failure paths.
+- **P7 — Collector services:** slice 1000 enforce global ownership and
+  readiness; slice 2000 collect events/sleep with bounded lifecycle flushes;
+  slice 3000 coordinate foreground fallback and prudent-write requests; slice
+  4000 test concurrent clients, failures and handoff without host mutations.
+- **P8 — CLI and history graphs:** slice 1000 add service actions, scope
+  inference and warning envelopes; slice 2000 connect existing run graphs to
+  collector observations; slice 3000 add arbitrary-time merged history graphs;
+  slice 4000 verify all CLI exit paths.
+- **P9 — Installation and documentation:** slice 1000 install system/user
+  units and supporting modules; slice 2000 add scoped history-preserving
+  uninstallation; slice 3000 synchronize specifications, generated README/man
+  and installer; slice 4000 verify staging, dev paths and failure recovery.
+- **P10 — Integration and handoff:** slice 1000 run full
+  native/compatibility/static checks; slice 2000 conduct read-only real
+  sampling and isolated daemon smoke tests; slice 3000 publish bounded
+  operator service/sleep checks and ACP all phase work.
 
 Proceed automatically across independent slices; ACP each completed phase and
 each phase deferred for manual completion, without another review gate. The
@@ -97,13 +100,13 @@ Original request: “This is the first Ubuntu system on which burnbag has been
 tested. Investigate, test, and address any issues uncovered. Ask for manual
 testing when needed, but address anything you can address on your own first.”
 
-- **P1.1 Inventory:** inspect distribution Python, native bindings, available
+- **1000 Inventory:** inspect distribution Python, native bindings, available
   system services, and current automated baseline.
-- **P1.2 Portability:** support Ubuntu/Debian prerequisite packages and package
+- **2000 Portability:** support Ubuntu/Debian prerequisite packages and package
   selection while retaining Fedora/RHEL behavior. Keep help independent of GI.
-- **P1.3 Verification:** test package selection/failure paths with isolated
+- **3000 Verification:** test package selection/failure paths with isolated
   commands, run real non-mutating prerequisite checks and staged installation.
-- **P1.4 Hardware:** collect real desktop/backlight/lid confirmation after
+- **4000 Hardware:** collect real desktop/backlight/lid confirmation after
   software fixes are available; publish a manual handoff if needed.
 
 Acceptance: distro-appropriate actionable setup; native GI loads on this
@@ -116,13 +119,13 @@ Original request: “This is the first ARM platform running burnbag. Review
 (you're authorized). Investigate, test, and address any issues uncovered.
 As before, address what you can, then ask for manual testing.”
 
-- **P2.1 Inventory:** inspect CPU architecture and actual kernel power-supply,
+- **1000 Inventory:** inspect CPU architecture and actual kernel power-supply,
   backlight, logind, UPower, and profile capabilities without changing hardware.
-- **P2.2 Compatibility:** repair demonstrated sysfs/API assumptions using
+- **2000 Compatibility:** repair demonstrated sysfs/API assumptions using
   documented, validated fallbacks, with explicit telemetry provenance.
-- **P2.3 Verification:** run native ARM tests plus representative driver-shaped
+- **3000 Verification:** run native ARM tests plus representative driver-shaped
   fixtures and read-only real battery discovery/sampling.
-- **P2.4 Hardware:** verify visible backlight restoration, lid behavior, and
+- **4000 Hardware:** verify visible backlight restoration, lid behavior, and
   available power profiles, and supervised suspend/resume with the operator;
   avoid claiming unsupported modes.
 
@@ -138,12 +141,12 @@ missing. “The same material-- the graph and the summary information-- should
 be displayed in all shutdown cases for which the program meaningfully start
 operations.”
 
-- **P3.1 Reproduce:** trace actual telemetry and subprocess signal behavior.
-- **P3.2 Lifecycle:** define operational start, centralize handled finalization,
+- **1000 Reproduce:** trace actual telemetry and subprocess signal behavior.
+- **2000 Lifecycle:** define operational start, centralize handled finalization,
   and preserve final sample, graph, and summary across signals and errors.
-- **P3.3 Regression:** exercise actual GLib/subprocess signal delivery with
+- **3000 Regression:** exercise actual GLib/subprocess signal delivery with
   external hardware boundaries substituted, including `--ignore-lid`.
-- **P3.4 Confirmation:** ask the operator to verify the original visible symptom
+- **4000 Confirmation:** ask the operator to verify the original visible symptom
   using the verified checkout or development launcher; retain explicit
   `--no-plot` and unavailable-output semantics.
 
@@ -159,13 +162,13 @@ Original request: “After this, do a general pass to harden and improve error
 and exception handling and reporting for the program in general, and its
 installation scripts and supporting materials.”
 
-- **P4.1 Audit:** inspect setup, timers, callbacks, mutations, teardown, terminal
+- **1000 Audit:** inspect setup, timers, callbacks, mutations, teardown, terminal
   writes, runtime logs, installer arguments, and partial installation failures.
-- **P4.2 Runtime:** isolate cleanup actions, bound external calls, handle
+- **2000 Runtime:** isolate cleanup actions, bound external calls, handle
   callback/signal/report failures, and use actionable nonzero outcomes.
-- **P4.3 Installer:** fail before mutation on invalid input, preserve unmanaged
+- **3000 Installer:** fail before mutation on invalid input, preserve unmanaged
   paths, contain staging, and diagnose/clean up partial operations.
-- **P4.4 Verify:** add failure-injection regressions for demonstrated risks and
+- **4000 Verify:** add failure-injection regressions for demonstrated risks and
   run the full suite and shell/static checks.
 
 Acceptance: failure in one observer or cleanup action cannot silently skip the
@@ -177,15 +180,15 @@ exposing secrets; installer failures do not falsely claim success.
 Original request: “Improve and synchronize documentation, man pages, and the
 installer.”
 
-- **P5.1 Contracts:** align supported systems, telemetry sources, signal/exit
+- **1000 Contracts:** align supported systems, telemetry sources, signal/exit
   behavior, capability limits, logging, and recovery guidance.
-- **P5.2 Generated docs:** update `makedocs.py`, regenerate README/man page,
+- **2000 Generated docs:** update `makedocs.py`, regenerate README/man page,
   and check help/man/source consistency and reproducibility.
-- **P5.3 Delivery:** validate standard/staged/dev installer paths; install the
+- **3000 Delivery:** validate standard/staged/dev installer paths; install the
   verified application and manual for operator checks when needed. The operator
   selected self-installation with `./install.sh --mode dev` on 2026-09-14;
   delivery readiness and exact launcher instructions complete the agent slice.
-- **P5.4 Closeout:** publish evidence and exact remaining manual steps, refresh
+- **4000 Closeout:** publish evidence and exact remaining manual steps, refresh
   tracking, and ACP this phase.
 
 Acceptance: the delivered executable, CLI, README, manual, specifications, and
@@ -195,7 +198,7 @@ procedure and all automated work is published.
 ## 2000 — Manual validation and final closure
 
 Renamed from phase V on 2026-09-15 at the operator's direction. Its six
-assigned slices now use 2000.1000 through 2000.6000 in the same order; scope,
+assigned slices now use local IDs 1000 through 6000 in the same order; scope,
 acceptance evidence and open human requests retain their existing status.
 
 Collect the requested physical observations, address any defects they expose,
@@ -205,13 +208,13 @@ awaiting manual validation, even when every automated slice is complete.
 
 Continuous-service acceptance is tracked separately within phase 2000:
 
-- **2000.4000 — Installed collector and initial history:** passed 2026-09-15. The
+- **4000 — Installed collector and initial history:** passed 2026-09-15. The
   operator installed dev mode, verified the system service active/enabled and
   collector ready, and displayed system history with seven valid observations.
-- **2000.5000 — Warning envelope and foreground fallback:** next operator check;
+- **5000 — Warning envelope and foreground fallback:** next operator check;
   stop the service, verify help warnings and a prudent foreground run, query
   merged history, then restart and verify readiness.
-- **2000.6000 — Continuous service sleep coverage:** pending supervised desktop
+- **6000 — Continuous service sleep coverage:** pending supervised desktop
   suspend/wake with the background collector running and no foreground run.
 
 These checks do not replace the earlier profile/backlight and physical ARM
@@ -225,17 +228,17 @@ numbers of detected close/open transitions and show their times as magenta
 (close) and yellow (open) vertical graph lines. Preserve event timing and
 counts for switch troubleshooting, keep battery observations visible, and
 provide distinct plain-output markers and explicit overlap behavior. This is
-an authorized addition to 2000.2000; it does not change the battery estimator or
+an authorized addition to slice 2000; it does not change the battery estimator or
 remove the outstanding physical profile/suspend checks.
 
 The operator then requested `BB-2026-09-14-03`: check the entire run for actual
 suspend periods before assembling the exit report, and mark those regions as
 full-height blocks of white capital `S` characters on a red background.
-2000.2000 now covers a read-only clock observer from application entry through the
+Slice 2000 now covers a read-only clock observer from application entry through the
 post-recovery reporting snapshot, verified suspend-time accounting, approximate
 interval placement with explicit uncertainty, full-run graph coverage, and
 plain-output and no-plot behavior. Automated checks precede publication;
-the existing supervised P2.4 suspend check also verifies the visible blocks.
+the existing supervised phase P2, slice 4000 suspend check also verifies the visible blocks.
 
 The related `BB-2026-09-14-04` follow-up distinguishes verified hibernation
 with full-height green `H` on magenta and reserves black `0` on dark gray for

@@ -1,40 +1,62 @@
 # Completed Tasks
 
+- `BB-2026-09-15-LOCAL-SLICES` — Use local slice numbers within each phase.
+  Completed 2026-09-15; owner: Codex; direct operator clarification.
+  - Slice IDs and displayed names now use local numbers `1000`, `2000`,
+    `3000`, and so on, without embedding their phase. Each phase owns its
+    slice namespace; prose supplies the phase separately when needed.
+    This also converts legacy numbered slices to local 1000-step numbers.
+  - Phase 1000 retains slices 1000–4000. Phase 2000 retains slices 1000–6000,
+    with slice 5000 awaiting operator warning/fallback results. The naming
+    correction changes no work scope, acceptance evidence, or manual state.
+    Historical task, request and bug IDs remain unchanged.
+  - Updated the producer to identify slices by owning phase and local ID,
+    allowing repeated IDs across phases and phase/slice ID equality while
+    rejecting duplicates within one phase. All 17 focused producer tests pass.
+    All 49 slice ownership/state pairs survive the migration. Installed writer
+    and reader validation and 40/48/80-column renders pass; all six current
+    slice titles fit the operator screenshot's 48-column pane. The private
+    live status is republished with local IDs and current wait notes.
+
 - `BB-2026-09-15-2000-NUMBERING` — Renumber manual validation phase.
   Completed 2026-09-15; owner: Codex; directly authorized by the operator.
-  - Former phase `V` is now `2000`. Slice mappings are `V.1` → `2000.1000`,
+  - Commit `19d40a1` renamed former phase `V` to `2000` and initially published
+    qualified slice labels. Its mappings were `V.1` → `2000.1000`,
     `V.2` → `2000.2000`, `V.3` → `2000.3000`, `V.4` → `2000.4000`,
-    `V.5` → `2000.5000`, and `V.6` → `2000.6000`.
-  - Roadmap and project-management references use the new IDs. Historical
+    `V.5` → `2000.5000`, and `V.6` → `2000.6000`. These qualified labels are
+    historical evidence only; the later local-slice correction above
+    supersedes their display and reference format.
+  - Roadmap and project-management references were updated. Historical
     task, request and bug IDs remain unchanged; acceptance evidence and open
     manual checks retain their original scope and status.
   - Republished live Ubersight state and verified all six states are preserved,
-    with 2000.5000 current. Installed writer/reader validation, 40/50/80-column
-    renders, roadmap links, historical identifier preservation and whitespace
-    checks pass. The live file retains its private, ignored status.
+    with the warning/fallback slice current. Installed writer/reader validation,
+    40/50/80-column renders, roadmap links, historical identifier preservation
+    and whitespace checks pass. The live file retains its private, ignored status.
 
 - `BB-2026-09-15-TRACKING` — Review Ubersight expectations and refresh live state.
   Completed 2026-09-15; owner: Codex; direct operator request.
   - Reconciled FieldManual guidance, the installed Ubersight 0.1.0 writer and
     reader, and project completion/manual records. Moved final validation 2000
     after delivered phases so phase 1000 remains in the visible phase window.
-    Marked deferred platform observations 2000.1000 blocked and led notes with the
-    2000.5000 operator wait. All three existing human requests remain open.
+    Marked deferred platform observations blocked and led notes with the
+    warning/fallback operator wait. All three existing human requests remain open.
   - Updated regeneration/visibility/staleness guidance and roadmap indexes;
     republished the ignored live status with private directory/file modes.
     The installed consumer reads this checkout's default status path.
   - Validation: producer dry run, installed writer/reader normalization,
-    fresh timezone-aware timestamp, expected 2000/2000.5000 ownership, phase 1000 done,
-    blocked delivery, private modes and ignore boundary pass. Status-only
-    rendering at 40x20, 50x24 and 80x30 shows recent completion and the operator
+    fresh timezone-aware timestamp, expected manual-phase ownership, completed
+    phase 1000, blocked delivery, private modes and ignore boundary pass.
+    Status-only rendering at 40x20, 50x24 and 80x30 shows recent completion and the operator
     wait. No dashboard environment refresh, runtime-job rewrite or program
     behavior change was needed; whitespace checks pass.
 
 - `BB-2026-09-15-1000` — Relative graph durations and spaced phase numbering.
   Started and completed 2026-09-15; owner: Codex; direct operator authorization.
   - All four phase 1000 slices are complete. AGENTS.md numbering guidance and
-    the phase plan were published first in `3044393`; new phases and slices
-    use 1000-step IDs while existing published legacy references remain stable.
+    the phase plan were published first in `3044393`, initially using qualified
+    1000-step slice IDs. The local-slice correction above supersedes that
+    naming convention while preserving the delivered scope and evidence.
   - `--graph --last DURATION` accepts every requested five-hour spelling,
     five-minute `5:00`, decimal/English quantities and compounds from seconds
     through millennia. One invocation instant anchors the end. Months and
@@ -80,8 +102,9 @@
     errors or observer-coverage warnings. No service control or host mutation
     was performed during corroboration.
   - Validation for these record changes: Ubersight producer and whitespace
-    checks pass. BB-MANUAL-03 remains open for 2000.5000 warning/fallback/merged-history
-    and 2000.6000 physical sleep observations; earlier platform requests remain open.
+    checks pass. BB-MANUAL-03 remains open for phase 2000: slice 5000 verifies
+    warning/fallback/merged-history behavior, and slice 6000 verifies physical
+    sleep observations. Earlier platform requests remain open.
 
 - `BB-2026-09-15-01` — Continuous history and optional systemd services.
   Started and completed 2026-09-15; owner: Codex; authorized by the operator's
@@ -186,7 +209,7 @@
 
 - `BB-2026-09-14-04` — Hibernate diagnostics and reserved powered-off styling.
   Started and completed 2026-09-14. Owner: Codex; requestor: operator;
-  scope: ROADMAP 2000.2000.
+  scope: ROADMAP phase 2000, slice 2000.
   - Clock-confirmed hibernate regions use green capital `H` on magenta;
     suspend remains white `S` on red. Both fill all 25 data rows, preserve axes
     and the lid header, and alternate glyphs/colors when they share a screen
@@ -223,7 +246,8 @@
     requested. The development launcher picks up the change on its next run.
 
 - `BB-2026-09-14-03` — Actual suspend diagnostics and graph regions. Started
-  and completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP 2000.2000.
+  and completed 2026-09-14. Owner: Codex; requestor: operator;
+  scope: ROADMAP phase 2000, slice 2000.
   - A read-only background observer compares required Linux `CLOCK_BOOTTIME`
     and `CLOCK_MONOTONIC` independently of GLib, with a one-second cadence and
     a final post-recovery snapshot. Coverage includes setup and teardown.
@@ -258,7 +282,8 @@
     launcher selects these changes on the next invocation.
 
 - `BB-2026-09-14-02` — Lid-event diagnostics for `--ignore-lid`. Started and
-  completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP 2000.2000.
+  completed 2026-09-14. Owner: Codex; requestor: operator;
+  scope: ROADMAP phase 2000, slice 2000.
   - Shutdown reports separate detected close/open counts, including zero.
     Initial snapshots and duplicate unchanged property notifications are
     excluded. Observations survive a subsequent log failure; current telemetry
@@ -285,7 +310,8 @@
     and extrema confirmations are recorded in `BB-MANUAL-01`.
 
 - `BB-BUG-2026-09-14-01` — Always label chart extrema, including equal values.
-  Started and completed 2026-09-14 under roadmap 2000.2000; owner: Codex;
+  Started and completed 2026-09-14 under roadmap phase 2000, slice 2000;
+  owner: Codex;
   requestor: operator. Both axis boundaries now retain labels before interior
   callouts, with aligned ticks and no fabricated data. 141 native tests,
   Python 3.9/3.14 compatibility, real-session replay, and generated-doc/man
@@ -305,8 +331,9 @@
     and no recorded terminal-output failure.
   - The 138-test native suite already covers handled signal/error cases through
     actual GLib, plus rendering and cleanup boundaries. Visible graph/summary
-    confirmation now closes P3.4. The operator is additionally checking a
-    maximized terminal; any layout finding will be handled in final validation.
+    confirmation now closes phase P3, slice 4000. The operator is additionally
+    checking a maximized terminal; any layout finding will be handled in final
+    validation.
   - P2's revised-build physical lid/backlight/profile and supervised sleep
     observations remain active in `BB-MANUAL-01`/`BB-MANUAL-02`. This lid-open
     test does not establish those behaviors.

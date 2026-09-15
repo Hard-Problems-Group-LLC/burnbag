@@ -26,5 +26,6 @@ reporting, exception hardening, documentation/installer consistency, continuous
 history and services, and phase 1000 relative graph durations. All automated
 implementation is delivered; warning/fallback and physical observations remain
 under phase 2000. New phases and slices follow AGENTS.md's 1000-step numbering
-rule.
+rule. Slice numbers are local to their owning phase; refer to both separately
+when needed, for example phase 2000, slice 5000.
 See [current phase and slice state](state/phase-slice-stack.md) for progress.

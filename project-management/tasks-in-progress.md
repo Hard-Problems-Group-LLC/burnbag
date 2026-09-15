@@ -23,10 +23,11 @@
     rerun affected checks, close requests, and ACP without another review gate.
   - Continuous history P6–P10 is now delivered: 344 native tests and both
     compatibility suites pass. Operator dev installation, service readiness
-    and initial historical query passed on 2026-09-15 (2000.4000): seven system
+    and initial historical query passed on 2026-09-15 (slice 4000): seven system
     readings over 30 seconds, active/enabled service and ready collector.
-    BB-MANUAL-03 now awaits warning/fallback/merged-history checks (2000.5000) and
-    a supervised service-only sleep interval (2000.6000). All automatable work is complete.
+    BB-MANUAL-03 now awaits warning/fallback/merged-history checks (slice 5000)
+    and a supervised service-only sleep interval (slice 6000). All automatable
+    work is complete.
   - Phase 1000 is complete: `--graph --last DURATION`, calendar subtraction
     and installed manual verification. The full suite now passes 378 native
     tests and 359 tests on each compatibility interpreter with two native-GI

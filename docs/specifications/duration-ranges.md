@@ -1,6 +1,6 @@
 # Historical duration ranges
 
-Status: implemented; phase `1000`, slices `1000.1000`–`1000.4000`.
+Status: implemented; phase `1000`, local slices `1000`–`4000`.
 
 `burnbag --graph --last DURATION` renders history from the selected duration
 ago through the current time captured once for the invocation. This is a

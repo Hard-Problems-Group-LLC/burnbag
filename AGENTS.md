@@ -27,17 +27,21 @@ FieldManual footer.
 ## Phase and slice numbering
 
 - Allocate new roadmap phases as `1000`, `2000`, `3000`, and so on. Within
-  each phase, allocate slices in the same increments, using the qualified
-  form `1000.1000`, `1000.2000`, `1000.3000`, and so on.
+  each phase, allocate local slice IDs `1000`, `2000`, `3000`, and so on.
+  Slice IDs restart in each phase and never include the phase ID. The phase
+  section or owning Phase column supplies that context; outside it, write
+  "phase 2000, slice 5000" to disambiguate.
 - Reserve intervening numbers for later insertions (for example phase `1500`
-  or slice `1000.1500`). Keep assigned IDs stable when inserting work.
+  or local slice `1500`). Keep assigned IDs stable when inserting work.
 - Apply these IDs consistently in `ROADMAP.md`, project-management records,
   and the phase/slice stack that generates Ubersight. Update those records as
   work advances, including completed and manually deferred slices.
 - The new series starts with phase `1000` for historical graph `--last`
   durations. At the operator's direction on 2026-09-15, manual validation
-  phase `V` was renamed `2000`, with slices `V.1`–`V.6` renamed
-  `2000.1000`–`2000.6000` in order. Use these new IDs in current tracking;
+  phase `V` was renamed `2000`, with its six slices numbered `1000` through
+  `6000` in order. The operator then clarified that all slice names are local;
+  use local IDs throughout the live stack and dashboard. Legacy slice references
+  such as `P2.4` correspond to phase `P2`, local slice `4000`;
   historical task and request identifiers remain unchanged. Existing published
   `P1`–`P10` IDs remain legacy references. Allocate the next new phase as `3000`.
 

@@ -49,8 +49,8 @@ def writer_arguments(path: Path) -> List[str]:
         raise ValueError("Notes must contain 1 to 500 printable characters")
 
     tables = {}
-    identifiers = set()
     for name, header in HEADERS.items():
+        identifiers = set()
         lines = [line for line in sections.get(name, []) if line]
         rows = []
         for line in lines:
@@ -69,9 +69,15 @@ def writer_arguments(path: Path) -> List[str]:
             identifier = entry["ID"]
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", identifier):
                 raise ValueError(f"invalid ID: {identifier}")
-            if identifier in identifiers:
-                raise ValueError(f"duplicate ID: {identifier}")
-            identifiers.add(identifier)
+            # Phases have project-wide IDs; a slice ID belongs only to its
+            # owning phase. Separate namespaces also allow phase 1000 to own
+            # slice 1000 without inventing a qualified display identifier.
+            identity = identifier if name == "Phases" else (entry["Phase"], identifier)
+            if identity in identifiers:
+                if name == "Phases":
+                    raise ValueError(f"duplicate phase ID: {identifier}")
+                raise ValueError(f"duplicate slice ID {identifier} in phase {entry['Phase']}")
+            identifiers.add(identity)
             if entry["State"] not in STATES:
                 raise ValueError(f"invalid state for {identifier}")
             title = entry["Title"]
@@ -86,7 +92,7 @@ def writer_arguments(path: Path) -> List[str]:
         raise ValueError("exactly one phase must be active")
     active_phase = active_phases[0]["ID"]
     for item in slices:
-        if item["Phase"] not in phase_ids or not item["ID"].startswith(item["Phase"] + "."):
+        if item["Phase"] not in phase_ids:
             raise ValueError(f"invalid owning phase for {item['ID']}")
         if item["State"] == "active" and item["Phase"] != active_phase:
             raise ValueError(f"active slice {item['ID']} is outside the active phase")

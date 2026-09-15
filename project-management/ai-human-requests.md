@@ -11,8 +11,9 @@ No additional queued requests.
 
 - `BB-MANUAL-03` — Continuous collector installation and physical sleep history.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
-  - Scope: roadmap P10 operator handoff and 2000.4000–2000.6000 manual acceptance.
-  - Installation/readiness/initial history passed on 2026-09-15 (2000.4000).
+  - Scope: roadmap P10 operator handoff and manual acceptance in phase 2000,
+    slices 4000–6000.
+  - Installation/readiness/initial history passed on 2026-09-15 (slice 4000).
     Operator ran `./install.sh --mode dev --dev-command local`, refreshed
     command lookup, and reported system service loaded/active/enabled, user
     service absent, and collector ready in system scope. The initial graph
@@ -22,7 +23,7 @@ No additional queued requests.
     flat/short data correctly leaves variability and trend unavailable.
     The earlier `lokcal` typo was rejected and the corrected command succeeded.
   - Follow [continuous service acceptance](../docs/testing.md#continuous-service-acceptance):
-    next check help and stopped-service warnings (2000.5000),
+    next check help and stopped-service warnings (slice 5000),
     prudent foreground fallback and merged history, then restart the service.
   - When desktop interruption is acceptable, save other work and perform a
     supervised desktop suspend/wake with only the service recording; query its
@@ -35,7 +36,8 @@ No additional queued requests.
 
 - `BB-MANUAL-01` — Revised-build graph, lid, backlight, and profile confirmation.
   - Created and activated: 2026-09-14. Owner: operator. Requestor: Codex.
-  - Remaining scope: roadmap P2.4; P3.4 passed and closed on 2026-09-14.
+  - Remaining scope: roadmap phase P2, slice 4000. Phase P3, slice 4000 passed
+    and closed on 2026-09-14.
   - Operator selected self-installation with `./install.sh --mode dev` after
     readiness. Read-only inspection confirms the executable managed user
     launcher selects this checkout. No agent installation into `/usr/local`
@@ -64,12 +66,13 @@ No additional queued requests.
     and expected lid termination/continuation. Report pass/fail and errors.
   - Baseline evidence: the operator's older installed run already confirmed
     lid events, delayed screen-off, verified screen restoration, and inhibitor
-    release. It closed P1.4, but did not validate the revised battery reader,
-    changed-and-restored profile, or physical suspend/resume.
+    release. It closed phase P1, slice 4000, but did not validate the revised
+    battery reader, changed-and-restored profile, or physical suspend/resume.
 
 - `BB-MANUAL-02` — Supervised ARM suspend/resume.
   - Created and activated: 2026-09-14. Owner: operator. Requestor: Codex.
-  - Covers P2.4. Perform [check 3](../docs/testing.md#3-supervised-suspendresume)
+  - Covers phase P2, slice 4000. Perform
+    [check 3](../docs/testing.md#3-supervised-suspendresume)
     when desktop interruption is acceptable, after saving other work.
   - Acceptance: the one-minute continuous-lid-closure countdown requests sleep;
     after normal wake, burnbag exits with its report and the screen and profile
@@ -78,9 +81,9 @@ No additional queued requests.
     requested. Automated tests establish request/failure handling, not physical
     suspend reliability.
   - `BB-2026-09-14-03` delivers actual-suspend diagnostics and graph blocks
-    under 2000.2000; 188 native tests and compatibility checks pass. The continued-run
-    variant in check 3 verifies the new display: leave burnbag active, use
-    desktop Suspend, wake, and then press Ctrl-C. Expect measured suspended
+    under phase 2000, slice 2000; 188 native tests and compatibility checks pass.
+    The continued-run variant in check 3 verifies the new display: leave
+    burnbag active, use desktop Suspend, wake, and then press Ctrl-C. Expect measured suspended
     time and approximate full-height white `S` on red regions; plain output
     uses `S`. The countdown request can
     finish before physical sleep begins, so it cannot by itself prove this
@@ -99,7 +102,9 @@ No additional queued requests.
 ## Completed Requests
 
 The graph/summary portion of `BB-MANUAL-01` passed on 2026-09-14 and closes
-P3.4. The request remains active for its remaining hardware observations.
+phase P3, slice 4000. The request remains active for its remaining hardware
+observations.
 
 The installation/readiness/initial-history portion of `BB-MANUAL-03` passed
-on 2026-09-15 and closes 2000.4000. Warning/fallback and sleep checks remain active.
+on 2026-09-15 and closes phase 2000, slice 4000. Warning/fallback and sleep
+checks remain active.
