@@ -1,7 +1,7 @@
 # Installation and development command selection
 
 Status: implemented. Reviewed: 2026-09-15.
-Authorization: [roadmap P1, P4, P5, and P9](../../ROADMAP.md).
+Authorization: [roadmap P1, P4, P5, P9, and 1000](../../ROADMAP.md).
 
 This specification defines the filesystem and command-selection behavior of
 [`install.sh`](../../install.sh). Distribution package selection belongs to
@@ -16,6 +16,8 @@ prefix, which defaults to `/usr/local`. Reusable Python modules and the removal
 helper live in `lib/burnbag/`; `bin/burnbag-uninstall` is the installed removal
 entry point. Existing ordinary destination files
 may be replaced. A destination file must not be a directory or symlink.
+The installed manual is a byte-for-byte copy of the generated `burnbag.1`,
+including the [`--last` duration and calendar semantics](duration-ranges.md).
 System installation uses `sudo` when required and refreshes the manual index
 when `mandb` is available. Privileged destination ancestors must be root-owned
 and not writable by group or other users. Existing private user directories
@@ -80,7 +82,11 @@ are preserved with an error.
 Plain `--mode dev` still installs the default system service and its own
 root-owned daemon copy. Reinstall after changing daemon code. Combining dev
 mode with `--install-user-service` makes that daemon execute this checkout
-directly. Both variants retain the CLI command-selection policy below.
+directly and installs a user-owned manual copy at
+`<user-home>/.local/share/man/man1/burnbag.1` with mode 0644. Reinstall to refresh
+this copy after documentation changes; the repository-local manual link still
+follows the checkout immediately. Both variants retain the CLI command-selection
+policy below.
 
 The optional managed user launcher is `<user-home>/.local/bin/burnbag`.
 The selected home must be an existing absolute directory. An explicit
@@ -111,6 +117,8 @@ to stop/disable the selected service and remove only managed artifacts. Select
 `--prefix`, `--destdir`, and `--user-home` identify matching locations. If both
 standard and dev user installations exist, select `--mode standard` or
 `--mode dev`. Shared files remain while another manifest references them.
+This includes the user manual when a standard `--prefix <user-home>/.local`
+installation and a dev user installation coexist, regardless of removal order.
 Modified files, unrelated overrides and private configuration are preserved.
 
 History, dependencies, and the service account remain by default. Explicit
@@ -138,5 +146,8 @@ successful installation claim.
 [`tests/test_service_install.py`](../../tests/test_service_install.py) check isolated staged
 files and modes, prerequisite check-only staging, command-resolution policies,
 actual terminal EOF handling, implicit assistant homes, unsafe target refusal,
-and injected launcher/partial-installation failures. These fixtures do not
+and injected launcher/partial-installation failures. All four mode/scope
+combinations verify installed manual bytes, including `--last` calendar
+semantics; user manual removal checks both shared ownership and modified-file
+preservation. These fixtures do not
 install packages or modify the operator's real user or system installation.

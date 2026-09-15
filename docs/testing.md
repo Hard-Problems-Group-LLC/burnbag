@@ -26,6 +26,11 @@ The compatibility baseline is Python 3.9 or later; run the same discovery suite
 on the oldest supported interpreter and a current release. Real SQLite,
 socket ownership, concurrent prudent clients, fallback handoff, history merging,
 and staged system/user uninstall are covered without installing host services.
+Relative history tests cover the requested duration spellings, calendar
+month-end/leap-year adjustment, daylight-saving gaps and ambiguities, and
+actual SQLite range selection. Every installation mode and service scope
+checks the installed manual against the generated source, including its
+`--last` calendar explanation.
 
 README and manual sources live in `makedocs.py`. Regenerate with
 `/usr/bin/python3 -B makedocs.py`; changes to generated output must be intentional
@@ -48,6 +53,10 @@ It does not enable lingering.
 Then run `hash -r` and `command -v burnbag`; the result should be the managed
 user launcher in `~/.local/bin/burnbag`. The installer reports any PATH ordering
 problem. Use `man ./burnbag.1` to view this checkout's updated manual directly.
+The system installer copies it to `/usr/local/share/man/man1/burnbag.1` by
+default. Dev mode with `--install-user-service` instead copies it to
+`~/.local/share/man/man1/burnbag.1`; rerun the installer after documentation
+changes to refresh these installed copies.
 
 Use `./burnbag.py` below to select the tested checkout explicitly. An existing
 installed `burnbag` may still be an older copy. End any older burnbag session
@@ -215,6 +224,10 @@ ready. Help should have no absent-service warning. Allow at least 15 seconds
 after installation; the graph query requests a bounded flush and should find
 new system observations, retaining any nonconflicting earlier user history.
 Use explicit `--from` and `--to` ISO timestamps to inspect an earlier interval.
+For a range ending now, use `burnbag --graph --last 5m` or
+`burnbag --graph --last 'five hours'`. `--last 5:00` means five minutes.
+`--last 'one month'` preserves the earlier month's local date/time and adjusts
+for month-end, as described in the installed manual.
 If history overlaps, the warning and system preference are intentional.
 
 To verify fallback and prudent writes, finish other burnbag runs, then:

@@ -90,6 +90,8 @@ readme_lines = [
     "",
     "Use `--dev-command system` to remove burnbag's managed user launcher and restore the other `PATH` result. Dev mode refuses to replace an unmanaged user launcher unless `--force` is explicit. When an automation environment supplies an isolated assistant `HOME`, pass `--user-home /absolute/operator/home`.",
     "",
+    "With `--mode dev --install-user-service`, the installer copies the manual to `<user-home>/.local/share/man/man1/burnbag.1`. Rerun the installer after documentation changes to refresh that installed copy. The repository-local `.local/share/man/man1/burnbag.1` symlink continues to follow the checkout.",
+    "",
     "---",
     "",
     "## Modes & Syntax",
@@ -284,6 +286,28 @@ readme_lines.extend(['',
  '`--no-plot` retains the historical summary. ISO times accept offsets or Z; local times are accepted only '
  'when unambiguous and existent.',
  '',
+ '`burnbag --graph --last 5h` selects the interval from five hours ago to now. Unit names and aliases '
+ 'are case-insensitive: `5H`, `"5 h"`, `"5 H"`, `"5 hours"`, `"five hours"`, `5:00:00` and `05:00:00` '
+ 'all select the same duration. **`5:00` means five minutes**: two clock fields are minutes:seconds; '
+ 'three are hours:minutes:seconds. Quote arguments containing spaces.',
+ '',
+ 'Durations accept decimal quantities (`1.5h`), English integers (`"twenty-one minutes"`) and compounds '
+ '(`1h30m` or `"one hour and thirty minutes"`). Supported units extend from seconds through minutes, '
+ 'hours, days, weeks, months, years, decades, centuries and millennia; `millenia` is also accepted. '
+ '`m` always means minutes; use `mo` for months. Months and larger units subtract calendar months, '
+ 'preserving local time and clamping to the last day when needed: one month before March 31 is '
+ 'February 28 (29 in a leap year). Their combined quantity must equal whole months; `1.5 years` '
+ 'is 18 months, while `1.5 months` is invalid. Calendar units are combined and subtracted first, '
+ 'then smaller units as elapsed time; days are 24 hours and weeks are seven days. '
+ '`--last` requires `--graph` and cannot be combined with '
+ '`--from` or `--to`. Durations must be positive and contain units or clock fields. Unsupported words, '
+ 'signed values, invalid clock fields, ambiguous or nonexistent calendar targets at daylight-saving '
+ 'transitions, and ranges outside years 1 through 9999 fail with a usage error. Use explicit '
+ '`--from`/`--to` offsets when a calendar target is ambiguous or nonexistent.',
+ '',
+ 'See the [duration range contract](docs/specifications/duration-ranges.md) for unit aliases and exact '
+ 'duration semantics.',
+ '',
  'Queries read both existing system and current-user databases and merge without changing either. Duplicate '
  'identities or conflicting collection coverage warn and prefer system observations; distinct events at the '
  'same time remain distinct. Missing, damaged or unreadable sources produce explicit partial-history '
@@ -316,6 +340,9 @@ man_lines = [
     '.SH SYNOPSIS',
     '.B burnbag',
     '\\fIMODE\\fR [\\fIOPTIONS\\fR]',
+    '.br',
+    '.B burnbag',
+    '\\-\\-graph [\\-\\-last \\fIDURATION\\fR | [\\-\\-from \\fITIME\\fR] [\\-\\-to \\fITIME\\fR]] [\\-\\-no\\-plot]',
     '.SH DESCRIPTION',
     '.B burnbag',
     'is a desktop\\-agnostic systems utility for Ubuntu/Debian and Fedora/RHEL family Linux distributions that temporarily inhibits',
@@ -584,6 +611,29 @@ man_lines[man_lines.index(".SH EXAMPLES"):man_lines.index(".SH EXAMPLES")] = ['.
  'request a bounded collector flush. Reduced-query statistics describe retained observations. '
  'Without battery data, known events still produce a timeline with an n/a battery scale.',
  '.TP',
+ '.BI \\-\\-last " DURATION"',
+ 'Graph a positive duration ending now. Requires --graph; conflicts with --from and --to. Unit spellings '
+ 'are case-insensitive. 5h, 5H, "5 h", "5 H", "5 hours", "five hours", 5:00:00 and 05:00:00 all mean '
+ 'five hours. Quote arguments containing spaces. Two clock fields mean minutes:seconds, so 5:00 means '
+ 'five minutes; three mean hours:minutes:seconds. Fields after the first must be less than 60. The final '
+ 'seconds field may have a decimal fraction.',
+ '.PP',
+ 'Accepts decimal quantities such as 1.5h, English integers such as "twenty-one minutes", and compounds '
+ 'such as 1h30m or "one hour and thirty minutes". Units are seconds, minutes, hours, days, weeks, months, '
+ 'years, decades, centuries and millennia; millenia is accepted too. Singular names and common aliases '
+ 'are accepted. m means minutes; mo means months.',
+ '.PP',
+ 'Months and larger units use calendar arithmetic: combine them into whole months, subtract once while '
+ 'preserving local time, and clamp the day to the last day of the target month when necessary. '
+ 'For example, one month before March 31 is February 28 (29 in a leap year). 1.5 years equals '
+ '18 months; 1.5 months is invalid. Then subtract seconds through weeks as elapsed time: one day is '
+ '24 hours and one week is seven days. Component order does not change the result.',
+ '.PP',
+ 'Bare quantities, signed or nonpositive durations, unsupported words, malformed clock values, '
+ 'ambiguous or nonexistent local calendar targets at daylight-saving transitions, and ranges outside '
+ 'years 1 through 9999 are usage errors. Use explicit --from/--to offsets to resolve a daylight-saving '
+ 'calendar target.',
+ '.TP',
  '.B \\\\-\\\\-enable\\\\-service, \\\\-\\\\-disable\\\\-service',
  'Enable or disable automatic activation without starting or stopping the current process. Use '
  '--enable-user-service, --enable-system-service, --disable-user-service or --disable-system-service for an '
@@ -607,6 +657,10 @@ man_lines[man_lines.index(".SH EXAMPLES"):man_lines.index(".SH EXAMPLES")] = ['.
  '--install-user-service selects the intended user and does not enable lingering. New installs enable and '
  'start; upgrades preserve intentional stopped/disabled state. Plain --mode dev installs a root-owned '
  'system-daemon copy and a checkout CLI; dev with --install-user-service runs the daemon from the checkout.',
+ '.PP',
+ 'Dev with --install-user-service also installs a regular manual copy at '
+ '<user-home>/.local/share/man/man1/burnbag.1. Rerun the installer after documentation changes to refresh '
+ 'that installed copy. The repository-local .local/share/man/man1/burnbag.1 symlink follows the checkout.',
  '.PP',
  '--check is read-only. --destdir stages files without host service/account changes. uninstall.sh '
  '--system-service or --user-service stops/disables the selected installation and removes managed files. '

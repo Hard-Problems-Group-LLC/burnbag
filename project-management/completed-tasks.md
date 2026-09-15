@@ -1,5 +1,41 @@
 # Completed Tasks
 
+- `BB-2026-09-15-1000` — Relative graph durations and spaced phase numbering.
+  Started and completed 2026-09-15; owner: Codex; direct operator authorization.
+  - All four phase 1000 slices are complete. AGENTS.md numbering guidance and
+    the phase plan were published first in `3044393`; new phases and slices
+    use 1000-step IDs while existing published legacy references remain stable.
+  - `--graph --last DURATION` accepts every requested five-hour spelling,
+    five-minute `5:00`, decimal/English quantities and compounds from seconds
+    through millennia. One invocation instant anchors the end. Months and
+    larger units use the operator-selected calendar subtraction, preserve
+    local time and clamp month-end; smaller units subtract elapsed time.
+    Invalid, ambiguous, conflicting or unrepresentable ranges fail explicitly.
+  - README, manual, help and specifications are synchronized. All four
+    installation mode/scope combinations copy the generated manual. Dev user
+    service installation now publishes a user-owned manual in the user's
+    normal manual tree, with shared-owner and modified-file preservation on
+    removal. Installed support modules include the duration parser.
+  - Validation: 378 native tests pass on Ubuntu/aarch64 Python 3.13.7.
+    Python 3.9.21 (SQLite 3.47.1) and 3.14.7 (SQLite 3.53.1) each pass 359
+    tests with two expected native-GI skips and ResourceWarning treated as an
+    error. Direct staged install/query/uninstall smoke checks also pass on
+    both compatibility interpreters. Official Astral runtime SHA256 hashes
+    were verified; the temporary runtimes were removed afterward.
+  - Real SQLite CLI tests check exact range endpoints and selection without
+    modifying source bytes. Native staged executable queries for five hours,
+    five minutes and two millennia resolve the installed parser; staged
+    removal deletes that module and manual. Regressions cover calendar
+    month-end/leap years, DST gaps/ambiguities, ancient timestamp precision,
+    overflow, malformed input and warning envelopes. All 49 installer tests,
+    shellcheck/Bash syntax, read-only prerequisite/install checks, generated
+    documentation, warning-free man rendering, ten guide shell blocks and
+    whitespace checks pass.
+  - ROADMAP and Ubersight are current; phase ACP is authorized without review.
+    No host installation or service change was performed. Existing physical
+    and fallback requests remain open under V; the operator retains deployment
+    with `./install.sh --mode dev --dev-command local`.
+
 - `BB-2026-09-15-V4` — Installed collector and initial history acceptance.
   Completed 2026-09-15; observations: operator; verification: Codex.
   - The corrected development installation succeeded, the managed CLI selected

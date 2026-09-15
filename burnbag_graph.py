@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import calendar
+from decimal import Decimal, localcontext
 from datetime import datetime
 import math
 from pathlib import Path
@@ -26,10 +28,12 @@ def parse_history_time(value: str) -> float:
         candidates = set()
         for is_dst in (-1, 0, 1):
             try:
-                candidate = time.mktime(tuple(parsed.timetuple()[:8]) + (is_dst,)) + parsed.microsecond / 1e6
-                round_trip = datetime.fromtimestamp(candidate)
-                if abs((round_trip - parsed).total_seconds()) < 0.000002:
-                    candidates.add(round(candidate, 6))
+                whole_second = time.mktime(tuple(parsed.timetuple()[:8]) + (is_dst,))
+                # Validate civil time before adding its fractional second.
+                # Ancient/future float timestamps have coarser precision than
+                # modern ones; that must not resemble a DST gap or ambiguity.
+                if datetime.fromtimestamp(whole_second) == parsed.replace(microsecond=0):
+                    candidates.add(whole_second + parsed.microsecond / 1e6)
             except (OverflowError, OSError, ValueError):
                 continue
         if len(candidates) != 1:
@@ -41,9 +45,66 @@ def parse_history_time(value: str) -> float:
     return stamp
 
 
-def history_range(start: Optional[str], end: Optional[str], now: Optional[float] = None) -> Tuple[float, float]:
+def _relative_history_start(value: str, end: float) -> float:
+    """Subtract whole calendar months, then fixed elapsed time, from one instant."""
+    from burnbag_duration import parse_duration
+
+    components = parse_duration(value)
+    # The parser bounds input to 1024 characters. Preserve its exact decimal
+    # quantities through unit conversion, including tests of whole months.
+    with localcontext() as context:
+        context.prec = 1100
+        months = sum((components.get(unit, Decimal(0)) * factor for unit, factor in (
+            ("months", 1), ("years", 12), ("decades", 120),
+            ("centuries", 1200), ("millennia", 12000),
+        )), Decimal(0))
+        seconds = sum((components.get(unit, Decimal(0)) * factor for unit, factor in (
+            ("seconds", 1), ("minutes", 60), ("hours", 3600),
+            ("days", 86400), ("weeks", 604800),
+        )), Decimal(0))
+        if months != months.to_integral_value():
+            raise ValueError("--last calendar units must total whole months (e.g. 1.5 years = 18 months); use days for shorter fractions")
+    try:
+        local_end = datetime.fromtimestamp(end)
+        local_end.astimezone()
+    except (ValueError, OverflowError, OSError) as exc:
+        raise ValueError("--last requires an end within supported local calendar years 1 through 9999") from exc
+    calendar_start = end
+    if months:
+        month_index = (local_end.year - 1) * 12 + local_end.month - 1
+        if months > month_index:
+            raise ValueError("--last extends before supported calendar year 1; request a shorter duration")
+        year_index, month_index = divmod(month_index - int(months), 12)
+        target_year, target_month = year_index + 1, month_index + 1
+        target = local_end.replace(
+            year=target_year, month=target_month,
+            day=min(local_end.day, calendar.monthrange(target_year, target_month)[1]),
+        )
+        try:
+            calendar_start = parse_history_time(target.isoformat())
+        except (ValueError, OverflowError, OSError) as exc:
+            raise ValueError("--last calendar subtraction cannot resolve the target local time; use --from/--to with explicit UTC offsets: " + str(exc)) from exc
+    start = calendar_start - float(seconds)
+    if not math.isfinite(start):
+        raise ValueError("--last is outside the supported calendar range; request a shorter duration")
+    try:
+        datetime.fromtimestamp(start).astimezone()
+    except (ValueError, OverflowError, OSError) as exc:
+        raise ValueError("--last extends outside supported local calendar years 1 through 9999; request a shorter duration") from exc
+    if start >= end:
+        raise ValueError("--last must be positive and large enough to resolve at the current clock precision")
+    return start
+
+
+def history_range(start: Optional[str], end: Optional[str], now: Optional[float] = None,
+                  last: Optional[str] = None) -> Tuple[float, float]:
+    if last is not None and (start is not None or end is not None):
+        raise ValueError("--last cannot be combined with --from or --to")
     end_stamp = parse_history_time(end) if end is not None else (time.time() if now is None else now)
-    start_stamp = parse_history_time(start) if start is not None else end_stamp - 86400
+    if not math.isfinite(end_stamp):
+        raise ValueError("Historical graph end must be a finite instant")
+    start_stamp = (_relative_history_start(last, end_stamp) if last is not None else
+                   parse_history_time(start) if start is not None else end_stamp - 86400)
     if start_stamp >= end_stamp:
         raise ValueError("Historical graph --from must be earlier than --to")
     return start_stamp, end_stamp
@@ -180,12 +241,13 @@ def event_timeline(runtime: Any, lids: Sequence[Any], sleeps: Sequence[Any],
 
 
 def history_command(runtime: Any, start_text: Optional[str], end_text: Optional[str],
-                    style: Any, no_plot: bool = False) -> int:
+                    style: Any, no_plot: bool = False, last_text: Optional[str] = None,
+                    now: Optional[float] = None) -> int:
     from burnbag_history import SYSTEM_DATABASE, HistoryError, read_history, user_database_path
     from burnbag_service import flush_service
 
     try:
-        start, end = history_range(start_text, end_text)
+        start, end = history_range(start_text, end_text, now=now, last=last_text)
     except (ValueError, OverflowError, OSError) as exc:
         style.write_status("ERROR", str(exc), sys.stderr)
         return 2

@@ -63,6 +63,14 @@ class ServiceInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("FORBIDDEN", result.stderr)
 
+    def assert_current_manual(self, manual: Path) -> None:
+        contents = manual.read_bytes()
+        self.assertEqual(contents, (PROJECT_ROOT / "burnbag.1").read_bytes())
+        self.assertIn(b"\\-\\-last", contents)
+        self.assertIn(b"Months and larger units use calendar arithmetic", contents)
+        self.assertEqual(manual.stat().st_mode & 0o777, 0o644)
+        self.assertFalse(manual.is_symlink())
+
     def instance(self, *, user: bool = False, dev: bool = False) -> INSTALL.ServiceInstaller:
         args = argparse.Namespace(
             prefix=str(self.home / ".local") if user else "/usr/local", destdir=None,
@@ -76,7 +84,7 @@ class ServiceInstallTests(unittest.TestCase):
         self.install("--system-service")
         for relative in ("bin/burnbag", "bin/burnbag-uninstall", "share/man/man1/burnbag.1",
                          "lib/burnbag/burnbag_history.py", "lib/burnbag/burnbag_service.py",
-                         "lib/burnbag/burnbag_graph.py", "lib/burnbag/install_services.py",
+                         "lib/burnbag/burnbag_graph.py", "lib/burnbag/burnbag_duration.py", "lib/burnbag/install_services.py",
                          "lib/sysusers.d/burnbag.conf", "lib/burnbag/install-system.json"):
             self.assertTrue((self.stage / "usr/local" / relative).is_file(), relative)
         unit = (self.stage / "usr/local/lib/systemd/system/burnbag.service").read_text()
@@ -98,6 +106,19 @@ class ServiceInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("usage:", result.stdout.lower())
         self.assertNotIn("No module named", result.stderr)
+
+    def test_every_installation_mode_copies_the_generated_duration_manual(self) -> None:
+        cases = (
+            ("standard-system", (), Path("/usr/local/share/man/man1/burnbag.1")),
+            ("dev-system", ("--mode", "dev"), Path("/usr/local/share/man/man1/burnbag.1")),
+            ("standard-user", ("--user-service",), Path("/usr/local/share/man/man1/burnbag.1")),
+            ("dev-user", ("--user-service", "--mode", "dev"), self.home / ".local/share/man/man1/burnbag.1"),
+        )
+        for name, options, manual in cases:
+            with self.subTest(mode=name):
+                self.stage = self.root / name
+                self.install(*options)
+                self.assert_current_manual(self.staged(manual))
 
     def test_custom_prefix_registers_a_tracked_unit_and_uninstalls_it(self) -> None:
         self.install("--prefix", "/opt/burnbag")
@@ -201,6 +222,41 @@ class ServiceInstallTests(unittest.TestCase):
         manifest = self.staged(self.home / ".local/state/burnbag/install-user.json")
         self.assertEqual(manifest.stat().st_mode & 0o777, 0o600)
         self.assertEqual(manifest.parent.stat().st_mode & 0o777, 0o700)
+        manual = self.home / ".local/share/man/man1/burnbag.1"
+        self.assert_current_manual(self.staged(manual))
+        self.assertEqual(self.staged(manual).stat().st_uid, os.getuid())
+        record = next(item for item in json.loads(manifest.read_text())["files"]
+                      if item["path"] == str(manual))
+        self.assertTrue(record["shared"])
+        self.assertEqual(record["sha256"], INSTALL.digest(self.staged(manual).read_bytes()))
+
+    def test_user_manual_remains_until_both_standard_and_dev_owners_are_removed(self) -> None:
+        for first, second in (("standard", "dev"), ("dev", "standard")):
+            with self.subTest(first_removed=first):
+                self.stage = self.root / ("shared-manual-" + first)
+                prefix = self.home / ".local"
+                self.install("--user-service", "--prefix", str(prefix))
+                self.install("--user-service", "--mode", "dev")
+                manual = self.staged(prefix / "share/man/man1/burnbag.1")
+                for mode in (first, second):
+                    options = ["--user-service", "--mode", mode]
+                    if mode == "standard":
+                        options.extend(("--prefix", str(prefix)))
+                    result = self.helper("uninstall", *options)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if mode == first:
+                        self.assert_current_manual(manual)
+                    else:
+                        self.assertFalse(manual.exists())
+
+    def test_user_dev_uninstall_preserves_a_modified_manual(self) -> None:
+        self.install("--user-service", "--mode", "dev")
+        manual = self.staged(self.home / ".local/share/man/man1/burnbag.1")
+        manual.write_text("operator manual changes")
+        result = self.helper("uninstall", "--user-service", "--mode", "dev")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Preserving modified", result.stderr)
+        self.assertEqual(manual.read_text(), "operator manual changes")
 
     def test_uninstall_preserves_data_configuration_and_modified_artifacts(self) -> None:
         self.install()
@@ -316,7 +372,8 @@ class ServiceInstallTests(unittest.TestCase):
         self.assertFalse(staged_launcher.exists())
 
     def test_existing_private_user_directories_keep_their_permissions(self) -> None:
-        private = [self.staged(self.home / relative) for relative in (".config/systemd/user", ".local/bin")]
+        private = [self.staged(self.home / relative) for relative in (
+            ".config/systemd/user", ".local/bin", ".local/share/man/man1")]
         for directory in private:
             directory.mkdir(parents=True, mode=0o700)
         self.install("--user-service", "--mode", "dev")

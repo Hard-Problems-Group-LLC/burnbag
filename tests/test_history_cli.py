@@ -32,6 +32,7 @@ class HistoryCLITests(unittest.TestCase):
         output, errors = io.StringIO(), io.StringIO()
         states = states or [{"status": "absent"}, {"status": "absent"}]
         with mock.patch.object(burnbag_service, "probe_service", side_effect=states), \
+                mock.patch.object(burnbag_service, "flush_service", return_value=None), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
             try:
                 status = burnbag.main(args)
@@ -48,6 +49,7 @@ class HistoryCLITests(unittest.TestCase):
         self.assertTrue(output.splitlines()[0].startswith("[WARNING]"))
         self.assertTrue(output.splitlines()[-1].startswith("[WARNING]"))
         self.assertIn("--prudent-writes", output)
+        self.assertIn("--last", output)
         self.assertFalse(list(self.root.iterdir()))
 
     def test_warning_wraps_no_args_and_invalid_arguments(self):
@@ -78,6 +80,48 @@ class HistoryCLITests(unittest.TestCase):
     def test_prudent_option_rejected_for_unrelated_actions(self):
         for args in (["--status-service", "--prudent-writes"], ["--graph", "--prudent-writes"]):
             self.assertEqual(self.invoke(args)[0], 2)
+
+    def test_last_requires_graph_and_excludes_absolute_bounds(self):
+        for arguments in (["run", "--last", "5h"], ["--status-service", "--last", "5h"],
+                          ["--last", "5h"], ["--graph", "--last", "5h", "--from", "2026-01-01"],
+                          ["--graph", "--last", "5h", "--to", "2026-01-01"],
+                          ["--graph", "--last", "5h", "--from", ""], ["--graph", "--last"]):
+            with self.subTest(arguments=arguments):
+                status, _, errors = self.invoke(arguments)
+                self.assertEqual(status, 2)
+                self.assertTrue(errors.splitlines()[0].startswith("[WARNING]"))
+                self.assertTrue(errors.splitlines()[-1].startswith("[WARNING]"))
+
+    def test_invalid_last_returns_usage_error_before_reading_or_creating_history(self):
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.root)}), \
+                mock.patch.object(burnbag_history, "read_history", side_effect=AssertionError("invalid query read history")), \
+                mock.patch.object(burnbag, "load_pygobject", side_effect=AssertionError("query loaded GI")):
+            for duration in ("", "0s", "-5h", "five fortnights", ".5mo", "3 millennia",
+                             "9" * 400 + "years", "0.000000000000001s"):
+                with self.subTest(duration=duration):
+                    status, _, errors = self.invoke(["--graph", "--last=" + duration])
+                    self.assertEqual(status, 2, errors)
+                    self.assertIn("[ERROR]", errors)
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_last_selects_real_history_with_one_invocation_end(self):
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc).timestamp()
+        path = self.root / "history.sqlite3"
+        writer = burnbag_history.TelemetryWriter(path, "user")
+        for offset, percentage in ((-21600, 99), (-18000, 70), (-3600, 60), (0, 50), (10, 1)):
+            writer.submit("sample", {"batteries": {"BAT0": {"percentage": percentage}}},
+                          captured_at=now + offset, boottime=30000 + offset)
+        writer.close()
+        original = path.read_bytes()
+        with mock.patch.object(burnbag_history, "SYSTEM_DATABASE", self.root / "absent.sqlite3"), \
+                mock.patch.object(burnbag_history, "user_database_path", return_value=path), \
+                mock.patch.object(burnbag.time, "time", return_value=now):
+            status, output, errors = self.invoke(["--graph", "--last", "five hours", "--no-plot"])
+        self.assertEqual(status, 0, errors)
+        self.assertIn("70→50%", output)
+        self.assertIn("From: " + datetime.fromtimestamp(now - 18000).astimezone().isoformat(timespec="seconds"), output)
+        self.assertIn("To:   " + datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds"), output)
+        self.assertEqual(path.read_bytes(), original)
 
     def test_missing_history_query_creates_nothing(self):
         with mock.patch.object(burnbag_history, "SYSTEM_DATABASE", self.root / "system.sqlite3"), \
@@ -199,6 +243,103 @@ class HistoryTimeTests(unittest.TestCase):
                 self.assertIsInstance(burnbag_graph.parse_history_time("2026-01-01T12:00:00"), float)
         finally:
             time.tzset()
+
+
+@unittest.skipUnless(hasattr(time, "tzset"), "requires POSIX timezone handling")
+class HistoryDurationRangeTests(unittest.TestCase):
+    def setUp(self):
+        self.environment = mock.patch.dict(os.environ, {"TZ": "UTC"})
+        self.environment.start()
+        time.tzset()
+        self.now = datetime(2026, 9, 15, 12, 34, 56, 123456, tzinfo=timezone.utc).timestamp()
+
+    def tearDown(self):
+        self.environment.stop()
+        time.tzset()
+
+    def range(self, value, now=None):
+        return burnbag_graph.history_range(None, None, now=self.now if now is None else now, last=value)
+
+    def test_all_requested_forms_resolve_to_five_hours(self):
+        for text in ("5h", "5H", "5 h", "5 H", "5 hours", "five hours", "5:00:00", "05:00:00"):
+            with self.subTest(text=text):
+                self.assertEqual(self.range(text), (self.now - 18000, self.now))
+        self.assertEqual(self.range("5:00"), (self.now - 300, self.now))
+
+    def test_elapsed_units_and_compounds(self):
+        for text, seconds in (("2seconds", 2), ("two minutes", 120), (".5hours", 1800),
+                              ("2 days", 172800), ("2weeks", 1209600),
+                              ("one hour and thirty minutes", 5400)):
+            with self.subTest(text=text):
+                self.assertEqual(self.range(text), (self.now - seconds, self.now))
+
+    def test_calendar_units_preserve_local_fields_through_millennia(self):
+        for text, target_year, target_month in (("1month", 2026, 8), ("1year", 2025, 9),
+                                               ("1decade", 2016, 9), ("1century", 1926, 9),
+                                               ("1millennium", 1026, 9), ("2 millenia", 26, 9)):
+            with self.subTest(text=text):
+                start, end = self.range(text)
+                expected = datetime(target_year, target_month, 15, 12, 34, 56, 123456,
+                                    tzinfo=timezone.utc).timestamp()
+                self.assertEqual(start, expected)
+                self.assertEqual(end, self.now)
+
+    def test_calendar_month_end_leap_year_and_combined_subtraction(self):
+        for end_text, duration, expected in (
+            ("2024-03-31T12:00:00Z", "1 month", "2024-02-29T12:00:00Z"),
+            ("2023-03-31T12:00:00Z", "1 month", "2023-02-28T12:00:00Z"),
+            ("2024-02-29T12:00:00Z", "1 year", "2023-02-28T12:00:00Z"),
+            ("2026-03-31T12:00:00Z", "1mo 1mo", "2026-01-31T12:00:00Z"),
+            ("2026-03-31T12:00:00Z", "1month 1day", "2026-02-27T12:00:00Z"),
+        ):
+            with self.subTest(duration=duration, end=end_text):
+                end = burnbag_graph.parse_history_time(end_text)
+                self.assertEqual(self.range(duration, end), (burnbag_graph.parse_history_time(expected), end))
+
+    def test_fractional_calendar_units_must_total_whole_months(self):
+        self.assertEqual(self.range(".5years"), self.range("6 months"))
+        self.assertEqual(self.range("1.5years"), self.range("18 months"))
+        self.assertEqual(self.range(".5mo .5mo"), self.range("1 month"))
+        for value in (".5months", ".01years", "0.333333333333333333333333333333333333years"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "whole months"):
+                self.range(value)
+
+    def test_elapsed_days_and_calendar_months_across_dst(self):
+        os.environ["TZ"] = "America/Los_Angeles"
+        time.tzset()
+        now = burnbag_graph.parse_history_time("2026-03-09T12:00:00-07:00")
+        start, _ = self.range("1month", now)
+        self.assertEqual(start, burnbag_graph.parse_history_time("2026-02-09T12:00:00-08:00"))
+        now = burnbag_graph.parse_history_time("2026-03-08T12:00:00-07:00")
+        start, _ = self.range("1day", now)
+        self.assertEqual(start, now - 86400)
+        self.assertEqual(datetime.fromtimestamp(start).hour, 11)
+
+    def test_calendar_dst_gap_and_fold_are_actionable(self):
+        os.environ["TZ"] = "America/Los_Angeles"
+        time.tzset()
+        for end in ("2026-04-08T02:30:00-07:00", "2026-12-01T01:30:00-08:00"):
+            with self.subTest(end=end), self.assertRaisesRegex(ValueError, "explicit UTC offsets"):
+                self.range("1month", burnbag_graph.parse_history_time(end))
+
+    def test_ancient_fractional_local_times_remain_valid(self):
+        for year in (1, 26, 1026):
+            text = f"{year:04d}-09-15T12:34:56.123456"
+            self.assertEqual(burnbag_graph.parse_history_time(text),
+                             datetime(year, 9, 15, 12, 34, 56, 123456, tzinfo=timezone.utc).timestamp())
+
+    def test_overflow_nonfinite_and_below_clock_resolution_fail(self):
+        for duration in ("3 millennia", "9" * 400 + "s", "9" * 400 + "years", "0." + "0" * 100 + "1s"):
+            with self.subTest(duration=duration), self.assertRaises(ValueError):
+                self.range(duration)
+        for now in (float("inf"), float("nan")):
+            with self.assertRaises(ValueError):
+                self.range("1h", now)
+
+    def test_range_helper_rejects_conflicting_bounds(self):
+        for start, end in (("2026-01-01", None), (None, "2026-01-01")):
+            with self.assertRaisesRegex(ValueError, "cannot be combined"):
+                burnbag_graph.history_range(start, end, last="5h", now=self.now)
 
 
 if __name__ == "__main__":

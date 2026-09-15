@@ -30,7 +30,7 @@ class InstallTests(unittest.TestCase):
         self.user_home.mkdir()
         self.system_bin.mkdir()
 
-        for relative_path in ("install.sh", "uninstall.sh", "burnbag.py", "burnbag.1", "burnbag_history.py", "burnbag_service.py", "burnbag_graph.py"):
+        for relative_path in ("install.sh", "uninstall.sh", "burnbag.py", "burnbag.1", "burnbag_history.py", "burnbag_service.py", "burnbag_graph.py", "burnbag_duration.py"):
             shutil.copy2(PROJECT_ROOT / relative_path, self.checkout / relative_path)
         shutil.copytree(PROJECT_ROOT / "systemd", self.checkout / "systemd")
         shutil.copy2(PROJECT_ROOT / "scripts/install_services.py", self.checkout / "scripts/install_services_real.py")
@@ -142,6 +142,10 @@ class InstallTests(unittest.TestCase):
         )
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("--ignore-lid", help_result.stdout)
+        development_manual = self.checkout / ".local/share/man/man1/burnbag.1"
+        self.assertTrue(development_manual.is_symlink())
+        self.assertEqual(development_manual.resolve(), self.checkout / "burnbag.1")
+        self.assertIn("Months and larger units use calendar arithmetic", development_manual.read_text())
 
         system_result = self.run_installer(
             "--mode",
@@ -292,6 +296,9 @@ class InstallTests(unittest.TestCase):
             target = stage / relative
             self.assertEqual(target.read_bytes(), (self.checkout / source).read_bytes())
             self.assertEqual(target.stat().st_mode & 0o777, mode)
+        manual = (stage / "usr/local/share/man/man1/burnbag.1").read_text()
+        self.assertIn("\\-\\-last", manual)
+        self.assertIn("Months and larger units use calendar arithmetic", manual)
 
     def test_staging_only_checks_prerequisites_and_stops_before_writes_on_failure(self) -> None:
         stage = self.run_root / "stage"

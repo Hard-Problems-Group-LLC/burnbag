@@ -7,9 +7,9 @@ records; this file provides the recovery anchor for the current plan.
 
 ## Publication
 
-Delivery: active
+Delivery: blocked
 
-Notes: Phase 1000 active: spaced numbering guidance applied first; defining and implementing --last duration ranges. Earlier manual fallback and physical checks remain deferred under V.
+Notes: Phase 1000 complete: --last, calendar subtraction and installed manual verified on native and compatibility interpreters. Awaiting V.5 warning/fallback and earlier physical observations in BB-MANUAL-01/02/03.
 
 ## Phases
 
@@ -20,14 +20,14 @@ Notes: Phase 1000 active: spaced numbering guidance applied first; defining and 
 | P3 | done | Shutdown graph and summary |
 | P4 | done | Error and exception hardening |
 | P5 | done | Documentation and installation |
-| V | blocked | Manual validation and final closure |
+| V | active | Manual validation and final closure |
 
 | P6 | done | Durable telemetry |
 | P7 | done | Collector services |
 | P8 | done | CLI and history graphs |
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
-| 1000 | active | Relative history durations |
+| 1000 | done | Relative history durations |
 
 ## Slices
 
@@ -57,7 +57,7 @@ Notes: Phase 1000 active: spaced numbering guidance applied first; defining and 
 | V.2 | V | pending | Repair and verify reported defects |
 | V.3 | V | pending | Close requests and publish closure |
 | V.4 | V | done | Verify installed collector and initial history |
-| V.5 | V | blocked | Verify warnings and foreground fallback |
+| V.5 | V | active | Verify warnings and foreground fallback |
 | V.6 | V | pending | Verify continuous service sleep coverage |
 
 | P6.1 | P6 | done | Specify approved behavior |
@@ -79,10 +79,10 @@ Notes: Phase 1000 active: spaced numbering guidance applied first; defining and 
 | P10.1 | P10 | done | Run complete automated checks |
 | P10.2 | P10 | done | Smoke-test sampling and isolated daemon |
 | P10.3 | P10 | done | Publish evidence and manual handoff |
-| 1000.1000 | 1000 | active | Set numbering and duration contract |
-| 1000.2000 | 1000 | pending | Parse durations and calculate ranges |
-| 1000.3000 | 1000 | pending | Integrate CLI and synchronize docs |
-| 1000.4000 | 1000 | pending | Verify edge cases and publish |
+| 1000.1000 | 1000 | done | Set numbering and duration contract |
+| 1000.2000 | 1000 | done | Parse durations and calculate ranges |
+| 1000.3000 | 1000 | done | Integrate CLI and synchronize docs |
+| 1000.4000 | 1000 | done | Verify edge cases and publish |
 
 ## Regenerate local tracking
 

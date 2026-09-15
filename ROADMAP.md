@@ -6,8 +6,11 @@ Owner: burnbag maintainers. Authorized by the operator on 2026-09-14.
 
 Authorized 2026-09-15. Phase and slice IDs now follow the spaced numbering
 policy in AGENTS.md; existing published P1–P10/V references remain stable.
-Current status: 1000.1000 active; numbering guidance is applied before feature
-implementation. Existing manual checks remain pending under V.
+Current status: all four slices complete, verified 2026-09-15. Numbering
+guidance was committed before feature implementation. All 378 native tests
+pass; Python 3.9.21 and 3.14.7 each pass 359 compatibility tests with two
+expected native-GI skips. Staged installed queries and manual copies pass.
+Existing manual checks remain pending under V.
 
 - **1000.1000 — Numbering and contract:** publish the numbering rule and define
   unambiguous duration grammar, units, range bounds and option conflicts.
@@ -16,7 +19,8 @@ implementation. Existing manual checks remain pending under V.
   right-aligned colon time (M:SS or H:MM:SS); preserve one common end instant.
 - **1000.3000 — CLI and documentation:** add `--last DURATION` to historical
   graphs, synchronize help/README/man/specifications, and preserve warning
-  envelopes and read-only history behavior.
+  envelopes and read-only history behavior. Verify installation of the generated
+  manual in every mode and service scope.
 - **1000.4000 — Verification and publication:** test every requested example,
   unit families, invalid/overflowing values, CLI conflicts and real SQLite
   selection; publish evidence and ACP the completed phase.
@@ -24,6 +28,10 @@ implementation. Existing manual checks remain pending under V.
 Acceptance: every provided five-hour spelling selects the same interval;
 `5:00` selects five minutes; a valid duration ends at invocation time. Errors
 are actionable, and existing `--from`/`--to` behavior remains available.
+The operator selected calendar subtraction for months and larger units:
+preserve local date/time and adjust for month-end. Smaller units use elapsed
+time. The [duration contract](docs/specifications/duration-ranges.md) specifies
+compound values, daylight-saving transitions and representable bounds.
 
 ## Continuous monitoring extension — authorized 2026-09-15
 

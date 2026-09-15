@@ -18,7 +18,8 @@ do not use them as retrospective decoration.
 ## Burnbag contracts
 
 - [Continuous history](continuous-history.md): optional services, batched SQLite telemetry, prudent writes, merged historical graphs and installation lifecycle.
-
+- [Relative graph durations](duration-ranges.md): `--last` grammar, calendar
+  subtraction, elapsed units, daylight-saving transitions and range bounds.
 - [Linux platform support](platform-support.md): distribution prerequisites,
   architecture support, and native integration.
 - [Installation](installation.md): standard, staged, and development targets.

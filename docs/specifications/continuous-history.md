@@ -82,6 +82,10 @@ summary and lid/sleep overlays for a requested interval. TIME accepts ISO 8601
 with an explicit offset or Z, or a local date/time interpreted in the host
 timezone; ambiguous/nonexistent local times require an explicit offset.
 `--to` defaults to now and `--from` to 24 hours before the selected end.
+`burnbag --graph --last DURATION` instead selects a positive duration ending
+at the invocation's captured current time. It conflicts with both explicit
+bounds and requires `--graph`. The [duration range contract](duration-ranges.md)
+defines accepted spellings, clock notation, unit arithmetic and validation.
 Queries require start before end, never create a missing database, and read
 both existing system and current-user history. Recent queries request a
 bounded flush from the accessible collector before taking their snapshot.

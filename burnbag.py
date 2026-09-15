@@ -5037,6 +5037,8 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
                         help="Historical graph start (ISO 8601; default: 24 hours before --to).")
     parser.add_argument("--to", dest="history_to", metavar="TIME",
                         help="Historical graph end (ISO 8601; default: now).")
+    parser.add_argument("--last", dest="history_last", metavar="DURATION",
+                        help="Graph the duration ending now (e.g. 5h, 'five hours', 5:00:00); excludes --from/--to.")
     return parser
 
 
@@ -5073,6 +5075,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     Parses arguments, initializes D-Bus monitoring, installs POSIX signal handlers,
     and runs the appropriate mode lifecycle.
     """
+    history_now = time.time()
     suspend_clock_initial = None
     suspend_clock_error = None
     try:
@@ -5099,8 +5102,10 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("service management, --collector, and --graph cannot be combined with an operational mode")
     if not auxiliary and args.mode is None:
         parser.error("an operational mode, service action, or --graph is required")
-    if (args.history_from or args.history_to) and not args.graph:
-        parser.error("--from and --to require --graph")
+    if any(value is not None for value in (args.history_from, args.history_to, args.history_last)) and not args.graph:
+        parser.error("--from, --to, and --last require --graph")
+    if args.history_last is not None and (args.history_from is not None or args.history_to is not None):
+        parser.error("--last cannot be combined with --from or --to")
     if args.service_scope and not args.collector:
         parser.error("--service-scope requires --collector")
     if auxiliary and (args.suspend_after_minutes is not None or args.no_inhibit_auto_suspend
@@ -5124,7 +5129,8 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             parser.error("--prudent-writes applies to operational runs or --collector")
         from burnbag_graph import history_command
         return history_command(sys.modules[__name__], args.history_from, args.history_to,
-                               terminal_style, no_plot=args.no_plot)
+                               terminal_style, no_plot=args.no_plot, last_text=args.history_last,
+                               now=history_now)
 
     # Validate logical constraints on CLI options
     if args.suspend_after_minutes is not None and not (

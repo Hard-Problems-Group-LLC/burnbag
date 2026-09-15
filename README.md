@@ -73,6 +73,8 @@ BURNBAG_DEV_LAUNCHER_MODE=local ./install.sh --mode dev
 
 Use `--dev-command system` to remove burnbag's managed user launcher and restore the other `PATH` result. Dev mode refuses to replace an unmanaged user launcher unless `--force` is explicit. When an automation environment supplies an isolated assistant `HOME`, pass `--user-home /absolute/operator/home`.
 
+With `--mode dev --install-user-service`, the installer copies the manual to `<user-home>/.local/share/man/man1/burnbag.1`. Rerun the installer after documentation changes to refresh that installed copy. The repository-local `.local/share/man/man1/burnbag.1` symlink continues to follow the checkout.
+
 ---
 
 ## Modes & Syntax
@@ -236,6 +238,12 @@ Unqualified management selects the active applicable service or sole installed s
 ### Historical graphs
 
 `burnbag --graph --from 2026-09-14T12:00:00-07:00 --to 2026-09-14T15:00:00-07:00` renders the battery graph, summary, lid markers and verified sleep regions for that interval. `burnbag --graph` selects the last 24 hours; `--to` defaults to now and omitted `--from` is 24 hours before the selected end. `--no-plot` retains the historical summary. ISO times accept offsets or Z; local times are accepted only when unambiguous and existent.
+
+`burnbag --graph --last 5h` selects the interval from five hours ago to now. Unit names and aliases are case-insensitive: `5H`, `"5 h"`, `"5 H"`, `"5 hours"`, `"five hours"`, `5:00:00` and `05:00:00` all select the same duration. **`5:00` means five minutes**: two clock fields are minutes:seconds; three are hours:minutes:seconds. Quote arguments containing spaces.
+
+Durations accept decimal quantities (`1.5h`), English integers (`"twenty-one minutes"`) and compounds (`1h30m` or `"one hour and thirty minutes"`). Supported units extend from seconds through minutes, hours, days, weeks, months, years, decades, centuries and millennia; `millenia` is also accepted. `m` always means minutes; use `mo` for months. Months and larger units subtract calendar months, preserving local time and clamping to the last day when needed: one month before March 31 is February 28 (29 in a leap year). Their combined quantity must equal whole months; `1.5 years` is 18 months, while `1.5 months` is invalid. Calendar units are combined and subtracted first, then smaller units as elapsed time; days are 24 hours and weeks are seven days. `--last` requires `--graph` and cannot be combined with `--from` or `--to`. Durations must be positive and contain units or clock fields. Unsupported words, signed values, invalid clock fields, ambiguous or nonexistent calendar targets at daylight-saving transitions, and ranges outside years 1 through 9999 fail with a usage error. Use explicit `--from`/`--to` offsets when a calendar target is ambiguous or nonexistent.
+
+See the [duration range contract](docs/specifications/duration-ranges.md) for unit aliases and exact duration semantics.
 
 Queries read both existing system and current-user databases and merge without changing either. Duplicate identities or conflicting collection coverage warn and prefer system observations; distinct events at the same time remain distinct. Missing, damaged or unreadable sources produce explicit partial-history warnings. Long queries retain representatives spanning the full interval with a resolution warning. Statistics on reduced queries describe those retained observations. If only lid or sleep events exist, an event timeline retains them with an unavailable battery scale labeled n/a. Calendar time forms the historical X axis; unobserved gaps stay blank and do not establish power-off. Black `0` on dark gray remains reserved. Queries touching the present request a bounded durable flush when possible.
 

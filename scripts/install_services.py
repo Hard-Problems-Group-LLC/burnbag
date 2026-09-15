@@ -171,6 +171,7 @@ class ServiceInstaller:
                 ("burnbag_history.py", "lib/burnbag/burnbag_history.py", 0o644),
                 ("burnbag_service.py", "lib/burnbag/burnbag_service.py", 0o644),
                 ("burnbag_graph.py", "lib/burnbag/burnbag_graph.py", 0o644),
+                ("burnbag_duration.py", "lib/burnbag/burnbag_duration.py", 0o644),
             ):
                 add(self.prefix / target, self.source_bytes(relative), mode, shared=True)
 
@@ -189,6 +190,11 @@ class ServiceInstaller:
             add(self.prefix / "lib/sysusers.d/burnbag.conf", self.source_bytes("systemd/burnbag.sysusers"))
             add(Path("/usr/share/polkit-1/rules.d/49-burnbag-delay.rules"), self.source_bytes("systemd/49-burnbag-delay.rules"))
         elif self.dev and self.source:
+            # The checkout link supports explicit MANPATH use. Also publish a
+            # regular user manual so this entirely unprivileged installation
+            # has documentation in the user's normal manual-page tree.
+            add(self.user_home / ".local/share/man/man1/burnbag.1",
+                self.source_bytes("burnbag.1"), shared=True)
             wrapper = "#!/usr/bin/bash\n# burnbag-managed uninstaller\nexec /usr/bin/python3 -B " + shlex.quote(str(self.source / "scripts/install_services.py")) + " uninstall --user-service \"$@\"\n"
             add(self.user_home / ".local/bin/burnbag-uninstall", wrapper.encode("utf-8"), 0o755)
         self.validate_target(self.manifest_path())
@@ -386,7 +392,8 @@ class ServiceInstaller:
         source = absolute(manifest["source"], "manifest source")
         allowed = {self.prefix / relative for relative in (
             "bin/burnbag", "bin/burnbag-uninstall", "share/man/man1/burnbag.1", "lib/burnbag/install_services.py",
-            "lib/burnbag/burnbag_history.py", "lib/burnbag/burnbag_service.py", "lib/burnbag/burnbag_graph.py")}
+            "lib/burnbag/burnbag_history.py", "lib/burnbag/burnbag_service.py", "lib/burnbag/burnbag_graph.py",
+            "lib/burnbag/burnbag_duration.py")}
         if self.scope == "user" and self.dev:
             allowed.clear()
         if self.scope == "system":
@@ -401,7 +408,8 @@ class ServiceInstaller:
             allowed.update({owner_home / ".local/bin/burnbag", source / ".local/bin/burnbag",
                             source / ".local/share/man/man1/burnbag.1"})
             if self.scope == "user":
-                allowed.add(owner_home / ".local/bin/burnbag-uninstall")
+                allowed.update({owner_home / ".local/bin/burnbag-uninstall",
+                                owner_home / ".local/share/man/man1/burnbag.1"})
         files = manifest.get("files")
         if not isinstance(files, list) or any(not isinstance(item, dict) or Path(item.get("path", "")) not in allowed for item in files):
             raise InstallError("Installation manifest contains an unrecognized artifact path")
@@ -411,6 +419,11 @@ class ServiceInstaller:
         shared_dir = self.path(self.prefix / "lib/burnbag")
         owner_state = absolute(manifest.get("user_state", str(owner_home / ".local/state")), "manifest user_state")
         other_manifests = set(shared_dir.glob("install-*.json"))
+        # A standard --prefix ~/.local installation and a dev user service
+        # can share the user manual while keeping manifests in different
+        # directories. Account for either removal order.
+        user_prefix_manifests = self.path(owner_home / ".local/lib/burnbag")
+        other_manifests.update(user_prefix_manifests.glob("install-*.json"))
         private_manifest = self.path(owner_state / "burnbag/install-user.json")
         if private_manifest.is_file():
             other_manifests.add(private_manifest)
