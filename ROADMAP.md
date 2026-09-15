@@ -8,6 +8,15 @@ The operator approved the batching policy and optional SQLite-backed systemd
 collector, then instructed full implementation. The canonical contract is
 [continuous history](docs/specifications/continuous-history.md).
 
+Current delivery status (2026-09-15): P6 durable history and P7 collector
+services are complete. P8 CLI/history verification has passed and is being
+published; P9 installer/document checks and P10 final integration are in
+progress. Native isolated background and shared foreground collectors have
+recorded real ARM sensor data and completed durable flushes. Installed systemd
+activation and physical sleep remain operator checks in BB-MANUAL-03, alongside
+the earlier P2/V checks. The [phase stack](project-management/state/phase-slice-stack.md)
+is the detailed execution record and source for the regenerated Ubersight view.
+
 - **P6 — Durable telemetry:** P6.1 specify approved behavior; P6.2 implement
   SQLite schema, safe paths and bounded batched writer; P6.3 implement sensor
   collection and merged history queries; P6.4 verify real storage/failure paths.

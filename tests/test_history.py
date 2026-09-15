@@ -274,6 +274,25 @@ class HistoryTests(unittest.TestCase):
         self.assertIn("absent is missing", warnings[0])
         self.assertIn("broken failed", warnings[1])
 
+    @unittest.skipIf(os.geteuid() == 0, "root bypasses ordinary directory read permissions")
+    def test_unreadable_source_is_failed_not_missing_and_other_history_survives(self):
+        writer = self.writer()
+        writer.submit("sample", self.payload(), captured_at=10, boottime=10)
+        writer.flush()
+        inaccessible = self.root / "inaccessible"
+        inaccessible.mkdir(mode=0o700)
+        database = inaccessible / "history.sqlite3"
+        database.write_text("unreadable data")
+        inaccessible.chmod(0)
+        try:
+            records, warnings = history.read_history([("system", database), ("user", writer.path)], 0, 20)
+        finally:
+            inaccessible.chmod(0o700)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["collector_id"], writer.collector_id)
+        self.assertTrue(any("system failed" in warning for warning in warnings))
+        self.assertFalse(any("system is missing" in warning for warning in warnings))
+
     def test_query_bounds_span_entire_interval_and_keep_events(self):
         writer = self.writer()
         for tick in range(200):
@@ -291,6 +310,17 @@ class HistoryTests(unittest.TestCase):
         again, _ = history.read_history([("user", writer.path)], 0, 199, limit=12)
         self.assertEqual(records, again)
 
+    def test_single_representative_subset_keeps_latest_without_dividing_by_zero(self):
+        writer = self.writer()
+        for tick in (0, 5, 10, 15):
+            writer.submit("sample", self.payload(), captured_at=tick, boottime=tick)
+        writer.flush()
+        with closing(history._read_connection(writer.path)) as connection:
+            ceiling = connection.execute("SELECT max(rowid) FROM records").fetchone()[0]
+            records, count = history._read_subset(connection, 0, 20, True, 1, ceiling)
+        self.assertEqual(count, 4)
+        self.assertEqual([record["captured_at"] for record in records], [15])
+
     def test_excessive_events_are_bounded_with_explicit_warning(self):
         writer = self.writer()
         for tick in range(20):
@@ -300,6 +330,49 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(len(records), 4)
         self.assertEqual((records[0]["captured_at"], records[-1]["captured_at"]), (0, 19))
         self.assertTrue(any("events exceed" in warning for warning in warnings))
+
+    def test_downsampling_retains_real_continuity_identity_for_both_scopes(self):
+        stream = "batteries/BAT0/percentage"
+        for scope in ("user", "system"):
+            writer = self.writer(scope, scope)
+            for tick in range(0, 301, 5):
+                writer.submit("sample", self.payload(), captured_at=tick, boottime=tick)
+            writer.flush()
+            records, warnings = history.read_history([(scope, writer.path)], 0, 300, limit=2)
+            self.assertEqual([row["captured_at"] for row in records], [0, 300])
+            self.assertEqual(records[0]["coverage_segments"][stream],
+                             records[1]["coverage_segments"][stream])
+            self.assertTrue(any("reduced" in warning for warning in warnings))
+            with closing(sqlite3.connect(writer.path)) as connection:
+                columns = {row[1] for row in connection.execute("PRAGMA table_info(records)")}
+            self.assertNotIn("coverage_segments", columns)
+
+    def test_downsampling_preserves_a_real_gap_as_distinct_segment_identities(self):
+        writer = self.writer()
+        for tick in (0, 5, 10, 100, 105, 110):
+            writer.submit("sample", self.payload(), captured_at=tick, boottime=tick)
+        writer.flush()
+        records, _ = history.read_history([("user", writer.path)], 0, 110, limit=2)
+        stream = "batteries/BAT0/percentage"
+        self.assertNotEqual(records[0]["coverage_segments"][stream],
+                            records[1]["coverage_segments"][stream])
+
+    def test_failed_system_coverage_cannot_suppress_usable_user_history(self):
+        system = self.writer("system", "system")
+        user = self.writer("user", "user")
+        system.submit("sample", {"batteries": {"BAT0": {"percentage": 50},
+                                                 "BAT1": {"percentage": 60}}},
+                      captured_at=10, boottime=10)
+        user.submit("sample", self.payload(), captured_at=10, boottime=10)
+        system.flush()
+        user.flush()
+        with closing(sqlite3.connect(system.path)) as connection, connection:
+            connection.execute("UPDATE coverage SET first_boot='corrupt' WHERE stream=?",
+                               ("batteries/BAT1/percentage",))
+        records, warnings = history.read_history([("system", system.path), ("user", user.path)], 0, 20)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["collector_id"], user.collector_id)
+        self.assertTrue(any("system failed" in warning for warning in warnings))
 
     def test_sleep_interval_is_found_when_its_record_timestamp_follows_query(self):
         writer = self.writer()
@@ -340,6 +413,9 @@ class HistoryTests(unittest.TestCase):
         self.assertIn("percentage", local[30])
         self.assertNotIn("percentage", local[52])
         self.assertEqual(local[52]["power_w"], 5)
+        partial = next(row for row in records if row["collector_id"] == user.collector_id and row["captured_at"] == 52)
+        self.assertNotIn("batteries/BAT0/percentage", partial["coverage_segments"])
+        self.assertIn("batteries/BAT0/power_w", partial["coverage_segments"])
         self.assertTrue(any("overlap" in warning for warning in warnings))
 
     def test_clock_jump_splits_coverage_instead_of_claiming_intermediate_time(self):

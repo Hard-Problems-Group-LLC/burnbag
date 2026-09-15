@@ -1,5 +1,22 @@
 # Completed Tasks
 
+- `BB-2026-09-15-P7` — Optional collector services and coordinated fallback.
+  Completed 2026-09-15; owner: Codex; operator-authorized roadmap P7.
+  - Atomic machine-wide ownership, bounded peer-verified discovery, service
+    readiness, system/user management and prudent-write leases are implemented.
+    Shared foreground recording takes over when background recording is absent;
+    one observer owns physical events even with several foreground clients.
+  - Native D-Bus observations and paired clocks record lid/profile/charger and
+    evidenced sleep. Bounded preparation flushes release delay inhibition;
+    background handoff pauses duplicate foreground observation.
+  - Validation: 30 real socket/storage/concurrency service tests pass. Storage
+    follow-up reaches 35 tests: bounded query pages, coverage metadata through
+    reduction, malformed coverage isolation, unreadable files and limit-one
+    regression. Native isolated Ubuntu ARM collector records real samples,
+    prudent barriers and orderly SIGTERM without installing a host service.
+  - Scope: service implementation is complete; installed systemd activation and
+    physical suspend remain operator validation in BB-MANUAL-03.
+
 - `BB-2026-09-14-04` — Hibernate diagnostics and reserved powered-off styling.
   Started and completed 2026-09-14. Owner: Codex; requestor: operator;
   scope: ROADMAP V.2.

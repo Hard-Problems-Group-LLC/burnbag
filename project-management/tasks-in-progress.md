@@ -25,5 +25,5 @@
 - `BB-2026-09-15-01` — Continuous power history and optional services; started 2026-09-15.
   Owner: Codex; authorized by operator instruction to fully implement.
   - Scope and acceptance: [continuous history](../docs/specifications/continuous-history.md), roadmap P6–P10.
-  - P6 storage is completed with 30 passing tests. Collector and installer slices proceed independently; CLI/graphs and integration owned by primary agent.
+  - P6/P7 storage and services are completed: 35 SQLite and 30 service tests pass. CLI/graphs and installer verification proceed; native isolated collectors pass without host installation.
   - ACP without review at each completed or manually deferred phase. No host installation or live sleep is performed by automated tests.

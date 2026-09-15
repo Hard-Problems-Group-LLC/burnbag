@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: active
 
-Notes: P6 durable telemetry complete: 30 real SQLite tests and ARM sampler pass. Integrating collector event coverage, CLI history and installation; prior physical checks remain pending.
+Notes: P7 collector ownership, event coverage and fallback complete with 30 service tests; integrating verified CLI and installer. Prior physical checks remain pending.
 
 ## Phases
 
@@ -23,8 +23,8 @@ Notes: P6 durable telemetry complete: 30 real SQLite tests and ARM sampler pass.
 | V | blocked | Manual validation and final closure |
 
 | P6 | done | Durable telemetry |
-| P7 | active | Collector services |
-| P8 | pending | CLI and history graphs |
+| P7 | done | Collector services |
+| P8 | active | CLI and history graphs |
 | P9 | pending | Installation and documentation |
 | P10 | pending | Integration and handoff |
 
@@ -63,11 +63,11 @@ Notes: P6 durable telemetry complete: 30 real SQLite tests and ARM sampler pass.
 | P7.1 | P7 | done | Enforce singleton and readiness |
 | P7.2 | P7 | done | Collect events and sleep transitions |
 | P7.3 | P7 | done | Coordinate fallback and prudent clients |
-| P7.4 | P7 | active | Verify concurrent service behavior |
-| P8.1 | P8 | pending | Add management and warning envelopes |
-| P8.2 | P8 | pending | Connect foreground telemetry |
-| P8.3 | P8 | pending | Render arbitrary-time history graphs |
-| P8.4 | P8 | pending | Verify CLI and reporting |
+| P7.4 | P7 | done | Verify concurrent service behavior |
+| P8.1 | P8 | done | Add management and warning envelopes |
+| P8.2 | P8 | done | Connect foreground telemetry |
+| P8.3 | P8 | done | Render arbitrary-time history graphs |
+| P8.4 | P8 | active | Verify CLI and reporting |
 | P9.1 | P9 | pending | Install system and user services |
 | P9.2 | P9 | pending | Add scoped uninstaller |
 | P9.3 | P9 | pending | Synchronize contracts and generated docs |

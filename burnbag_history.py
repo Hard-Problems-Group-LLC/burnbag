@@ -482,41 +482,42 @@ def _read_subset(
     where = "(" + where + ") AND rowid<=?"
     parameters += (last_rowid,)
     count = connection.execute("SELECT count(*) FROM records WHERE " + where, parameters).fetchone()[0]
+    # Rank only keys, then fetch selected payloads in bounded pages. Even a
+    # query that needs no reduction must not pin a long-lived reader lock.
     if count <= limit:
-        rows = connection.execute("SELECT * FROM records WHERE " + where +
-                                  " ORDER BY captured_at,id", parameters).fetchall()
+        wanted = list(range(1, count + 1))
+    elif limit == 1:
+        wanted = [count]
     else:
-        # Rank only keys, then fetch the selected payloads.  Memory does not grow
-        # with years of history and representatives span the complete interval.
-        wanted = [(index * (count - 1)) // (limit - 1) + 1 for index in range(limit)] if limit > 1 else [count]
-        selected: List[str] = []
-        target = iter(wanted)
-        next_rank = next(target, None)
-        last_key: Optional[Tuple[float, str]] = None
-        rank = 0
-        while next_rank is not None:
-            page_where, page_parameters = where, parameters
-            if last_key is not None:
-                page_where += " AND (captured_at,id)>(?,?)"
-                page_parameters += last_key
-            keys = connection.execute("SELECT id,captured_at FROM records WHERE " + page_where +
-                                      " ORDER BY captured_at,id LIMIT 2048", page_parameters).fetchall()
-            if not keys:
-                break
-            for key in keys:
-                rank += 1
-                if rank == next_rank:
-                    selected.append(key[0])
-                    next_rank = next(target, None)
-                    if next_rank is None:
-                        break
-            last_key = (keys[-1][1], keys[-1][0])
-        rows = []
-        for offset in range(0, len(selected), 400):
-            chunk = selected[offset:offset + 400]
-            marks = ",".join("?" for _ in chunk)
-            rows.extend(connection.execute("SELECT * FROM records WHERE id IN (" + marks + ")", chunk).fetchall())
-        rows.sort(key=lambda row: (row["captured_at"], row["id"]))
+        wanted = [(index * (count - 1)) // (limit - 1) + 1 for index in range(limit)]
+    selected: List[str] = []
+    target = iter(wanted)
+    next_rank = next(target, None)
+    last_key: Optional[Tuple[float, str]] = None
+    rank = 0
+    while next_rank is not None:
+        page_where, page_parameters = where, parameters
+        if last_key is not None:
+            page_where += " AND (captured_at,id)>(?,?)"
+            page_parameters += last_key
+        keys = connection.execute("SELECT id,captured_at FROM records WHERE " + page_where +
+                                  " ORDER BY captured_at,id LIMIT 2048", page_parameters).fetchall()
+        if not keys:
+            break
+        for key in keys:
+            rank += 1
+            if rank == next_rank:
+                selected.append(key[0])
+                next_rank = next(target, None)
+                if next_rank is None:
+                    break
+        last_key = (keys[-1][1], keys[-1][0])
+    rows = []
+    for offset in range(0, len(selected), 400):
+        chunk = selected[offset:offset + 400]
+        marks = ",".join("?" for _ in chunk)
+        rows.extend(connection.execute("SELECT * FROM records WHERE id IN (" + marks + ")", chunk).fetchall())
+    rows.sort(key=lambda row: (row["captured_at"], row["id"]))
     result = []
     for row in rows:
         record = dict(row)
@@ -540,7 +541,9 @@ def read_history(
     """Read both stores, preferring system observations on conflicting coverage.
 
     Measurements and events each have an independent ``limit``, so results
-    contain at most twice that number. Every reduction is explicit.
+    contain at most twice that number. Every reduction is explicit. Returned
+    samples include query-only ``coverage_segments`` identities from actual
+    recorded coverage, so graph continuity survives representative sampling.
     """
     start, end = _epoch(start), _epoch(end)
     if end < start:
@@ -557,8 +560,13 @@ def read_history(
         if canonical in seen_paths:
             continue
         seen_paths.add(canonical)
-        if not os.path.lexists(path):
+        try:
+            path.lstat()
+        except FileNotFoundError:
             warnings.append(f"History source {source} is missing: {path}")
+            continue
+        except OSError as exc:
+            warnings.append(f"History source {source} failed; results are partial ({path}): {exc}")
             continue
         connection = None
         try:
@@ -579,14 +587,36 @@ def read_history(
                 "SELECT * FROM coverage WHERE last_wall>=? AND first_wall<=? "
                 "ORDER BY last_wall,collector_id,stream,segment LIMIT ?",
                 (start, end, coverage_limit + 1),
-            ).fetchall() if source == "system" else []
+            ).fetchall()
             if len(coverage) > coverage_limit:
-                warnings.append("System history coverage exceeds the query bound; collision "
-                                "resolution is partial and unmatched user observations are retained")
+                warnings.append(f"History source {source}: coverage exceeds the query bound; "
+                                "continuity metadata and collision resolution are partial")
                 coverage = coverage[:coverage_limit]
+            source_coverage: Dict[Tuple[str, str, str, str], List[Tuple[float, float, str]]] = {}
             for row in coverage:
-                key = (row["machine_id"], row["boot_id"], row["stream"])
-                system_coverage.setdefault(key, []).append((row["first_boot"], row["last_boot"]))
+                first, last = _epoch(row["first_boot"]), _epoch(row["last_boot"])
+                if first < 0 or last < first:
+                    raise HistoryError("Invalid history coverage bounds")
+                identity = f"{row['boot_id']}:{row['collector_id']}:{row['segment']}"
+                key = (row["machine_id"], row["boot_id"], row["collector_id"], row["stream"])
+                source_coverage.setdefault(key, []).append((first, last, identity))
+            for record in samples:
+                segments = {}
+                for stream in _streams(record["data"]):
+                    key = (record["machine_id"], record["boot_id"], record["collector_id"], stream)
+                    for first, last, identity in source_coverage.get(key, []):
+                        if first <= record["boottime"] <= last:
+                            segments[stream] = identity
+                            break
+                record["coverage_segments"] = segments
+            if source == "system":
+                # Publish precedence only after the whole source has been
+                # validated. A failed source must never suppress usable data.
+                for key, intervals in source_coverage.items():
+                    system_key = (key[0], key[1], key[3])
+                    system_coverage.setdefault(system_key, []).extend(
+                        (first, last) for first, last, _identity in intervals
+                    )
             gathered.extend((source, record) for record in samples + events)
         except (OSError, sqlite3.Error, ValueError, HistoryError) as exc:
             warnings.append(f"History source {source} failed; results are partial ({path}): {exc}")
@@ -628,7 +658,10 @@ def read_history(
                             data[section].pop(name)
                 if not _streams(data):
                     continue
-                record = dict(record, data=data, suppressed_streams=suppressed)
+                retained_segments = {stream: identity for stream, identity in
+                                     record.get("coverage_segments", {}).items() if stream not in suppressed}
+                record = dict(record, data=data, suppressed_streams=suppressed,
+                              coverage_segments=retained_segments)
         chosen[record["id"]] = (source, record)
     if duplicate_count:
         warnings.append(f"History collision: {duplicate_count} duplicate record IDs; system records take precedence")
