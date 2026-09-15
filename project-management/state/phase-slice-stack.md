@@ -7,9 +7,9 @@ records; this file provides the recovery anchor for the current plan.
 
 ## Publication
 
-Delivery: blocked
+Delivery: active
 
-Notes: Hibernate classification/colors and reserved powered-off styling delivered; 225 native tests pass. Await P2 profile/suspend observations and visible blocks.
+Notes: P6 durable telemetry complete: 30 real SQLite tests and ARM sampler pass. Integrating collector event coverage, CLI history and installation; prior physical checks remain pending.
 
 ## Phases
 
@@ -20,7 +20,13 @@ Notes: Hibernate classification/colors and reserved powered-off styling delivere
 | P3 | done | Shutdown graph and summary |
 | P4 | done | Error and exception hardening |
 | P5 | done | Documentation and installation |
-| V | active | Manual validation and final closure |
+| V | blocked | Manual validation and final closure |
+
+| P6 | done | Durable telemetry |
+| P7 | active | Collector services |
+| P8 | pending | CLI and history graphs |
+| P9 | pending | Installation and documentation |
+| P10 | pending | Integration and handoff |
 
 ## Slices
 
@@ -46,9 +52,29 @@ Notes: Hibernate classification/colors and reserved powered-off styling delivere
 | P5.2 | P5 | done | Regenerate README and manual |
 | P5.3 | P5 | done | Validate delivery and installer handoff |
 | P5.4 | P5 | done | Publish evidence and handoff |
-| V.1 | V | active | Collect manual observations |
+| V.1 | V | blocked | Collect manual observations |
 | V.2 | V | pending | Repair and verify reported defects |
 | V.3 | V | pending | Close requests and publish closure |
+
+| P6.1 | P6 | done | Specify approved behavior |
+| P6.2 | P6 | done | Implement SQLite and bounded writer |
+| P6.3 | P6 | done | Collect sensors and merge history |
+| P6.4 | P6 | done | Verify storage and failure paths |
+| P7.1 | P7 | done | Enforce singleton and readiness |
+| P7.2 | P7 | done | Collect events and sleep transitions |
+| P7.3 | P7 | done | Coordinate fallback and prudent clients |
+| P7.4 | P7 | active | Verify concurrent service behavior |
+| P8.1 | P8 | pending | Add management and warning envelopes |
+| P8.2 | P8 | pending | Connect foreground telemetry |
+| P8.3 | P8 | pending | Render arbitrary-time history graphs |
+| P8.4 | P8 | pending | Verify CLI and reporting |
+| P9.1 | P9 | pending | Install system and user services |
+| P9.2 | P9 | pending | Add scoped uninstaller |
+| P9.3 | P9 | pending | Synchronize contracts and generated docs |
+| P9.4 | P9 | pending | Verify installation and recovery |
+| P10.1 | P10 | pending | Run complete automated checks |
+| P10.2 | P10 | pending | Smoke-test sampling and isolated daemon |
+| P10.3 | P10 | pending | Publish evidence and manual handoff |
 
 ## Regenerate local tracking
 

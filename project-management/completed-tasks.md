@@ -478,3 +478,8 @@ evidence, important decisions or risk acceptances, and follow-up records.
     installer itself was not run against live system destinations.
   - Follow-up: `burnbag-ECR-2026-001` remains open and not yet submitted to
     FieldManual for language-invariant installer and prerequisite guidance.
+
+- `BB-2026-09-15-P6` — Durable telemetry foundation, completed 2026-09-15.
+  - Approved contract and roadmap P6–P10 recorded; SQLite DELETE/EXTRA transactions, separate bounded writer, per-update prudent mode, five-second sensor snapshots and bounded merged queries implemented.
+  - 30 real storage tests pass, including crash-after-commit, concurrent readers/writers, failure/queue paths, segmented per-metric collisions and interval-wide reduction.
+  - Read-only ARM sampler: one battery, five supplies, 43 thermal zones; approximately 2.4 KB snapshot in 43 ms. No power actions or installation.

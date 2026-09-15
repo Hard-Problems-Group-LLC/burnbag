@@ -2,6 +2,34 @@
 
 Owner: burnbag maintainers. Authorized by the operator on 2026-09-14.
 
+## Continuous monitoring extension — authorized 2026-09-15
+
+The operator approved the batching policy and optional SQLite-backed systemd
+collector, then instructed full implementation. The canonical contract is
+[continuous history](docs/specifications/continuous-history.md).
+
+- **P6 — Durable telemetry:** P6.1 specify approved behavior; P6.2 implement
+  SQLite schema, safe paths and bounded batched writer; P6.3 implement sensor
+  collection and merged history queries; P6.4 verify real storage/failure paths.
+- **P7 — Collector services:** P7.1 enforce global ownership and readiness;
+  P7.2 collect events/sleep with bounded lifecycle flushes; P7.3 coordinate
+  foreground fallback and prudent-write requests; P7.4 test concurrent clients,
+  failures and handoff without host mutations.
+- **P8 — CLI and history graphs:** P8.1 add service actions, scope inference and
+  warning envelopes; P8.2 connect existing run graphs to collector observations;
+  P8.3 add arbitrary-time merged history graphs; P8.4 verify all CLI exit paths.
+- **P9 — Installation and documentation:** P9.1 install system/user units and
+  supporting modules; P9.2 add scoped history-preserving uninstallation;
+  P9.3 synchronize specifications, generated README/man and installer;
+  P9.4 verify staging, dev paths and failure recovery.
+- **P10 — Integration and handoff:** P10.1 run full native/compatibility/static
+  checks; P10.2 conduct read-only real sampling and isolated daemon smoke tests;
+  P10.3 publish bounded operator service/sleep checks and ACP all phase work.
+
+Proceed automatically across independent slices; ACP each completed phase and
+each phase deferred for manual completion, without another review gate. The
+earlier P2/V physical checks remain pending rather than being replaced.
+
 This is the canonical design and acceptance plan for the five requested phases.
 Current phase/slice state and Ubersight regeneration instructions live in
 [the delivery stack](project-management/state/phase-slice-stack.md). Primary

@@ -21,3 +21,9 @@
     [BB-MANUAL-01/02](ai-human-requests.md).
   - On results, reactivate affected slices, repair reported defects,
     rerun affected checks, close requests, and ACP without another review gate.
+
+- `BB-2026-09-15-01` — Continuous power history and optional services; started 2026-09-15.
+  Owner: Codex; authorized by operator instruction to fully implement.
+  - Scope and acceptance: [continuous history](../docs/specifications/continuous-history.md), roadmap P6–P10.
+  - P6 storage is completed with 30 passing tests. Collector and installer slices proceed independently; CLI/graphs and integration owned by primary agent.
+  - ACP without review at each completed or manually deferred phase. No host installation or live sleep is performed by automated tests.
