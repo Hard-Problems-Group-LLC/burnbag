@@ -1,17 +1,30 @@
 # Completed Tasks
 
+- `BB-2026-09-15-2000-NUMBERING` — Renumber manual validation phase.
+  Completed 2026-09-15; owner: Codex; directly authorized by the operator.
+  - Former phase `V` is now `2000`. Slice mappings are `V.1` → `2000.1000`,
+    `V.2` → `2000.2000`, `V.3` → `2000.3000`, `V.4` → `2000.4000`,
+    `V.5` → `2000.5000`, and `V.6` → `2000.6000`.
+  - Roadmap and project-management references use the new IDs. Historical
+    task, request and bug IDs remain unchanged; acceptance evidence and open
+    manual checks retain their original scope and status.
+  - Republished live Ubersight state and verified all six states are preserved,
+    with 2000.5000 current. Installed writer/reader validation, 40/50/80-column
+    renders, roadmap links, historical identifier preservation and whitespace
+    checks pass. The live file retains its private, ignored status.
+
 - `BB-2026-09-15-TRACKING` — Review Ubersight expectations and refresh live state.
   Completed 2026-09-15; owner: Codex; direct operator request.
   - Reconciled FieldManual guidance, the installed Ubersight 0.1.0 writer and
-    reader, and project completion/manual records. Moved final validation V
+    reader, and project completion/manual records. Moved final validation 2000
     after delivered phases so phase 1000 remains in the visible phase window.
-    Marked deferred platform observations V.1 blocked and led notes with the
-    V.5 operator wait. All three existing human requests remain open.
+    Marked deferred platform observations 2000.1000 blocked and led notes with the
+    2000.5000 operator wait. All three existing human requests remain open.
   - Updated regeneration/visibility/staleness guidance and roadmap indexes;
     republished the ignored live status with private directory/file modes.
     The installed consumer reads this checkout's default status path.
   - Validation: producer dry run, installed writer/reader normalization,
-    fresh timezone-aware timestamp, expected V/V.5 ownership, phase 1000 done,
+    fresh timezone-aware timestamp, expected 2000/2000.5000 ownership, phase 1000 done,
     blocked delivery, private modes and ignore boundary pass. Status-only
     rendering at 40x20, 50x24 and 80x30 shows recent completion and the operator
     wait. No dashboard environment refresh, runtime-job rewrite or program
@@ -50,7 +63,7 @@
     whitespace checks pass.
   - ROADMAP and Ubersight are current; phase ACP completed in `754deab` on main.
     No host installation or service change was performed. Existing physical
-    and fallback requests remain open under V; the operator retains deployment
+    and fallback requests remain open under 2000; the operator retains deployment
     with `./install.sh --mode dev --dev-command local`.
 
 - `BB-2026-09-15-V4` — Installed collector and initial history acceptance.
@@ -67,8 +80,8 @@
     errors or observer-coverage warnings. No service control or host mutation
     was performed during corroboration.
   - Validation for these record changes: Ubersight producer and whitespace
-    checks pass. BB-MANUAL-03 remains open for V.5 warning/fallback/merged-history
-    and V.6 physical sleep observations; earlier platform requests remain open.
+    checks pass. BB-MANUAL-03 remains open for 2000.5000 warning/fallback/merged-history
+    and 2000.6000 physical sleep observations; earlier platform requests remain open.
 
 - `BB-2026-09-15-01` — Continuous history and optional systemd services.
   Started and completed 2026-09-15; owner: Codex; authorized by the operator's
@@ -97,7 +110,7 @@
     The operator retains actual installation with
     `./install.sh --mode dev --dev-command local`. Live service installation,
     activation and physical sleep are not claimed; BB-MANUAL-03 and earlier
-    BB-MANUAL-01/02 remain under V for observations and any subsequent fixes.
+    BB-MANUAL-01/02 remain under 2000 for observations and any subsequent fixes.
 
 - `BB-2026-09-15-P10` — Integration verification and operator handoff.
   Completed 2026-09-15; owner: Codex; operator-authorized roadmap P10.
@@ -106,7 +119,7 @@
     replaces only external hardware endpoints, retaining the real CLI, event
     loop, writer and signal path.
   - Automatable work is complete. Remaining manual scope is explicitly deferred
-    to V and BB-MANUAL-01/02/03, with exact commands in docs/testing.md; this
+    to 2000 and BB-MANUAL-01/02/03, with exact commands in docs/testing.md; this
     phase is ACP'd without another review gate as authorized.
 
 - `BB-2026-09-15-P9` — Service installation, scoped removal and documentation.
@@ -173,7 +186,7 @@
 
 - `BB-2026-09-14-04` — Hibernate diagnostics and reserved powered-off styling.
   Started and completed 2026-09-14. Owner: Codex; requestor: operator;
-  scope: ROADMAP V.2.
+  scope: ROADMAP 2000.2000.
   - Clock-confirmed hibernate regions use green capital `H` on magenta;
     suspend remains white `S` on red. Both fill all 25 data rows, preserve axes
     and the lid header, and alternate glyphs/colors when they share a screen
@@ -210,7 +223,7 @@
     requested. The development launcher picks up the change on its next run.
 
 - `BB-2026-09-14-03` — Actual suspend diagnostics and graph regions. Started
-  and completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP V.2.
+  and completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP 2000.2000.
   - A read-only background observer compares required Linux `CLOCK_BOOTTIME`
     and `CLOCK_MONOTONIC` independently of GLib, with a one-second cadence and
     a final post-recovery snapshot. Coverage includes setup and teardown.
@@ -245,7 +258,7 @@
     launcher selects these changes on the next invocation.
 
 - `BB-2026-09-14-02` — Lid-event diagnostics for `--ignore-lid`. Started and
-  completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP V.2.
+  completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP 2000.2000.
   - Shutdown reports separate detected close/open counts, including zero.
     Initial snapshots and duplicate unchanged property notifications are
     excluded. Observations survive a subsequent log failure; current telemetry
@@ -272,7 +285,7 @@
     and extrema confirmations are recorded in `BB-MANUAL-01`.
 
 - `BB-BUG-2026-09-14-01` — Always label chart extrema, including equal values.
-  Started and completed 2026-09-14 under roadmap V.2; owner: Codex;
+  Started and completed 2026-09-14 under roadmap 2000.2000; owner: Codex;
   requestor: operator. Both axis boundaries now retain labels before interior
   callouts, with aligned ticks and no fabricated data. 141 native tests,
   Python 3.9/3.14 compatibility, real-session replay, and generated-doc/man

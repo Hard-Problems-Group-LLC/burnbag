@@ -35,8 +35,11 @@ FieldManual footer.
   and the phase/slice stack that generates Ubersight. Update those records as
   work advances, including completed and manually deferred slices.
 - The new series starts with phase `1000` for historical graph `--last`
-  durations. Existing published `P1`–`P10` and `V` IDs remain legacy references;
-  new phases and slices use the spaced numbering scheme above.
+  durations. At the operator's direction on 2026-09-15, manual validation
+  phase `V` was renamed `2000`, with slices `V.1`–`V.6` renamed
+  `2000.1000`–`2000.6000` in order. Use these new IDs in current tracking;
+  historical task and request identifiers remain unchanged. Existing published
+  `P1`–`P10` IDs remain legacy references. Allocate the next new phase as `3000`.
 
 <!-- FIELDMANUAL_MANAGED_FOOTER_START -->
 ---

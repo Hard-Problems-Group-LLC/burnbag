@@ -5,12 +5,13 @@ Owner: burnbag maintainers. Authorized by the operator on 2026-09-14.
 ## Phase 1000 — Relative history durations
 
 Authorized 2026-09-15. Phase and slice IDs now follow the spaced numbering
-policy in AGENTS.md; existing published P1–P10/V references remain stable.
+policy in AGENTS.md; published P1–P10 references remain stable. Manual validation
+is now phase 2000 under the operator's subsequent renumbering instruction.
 Current status: all four slices complete, verified 2026-09-15. Numbering
 guidance was committed before feature implementation. All 378 native tests
 pass; Python 3.9.21 and 3.14.7 each pass 359 compatibility tests with two
 expected native-GI skips. Staged installed queries and manual copies pass.
-Existing manual checks remain pending under V.
+Existing manual checks remain pending under phase 2000.
 
 - **1000.1000 — Numbering and contract:** publish the numbering rule and define
   unambiguous duration grammar, units, range bounds and option conflicts.
@@ -47,7 +48,7 @@ ARM measurements; a complete CLI/SQLite/GLib test verified Ctrl-C reporting.
 The operator confirmed development installation, active/enabled system service,
 collector readiness and the first historical graph on 2026-09-15: seven valid
 readings over 30 seconds. Warning/fallback checks and physical sleep remain in
-BB-MANUAL-03, alongside earlier P2/V checks. The
+BB-MANUAL-03, alongside earlier P2 and phase 2000 checks. The
 [phase stack](project-management/state/phase-slice-stack.md) retains detailed
 state and generates Ubersight, now awaiting BB-MANUAL-01/02/03 observations.
 
@@ -71,7 +72,7 @@ state and generates Ubersight, now awaiting BB-MANUAL-01/02/03 observations.
 
 Proceed automatically across independent slices; ACP each completed phase and
 each phase deferred for manual completion, without another review gate. The
-earlier P2/V physical checks remain pending rather than being replaced.
+earlier P2 and phase 2000 physical checks remain pending rather than being replaced.
 
 This is the canonical design and acceptance plan for the five requested phases.
 Current phase/slice state and Ubersight regeneration instructions live in
@@ -191,28 +192,32 @@ Acceptance: the delivered executable, CLI, README, manual, specifications, and
 installer describe the same behavior; the operator has a bounded validation
 procedure and all automated work is published.
 
-## V — Manual validation and final closure
+## 2000 — Manual validation and final closure
+
+Renamed from phase V on 2026-09-15 at the operator's direction. Its six
+assigned slices now use 2000.1000 through 2000.6000 in the same order; scope,
+acceptance evidence and open human requests retain their existing status.
 
 Collect the requested physical observations, address any defects they expose,
 rerun affected automated checks, close linked human requests and deferred
 phases, and ACP the resulting closure. Until then the overall delivery remains
 awaiting manual validation, even when every automated slice is complete.
 
-Continuous-service acceptance is tracked separately within V:
+Continuous-service acceptance is tracked separately within phase 2000:
 
-- **V.4 — Installed collector and initial history:** passed 2026-09-15. The
+- **2000.4000 — Installed collector and initial history:** passed 2026-09-15. The
   operator installed dev mode, verified the system service active/enabled and
   collector ready, and displayed system history with seven valid observations.
-- **V.5 — Warning envelope and foreground fallback:** next operator check;
+- **2000.5000 — Warning envelope and foreground fallback:** next operator check;
   stop the service, verify help warnings and a prudent foreground run, query
   merged history, then restart and verify readiness.
-- **V.6 — Continuous service sleep coverage:** pending supervised desktop
+- **2000.6000 — Continuous service sleep coverage:** pending supervised desktop
   suspend/wake with the background collector running and no foreground run.
 
 These checks do not replace the earlier profile/backlight and physical ARM
 sleep observations in BB-MANUAL-01/02.
 
-### Operator follow-up during V
+### Operator follow-up during 2000
 
 On 2026-09-14, after the ordinary lid/backlight and axis-extrema checks passed,
 the operator requested `BB-2026-09-14-02`: for `--ignore-lid`, report separate
@@ -220,13 +225,13 @@ numbers of detected close/open transitions and show their times as magenta
 (close) and yellow (open) vertical graph lines. Preserve event timing and
 counts for switch troubleshooting, keep battery observations visible, and
 provide distinct plain-output markers and explicit overlap behavior. This is
-an authorized addition to V.2; it does not change the battery estimator or
+an authorized addition to 2000.2000; it does not change the battery estimator or
 remove the outstanding physical profile/suspend checks.
 
 The operator then requested `BB-2026-09-14-03`: check the entire run for actual
 suspend periods before assembling the exit report, and mark those regions as
 full-height blocks of white capital `S` characters on a red background.
-V.2 now covers a read-only clock observer from application entry through the
+2000.2000 now covers a read-only clock observer from application entry through the
 post-recovery reporting snapshot, verified suspend-time accounting, approximate
 interval placement with explicit uncertainty, full-run graph coverage, and
 plain-output and no-plot behavior. Automated checks precede publication;

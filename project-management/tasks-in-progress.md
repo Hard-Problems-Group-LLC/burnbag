@@ -2,7 +2,7 @@
 
 - `BB-2026-09-14-V` — Manual validation and final closure; started 2026-09-14.
   Owner: Codex; observations: operator.
-  - Scope: [roadmap V](../ROADMAP.md#v--manual-validation-and-final-closure).
+  - Scope: [roadmap 2000](../ROADMAP.md#2000--manual-validation-and-final-closure).
   - Operator confirmed the ordinary lid cycle, visible backlight recovery, and
     graph extrema. `BB-2026-09-14-02` lid counts/markers are delivered and ready
     for the optional two-cycle visible check.
@@ -23,10 +23,10 @@
     rerun affected checks, close requests, and ACP without another review gate.
   - Continuous history P6–P10 is now delivered: 344 native tests and both
     compatibility suites pass. Operator dev installation, service readiness
-    and initial historical query passed on 2026-09-15 (V.4): seven system
+    and initial historical query passed on 2026-09-15 (2000.4000): seven system
     readings over 30 seconds, active/enabled service and ready collector.
-    BB-MANUAL-03 now awaits warning/fallback/merged-history checks (V.5) and
-    a supervised service-only sleep interval (V.6). All automatable work is complete.
+    BB-MANUAL-03 now awaits warning/fallback/merged-history checks (2000.5000) and
+    a supervised service-only sleep interval (2000.6000). All automatable work is complete.
   - Phase 1000 is complete: `--graph --last DURATION`, calendar subtraction
     and installed manual verification. The full suite now passes 378 native
     tests and 359 tests on each compatibility interpreter with two native-GI

@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator V.5 warning/fallback results. V.6 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Phase 1000 complete and pushed (754deab); 378 native tests and both compatibility suites passed.
+Notes: Awaiting operator 2000.5000 warning/fallback results. 2000.6000 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Phase 1000 complete and pushed (754deab); 378 native tests and both compatibility suites passed.
 
 ## Phases
 
@@ -26,7 +26,7 @@ Notes: Awaiting operator V.5 warning/fallback results. V.6 service sleep and BB-
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
 | 1000 | done | Relative history durations |
-| V | active | Manual validation and final closure |
+| 2000 | active | Manual validation and final closure |
 
 ## Slices
 
@@ -75,12 +75,12 @@ Notes: Awaiting operator V.5 warning/fallback results. V.6 service sleep and BB-
 | 1000.2000 | 1000 | done | Parse durations and calculate ranges |
 | 1000.3000 | 1000 | done | Integrate CLI and synchronize docs |
 | 1000.4000 | 1000 | done | Verify edge cases and publish |
-| V.1 | V | blocked | Await profile and suspend checks |
-| V.2 | V | pending | Repair and verify reported defects |
-| V.3 | V | pending | Close requests and publish closure |
-| V.4 | V | done | Installed collector and history verified |
-| V.5 | V | active | Await warning and fallback checks |
-| V.6 | V | pending | Verify service sleep coverage |
+| 2000.1000 | 2000 | blocked | Await profile and suspend checks |
+| 2000.2000 | 2000 | pending | Repair and verify reported defects |
+| 2000.3000 | 2000 | pending | Close requests and publish closure |
+| 2000.4000 | 2000 | done | Installed collector and history verified |
+| 2000.5000 | 2000 | active | Await warning and fallback checks |
+| 2000.6000 | 2000 | pending | Verify service sleep coverage |
 
 ## Regenerate local tracking
 
@@ -102,9 +102,9 @@ one phase and one of its slices are active; slices in other phases cannot be
 active. A pending phase may contain already completed independent slices.
 A done phase must have all its slices done.
 
-Keep phase rows in execution order and final validation V after the delivered
+Keep phase rows in execution order and final validation 2000 after the delivered
 phases. Ubersight shows only two phases before the active row and five after;
-appending delivered work after V can hide recent completion. Titles are clipped
+appending delivered work after 2000 can hide recent completion. Titles are clipped
 to one line, so keep the current action recognizable in a narrow pane. Lead
 blocked notes with the operator wait because the phase-stack view does not
 show the global blocked label.
@@ -116,7 +116,7 @@ activate the next independent phase and slice. Set delivery to `blocked` only
 when all remaining work awaits input; keep the current owning phase and slice
 active and describe the wait in notes. Ubersight requires this active row even
 while blocked. On final completion, set delivery to `complete`, mark every
-slice done, and retain V as the active phase with all other phases done to
+slice done, and retain 2000 as the active phase with all other phases done to
 satisfy the writer's phase requirement.
 
 The installed `ubersight` console command supplies the atomic status writer;

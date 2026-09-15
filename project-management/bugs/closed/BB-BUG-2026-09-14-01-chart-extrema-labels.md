@@ -6,7 +6,7 @@
 - Reported: 2026-09-14
 - Reporter: Operator
 - Owner: Codex
-- Related work: ROADMAP V.2; battery chart specification
+- Related work: ROADMAP 2000.2000; battery chart specification
 
 ## Symptom and expected behavior
 

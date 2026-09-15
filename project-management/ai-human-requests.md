@@ -11,8 +11,8 @@ No additional queued requests.
 
 - `BB-MANUAL-03` — Continuous collector installation and physical sleep history.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
-  - Scope: roadmap P10 operator handoff and V.4–V.6 manual acceptance.
-  - Installation/readiness/initial history passed on 2026-09-15 (V.4).
+  - Scope: roadmap P10 operator handoff and 2000.4000–2000.6000 manual acceptance.
+  - Installation/readiness/initial history passed on 2026-09-15 (2000.4000).
     Operator ran `./install.sh --mode dev --dev-command local`, refreshed
     command lookup, and reported system service loaded/active/enabled, user
     service absent, and collector ready in system scope. The initial graph
@@ -22,7 +22,7 @@ No additional queued requests.
     flat/short data correctly leaves variability and trend unavailable.
     The earlier `lokcal` typo was rejected and the corrected command succeeded.
   - Follow [continuous service acceptance](../docs/testing.md#continuous-service-acceptance):
-    next check help and stopped-service warnings (V.5),
+    next check help and stopped-service warnings (2000.5000),
     prudent foreground fallback and merged history, then restart the service.
   - When desktop interruption is acceptable, save other work and perform a
     supervised desktop suspend/wake with only the service recording; query its
@@ -78,7 +78,7 @@ No additional queued requests.
     requested. Automated tests establish request/failure handling, not physical
     suspend reliability.
   - `BB-2026-09-14-03` delivers actual-suspend diagnostics and graph blocks
-    under V.2; 188 native tests and compatibility checks pass. The continued-run
+    under 2000.2000; 188 native tests and compatibility checks pass. The continued-run
     variant in check 3 verifies the new display: leave burnbag active, use
     desktop Suspend, wake, and then press Ctrl-C. Expect measured suspended
     time and approximate full-height white `S` on red regions; plain output
@@ -102,4 +102,4 @@ The graph/summary portion of `BB-MANUAL-01` passed on 2026-09-14 and closes
 P3.4. The request remains active for its remaining hardware observations.
 
 The installation/readiness/initial-history portion of `BB-MANUAL-03` passed
-on 2026-09-15 and closes V.4. Warning/fallback and sleep checks remain active.
+on 2026-09-15 and closes 2000.4000. Warning/fallback and sleep checks remain active.
