@@ -6,12 +6,12 @@ Owner: burnbag maintainers. Authorized by the operator on 2026-09-14.
 
 Authorized 2026-09-15. Phase and slice IDs now follow the spaced numbering
 policy in AGENTS.md; published P1–P10 references remain stable. Manual validation
-is now phase 2000 under the operator's subsequent renumbering instruction.
+is now phase 9000 under the operator's subsequent renumbering instruction.
 Current status: all four slices complete, verified 2026-09-15. Numbering
 guidance was committed before feature implementation. All 378 native tests
 pass; Python 3.9.21 and 3.14.7 each pass 359 compatibility tests with two
 expected native-GI skips. Staged installed queries and manual copies pass.
-Existing manual checks remain pending under phase 2000.
+Existing manual checks remain pending under phase 9000.
 
 - **1000 — Numbering and contract:** publish the numbering rule and define
   unambiguous duration grammar, units, range bounds and option conflicts.
@@ -48,7 +48,7 @@ ARM measurements; a complete CLI/SQLite/GLib test verified Ctrl-C reporting.
 The operator confirmed development installation, active/enabled system service,
 collector readiness and the first historical graph on 2026-09-15: seven valid
 readings over 30 seconds. Warning/fallback checks and physical sleep remain in
-BB-MANUAL-03, alongside earlier P2 and phase 2000 checks. The
+BB-MANUAL-03, alongside earlier P2 and phase 9000 checks. The
 [phase stack](project-management/state/phase-slice-stack.md) retains detailed
 state and generates Ubersight, now awaiting BB-MANUAL-01/02/03 observations.
 
@@ -75,7 +75,7 @@ state and generates Ubersight, now awaiting BB-MANUAL-01/02/03 observations.
 
 Proceed automatically across independent slices; ACP each completed phase and
 each phase deferred for manual completion, without another review gate. The
-earlier P2 and phase 2000 physical checks remain pending rather than being replaced.
+earlier P2 and phase 9000 physical checks remain pending rather than being replaced.
 
 This is the canonical design and acceptance plan for the five requested phases.
 Current phase/slice state and Ubersight regeneration instructions live in
@@ -195,7 +195,7 @@ Acceptance: the delivered executable, CLI, README, manual, specifications, and
 installer describe the same behavior; the operator has a bounded validation
 procedure and all automated work is published.
 
-## 2000 — Manual validation and final closure
+## 9000 — Manual validation and final closure
 
 Renamed from phase V on 2026-09-15 at the operator's direction. Its six
 assigned slices now use local IDs 1000 through 6000 in the same order; scope,
@@ -206,7 +206,7 @@ rerun affected automated checks, close linked human requests and deferred
 phases, and ACP the resulting closure. Until then the overall delivery remains
 awaiting manual validation, even when every automated slice is complete.
 
-Continuous-service acceptance is tracked separately within phase 2000:
+Continuous-service acceptance is tracked separately within phase 9000:
 
 - **4000 — Installed collector and initial history:** passed 2026-09-15. The
   operator installed dev mode, verified the system service active/enabled and
@@ -220,7 +220,7 @@ Continuous-service acceptance is tracked separately within phase 2000:
 These checks do not replace the earlier profile/backlight and physical ARM
 sleep observations in BB-MANUAL-01/02.
 
-### Operator follow-up during 2000
+### Operator follow-up during 9000
 
 On 2026-09-14, after the ordinary lid/backlight and axis-extrema checks passed,
 the operator requested `BB-2026-09-14-02`: for `--ignore-lid`, report separate
@@ -228,13 +228,13 @@ numbers of detected close/open transitions and show their times as magenta
 (close) and yellow (open) vertical graph lines. Preserve event timing and
 counts for switch troubleshooting, keep battery observations visible, and
 provide distinct plain-output markers and explicit overlap behavior. This is
-an authorized addition to slice 2000; it does not change the battery estimator or
+an authorized addition to phase 9000, slice 2000; it does not change the battery estimator or
 remove the outstanding physical profile/suspend checks.
 
 The operator then requested `BB-2026-09-14-03`: check the entire run for actual
 suspend periods before assembling the exit report, and mark those regions as
 full-height blocks of white capital `S` characters on a red background.
-Slice 2000 now covers a read-only clock observer from application entry through the
+Phase 9000, slice 2000 now covers a read-only clock observer from application entry through the
 post-recovery reporting snapshot, verified suspend-time accounting, approximate
 interval placement with explicit uncertainty, full-run graph coverage, and
 plain-output and no-plot behavior. Automated checks precede publication;
@@ -249,3 +249,42 @@ retains `S` with an explicit unverified-mode qualification. Shared suspend and
 hibernate columns preserve both encodings. The reserved powered-off style adds
 no current detector or generated powered-off region. Synchronize contracts,
 generated documentation, tests, and tracking before the authorized ACP.
+
+
+## Phase 3000 — GTK 4 history viewer
+
+Authorized 2026-09-15. The operator requested a GNOME helper application for
+system and user telemetry, with graph and table views, synchronized navigation,
+search/zoom/pan, native window controls, F11 graph fullscreen, and opt-in Unix
+socket UI automation with keyboard/mouse input and screenshot capture. The
+manual validation work formerly assigned phase 2000 was renumbered phase 9000
+to reserve phase 3000 for this effort; the six local slice IDs are unchanged.
+The accepted interface and data contract is
+[GTK 4 history viewer](docs/specifications/history-viewer.md).
+
+- **1000 — Data and automation contract:** specify read-only access to both
+  SQLite stores, dynamic measurement columns, keyset paging, socket protocol,
+  screenshot boundaries, input routes and security limits.
+- **2000 — Native application shell:** build GTK 4 startup, GNOME decorations,
+  minimize/restore/maximize/close behavior, explicit F11 graph fullscreen, and
+  the two-tab notebook foundation.
+- **3000 — Graph and table experience:** render history with zoom, pan and
+  search; page table rows on demand; implement bidirectional row/range navigation.
+- **4000 — Automation and controller:** add opt-in Unix socket requests, a
+  matching controller command, keyboard/mouse operations, state inspection and
+  client-area PNG capture through the same action handlers as human input.
+- **5000 — Delivery integration:** include launchers, dependency checks,
+  documentation and installation/uninstallation behavior.
+- **6000 — Verification and handoff:** automated data/UI/protocol checks,
+  GNOME session tests for real window-manager controls and F11, performance and
+  large-history checks, then ACP completed work and request the pending GNOME checks in
+  BB-MANUAL-04 (project-management/ai-human-requests.md).
+
+Slices 1000–5000 are complete. The graph, dynamically paged table, search,
+bidirectional navigation, secure opt-in socket automation, controller,
+installation, and manual are implemented. The 407-test suite, installer checks,
+generated documentation, and viewer manual validation pass; a live X11 smoke
+check exercised capture, fullscreen, tabs, search, selection, and window
+operations. Phase 3000, slice 6000 is active for visible GNOME title-bar checks
+tracked by BB-MANUAL-04. ACP this completed implementation while those manual
+checks remain deferred.

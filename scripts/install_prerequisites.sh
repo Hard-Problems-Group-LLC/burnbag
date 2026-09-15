@@ -8,7 +8,7 @@ usage() {
     cat <<'EOF'
 Usage: install_prerequisites.sh [--check]
 
-Install burnbag's system-Python D-Bus binding on Ubuntu/Debian or Fedora/RHEL.
+Install burnbag's system-Python D-Bus and GTK 4 bindings on Ubuntu/Debian or Fedora/RHEL.
 
 Options:
   --check   Verify the prerequisite without changing the system.
@@ -48,6 +48,17 @@ check_pygobject() {
         "$("${BURNBAG_SYSTEM_PYTHON}" --version 2>&1)"
 }
 
+check_gtk4() {
+    if ! "${BURNBAG_SYSTEM_PYTHON}" -c \
+        'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Gdk", "4.0"); from gi.repository import Gtk, Gdk' \
+        >/dev/null 2>&1; then
+        printf '[ERROR] GTK 4 introspection is not importable by %s.\n' \
+            "${BURNBAG_SYSTEM_PYTHON}" >&2
+        return 1
+    fi
+    printf '[OK] GTK 4 is available to %s.\n' "${BURNBAG_SYSTEM_PYTHON}"
+}
+
 read_distribution() {
     local burnbag_release=/etc/os-release
     local burnbag_key burnbag_value burnbag_id="" burnbag_like=""
@@ -76,12 +87,12 @@ select_package_source() {
         case "${burnbag_id}" in
             ubuntu|debian)
                 BURNBAG_PACKAGE_MANAGER=apt-get
-                BURNBAG_PACKAGES=(python3-gi gir1.2-glib-2.0)
+                BURNBAG_PACKAGES=(python3-gi gir1.2-glib-2.0 gir1.2-gtk-4.0)
                 return 0
                 ;;
             fedora|rhel|centos|rocky|almalinux)
                 BURNBAG_PACKAGE_MANAGER=dnf
-                BURNBAG_PACKAGES=(python3-gobject)
+                BURNBAG_PACKAGES=(python3-gobject gtk4)
                 return 0
                 ;;
         esac
@@ -119,14 +130,14 @@ main() {
     fi
 
     check_python || return 1
-    if check_pygobject; then
+    if check_pygobject && check_gtk4; then
         return 0
     fi
 
     select_package_source || return 1
 
     if [[ "${burnbag_mode}" == "check" ]]; then
-        printf '[HINT] Install it with this script or with: sudo %s install %s\n' \
+        printf '[HINT] Install these bindings with this script or with: sudo %s install %s\n' \
             "${BURNBAG_PACKAGE_MANAGER}" "${BURNBAG_PACKAGES[*]}" >&2
         return 1
     fi
@@ -153,8 +164,8 @@ main() {
         return 1
     fi
 
-    if ! check_pygobject; then
-        printf '[ERROR] %s was installed, but %s still cannot import gi.\n' \
+    if ! check_pygobject || ! check_gtk4; then
+        printf '[ERROR] %s was installed, but %s still cannot import the required bindings.\n' \
             "${BURNBAG_PACKAGES[*]}" "${BURNBAG_SYSTEM_PYTHON}" >&2
         return 1
     fi

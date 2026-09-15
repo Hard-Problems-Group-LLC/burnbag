@@ -166,12 +166,16 @@ class ServiceInstaller:
         if not (self.dev and self.scope == "user"):
             for relative, target, mode in (
                 ("burnbag.py", "bin/burnbag", 0o755), ("burnbag.1", "share/man/man1/burnbag.1", 0o644),
+                ("burnbag_viewer.py", "bin/burnbag-viewer", 0o755),
+                ("burnbag_viewerctl.py", "bin/burnbag-viewerctl", 0o755),
+                ("burnbag-viewer.1", "share/man/man1/burnbag-viewer.1", 0o644),
                 ("uninstall.sh", "bin/burnbag-uninstall", 0o755),
                 ("scripts/install_services.py", "lib/burnbag/install_services.py", 0o644),
                 ("burnbag_history.py", "lib/burnbag/burnbag_history.py", 0o644),
                 ("burnbag_service.py", "lib/burnbag/burnbag_service.py", 0o644),
                 ("burnbag_graph.py", "lib/burnbag/burnbag_graph.py", 0o644),
                 ("burnbag_duration.py", "lib/burnbag/burnbag_duration.py", 0o644),
+                ("burnbag_viewer_data.py", "lib/burnbag/burnbag_viewer_data.py", 0o644),
             ):
                 add(self.prefix / target, self.source_bytes(relative), mode, shared=True)
 
@@ -195,6 +199,8 @@ class ServiceInstaller:
             # has documentation in the user's normal manual-page tree.
             add(self.user_home / ".local/share/man/man1/burnbag.1",
                 self.source_bytes("burnbag.1"), shared=True)
+            add(self.user_home / ".local/share/man/man1/burnbag-viewer.1",
+                self.source_bytes("burnbag-viewer.1"), shared=True)
             wrapper = "#!/usr/bin/bash\n# burnbag-managed uninstaller\nexec /usr/bin/python3 -B " + shlex.quote(str(self.source / "scripts/install_services.py")) + " uninstall --user-service \"$@\"\n"
             add(self.user_home / ".local/bin/burnbag-uninstall", wrapper.encode("utf-8"), 0o755)
         self.validate_target(self.manifest_path())
@@ -248,7 +254,13 @@ class ServiceInstaller:
         if not self.dev or self.source is None:
             return []
         records: list[dict[str, Any]] = []
-        for relative, source in ((".local/bin/burnbag", "burnbag.py"), (".local/share/man/man1/burnbag.1", "burnbag.1")):
+        for relative, source in (
+            (".local/bin/burnbag", "burnbag.py"),
+            (".local/bin/burnbag-viewer", "burnbag_viewer.py"),
+            (".local/bin/burnbag-viewerctl", "burnbag_viewerctl.py"),
+            (".local/share/man/man1/burnbag.1", "burnbag.1"),
+            (".local/share/man/man1/burnbag-viewer.1", "burnbag-viewer.1"),
+        ):
             target = self.source / relative
             if target.is_symlink() and target.resolve() == self.source / source:
                 records.append({"path": str(target), "symlink": os.readlink(target), "shared": True})
@@ -391,9 +403,11 @@ class ServiceInstaller:
         owner_home = absolute(manifest["user_home"], "manifest user_home")
         source = absolute(manifest["source"], "manifest source")
         allowed = {self.prefix / relative for relative in (
-            "bin/burnbag", "bin/burnbag-uninstall", "share/man/man1/burnbag.1", "lib/burnbag/install_services.py",
+            "bin/burnbag", "bin/burnbag-viewer", "bin/burnbag-viewerctl",
+            "bin/burnbag-uninstall", "share/man/man1/burnbag.1",
+            "share/man/man1/burnbag-viewer.1", "lib/burnbag/install_services.py",
             "lib/burnbag/burnbag_history.py", "lib/burnbag/burnbag_service.py", "lib/burnbag/burnbag_graph.py",
-            "lib/burnbag/burnbag_duration.py")}
+            "lib/burnbag/burnbag_duration.py", "lib/burnbag/burnbag_viewer_data.py")}
         if self.scope == "user" and self.dev:
             allowed.clear()
         if self.scope == "system":
@@ -406,10 +420,14 @@ class ServiceInstaller:
             allowed.add(owner_config / "systemd/user/burnbag.service")
         if self.dev:
             allowed.update({owner_home / ".local/bin/burnbag", source / ".local/bin/burnbag",
-                            source / ".local/share/man/man1/burnbag.1"})
+                            owner_home / ".local/bin/burnbag-viewer", source / ".local/bin/burnbag-viewer",
+                            owner_home / ".local/bin/burnbag-viewerctl", source / ".local/bin/burnbag-viewerctl",
+                            source / ".local/share/man/man1/burnbag.1",
+                            source / ".local/share/man/man1/burnbag-viewer.1"})
             if self.scope == "user":
                 allowed.update({owner_home / ".local/bin/burnbag-uninstall",
-                                owner_home / ".local/share/man/man1/burnbag.1"})
+                                owner_home / ".local/share/man/man1/burnbag.1",
+                                owner_home / ".local/share/man/man1/burnbag-viewer.1"})
         files = manifest.get("files")
         if not isinstance(files, list) or any(not isinstance(item, dict) or Path(item.get("path", "")) not in allowed for item in files):
             raise InstallError("Installation manifest contains an unrecognized artifact path")

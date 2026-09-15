@@ -82,7 +82,9 @@ class ServiceInstallTests(unittest.TestCase):
 
     def test_stage_contains_complete_executable_modules_unit_and_account_declaration(self) -> None:
         self.install("--system-service")
-        for relative in ("bin/burnbag", "bin/burnbag-uninstall", "share/man/man1/burnbag.1",
+        for relative in ("bin/burnbag", "bin/burnbag-viewer", "bin/burnbag-viewerctl",
+                         "bin/burnbag-uninstall", "share/man/man1/burnbag.1",
+                         "share/man/man1/burnbag-viewer.1", "lib/burnbag/burnbag_viewer_data.py",
                          "lib/burnbag/burnbag_history.py", "lib/burnbag/burnbag_service.py",
                          "lib/burnbag/burnbag_graph.py", "lib/burnbag/burnbag_duration.py", "lib/burnbag/install_services.py",
                          "lib/sysusers.d/burnbag.conf", "lib/burnbag/install-system.json"):
@@ -106,6 +108,16 @@ class ServiceInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("usage:", result.stdout.lower())
         self.assertNotIn("No module named", result.stderr)
+        viewer = subprocess.run([str(self.stage / "usr/local/bin/burnbag-viewer"), "--help"],
+                                capture_output=True, text=True, timeout=10, check=False,
+                                cwd=self.root)
+        self.assertEqual(viewer.returncode, 0, viewer.stderr)
+        self.assertIn("--automation", viewer.stdout)
+        self.assertNotIn("No module named", viewer.stderr)
+        controller = subprocess.run([str(self.stage / "usr/local/bin/burnbag-viewerctl"), "--help"],
+                                    capture_output=True, text=True, timeout=10, check=False,
+                                    cwd=self.root)
+        self.assertEqual(controller.returncode, 0, controller.stderr)
 
     def test_every_installation_mode_copies_the_generated_duration_manual(self) -> None:
         cases = (
@@ -119,6 +131,8 @@ class ServiceInstallTests(unittest.TestCase):
                 self.stage = self.root / name
                 self.install(*options)
                 self.assert_current_manual(self.staged(manual))
+                viewer_manual = self.staged(Path(str(manual).replace("burnbag.1", "burnbag-viewer.1")))
+                self.assertEqual(viewer_manual.read_bytes(), (PROJECT_ROOT / "burnbag-viewer.1").read_bytes())
 
     def test_custom_prefix_registers_a_tracked_unit_and_uninstalls_it(self) -> None:
         self.install("--prefix", "/opt/burnbag")

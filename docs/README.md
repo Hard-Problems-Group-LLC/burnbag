@@ -9,3 +9,6 @@ Keep durable project documentation here.
 
 Project-management state belongs under `project-management/`, not here.
 Reusable framework guidance belongs in the FieldManual submodule.
+
+- [GTK 4 history viewer](specifications/history-viewer.md): GNOME graph/table desktop app and its automation controller.
+- `../burnbag-viewer.1`: installed manual for `burnbag-viewer` and `burnbag-viewerctl`.

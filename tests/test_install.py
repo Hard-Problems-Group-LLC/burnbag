@@ -30,7 +30,7 @@ class InstallTests(unittest.TestCase):
         self.user_home.mkdir()
         self.system_bin.mkdir()
 
-        for relative_path in ("install.sh", "uninstall.sh", "burnbag.py", "burnbag.1", "burnbag_history.py", "burnbag_service.py", "burnbag_graph.py", "burnbag_duration.py"):
+        for relative_path in ("install.sh", "uninstall.sh", "burnbag.py", "burnbag.1", "burnbag_viewer.py", "burnbag_viewer_data.py", "burnbag_viewerctl.py", "burnbag-viewer.1", "burnbag_history.py", "burnbag_service.py", "burnbag_graph.py", "burnbag_duration.py"):
             shutil.copy2(PROJECT_ROOT / relative_path, self.checkout / relative_path)
         shutil.copytree(PROJECT_ROOT / "systemd", self.checkout / "systemd")
         shutil.copy2(PROJECT_ROOT / "scripts/install_services.py", self.checkout / "scripts/install_services_real.py")
@@ -146,6 +146,14 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(development_manual.is_symlink())
         self.assertEqual(development_manual.resolve(), self.checkout / "burnbag.1")
         self.assertIn("Months and larger units use calendar arithmetic", development_manual.read_text())
+        for relative, target in (
+            (".local/bin/burnbag-viewer", "burnbag_viewer.py"),
+            (".local/bin/burnbag-viewerctl", "burnbag_viewerctl.py"),
+            (".local/share/man/man1/burnbag-viewer.1", "burnbag-viewer.1"),
+        ):
+            link = self.checkout / relative
+            self.assertTrue(link.is_symlink(), relative)
+            self.assertEqual(link.resolve(), self.checkout / target)
 
         system_result = self.run_installer(
             "--mode",
@@ -292,6 +300,9 @@ class InstallTests(unittest.TestCase):
         for relative, source, mode in [
             ("usr/local/bin/burnbag", "burnbag.py", 0o755),
             ("usr/local/share/man/man1/burnbag.1", "burnbag.1", 0o644),
+            ("usr/local/bin/burnbag-viewer", "burnbag_viewer.py", 0o755),
+            ("usr/local/bin/burnbag-viewerctl", "burnbag_viewerctl.py", 0o755),
+            ("usr/local/share/man/man1/burnbag-viewer.1", "burnbag-viewer.1", 0o644),
         ]:
             target = stage / relative
             self.assertEqual(target.read_bytes(), (self.checkout / source).read_bytes())

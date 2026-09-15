@@ -1,0 +1,84 @@
+.TH BURNBAG-VIEWER 1 "September 2026" "burnbag 1.0" "User Commands"
+.SH NAME
+burnbag-viewer \- browse burnbag power history in a GTK 4 desktop application
+.SH SYNOPSIS
+.B burnbag-viewer
+.RI [ \-\-automation " SOCKET_PATH" ]
+.br
+.B burnbag-viewerctl
+.RI \-\-socket " SOCKET_PATH COMMAND"
+.SH DESCRIPTION
+.B burnbag-viewer
+is a read-only GTK 4 application for burnbag's system and per-user telemetry
+history. It presents graph and measurement-table tabs in a normal GNOME window.
+The table loads ordered history in pages and exposes local date and time first,
+followed by record attributes and the dynamically discovered measurement
+columns. Search scans both available history databases without blocking the UI.
+.PP
+The graph plots a selected numeric measurement. Use its measurement selector,
+mouse wheel or zoom controls to change scale, and drag or the arrow buttons to
+pan. A table row double-click opens the graph around that record. Select a table
+range and choose View selection to fit it. A graph double-click selects and
+scrolls to the nearest loaded table row. These actions switch to the destination
+tab. F11 toggles fullscreen; in graph fullscreen, only the graph is shown and it
+fills the application window. Native GNOME window controls remain available in
+normal mode.
+.PP
+History is opened in SQLite read-only mode. When both databases are available,
+records are merged by timestamp and ID; system records take precedence on ID
+collisions and system coverage suppresses overlapping user measurements.
+Absent or unreadable sources are reported in the window. No database is created
+or modified.
+.SH OPTIONS
+.TP
+.BI \-\-automation " SOCKET_PATH"
+Enable the opt-in, same-user Unix-domain control socket at the absolute path
+.I SOCKET_PATH.
+The parent directory must be owned by the current user and not writable by
+group or others; an existing socket path is never replaced. The socket is
+removed on application shutdown only if it is still the socket created by this
+process. Normal launches do not create an automation endpoint.
+.TP
+.BR \-h , \-\-help
+Show command-line help and exit.
+.SH AUTOMATION
+Use
+.B burnbag-viewerctl --socket SOCKET_PATH
+with one of the commands
+.BR status ,
+.BR capture ,
+.BR key ,
+.BR type ,
+.BR tab ,
+.BR row ,
+.BR select ,
+.BR view ,
+.BR click ,
+.BR pointer ,
+.BR zoom ,
+.BR pan , or
+.BR window .
+The newline-delimited JSON protocol bounds requests, correlates responses by
+request ID, and accepts connections only from the viewer's effective user ID.
+It supports semantic keyboard input, pointer movement/buttons/wheel, row and
+range selection, tab changes, navigation, window state and capture. The capture
+command returns PNG bytes for the complete GTK client area. It does not include
+GNOME's server-side titlebar and decorations, which belong to the window
+manager. Keep the socket inside a private per-user runtime directory such as
+.BR "$XDG_RUNTIME_DIR" .
+.SH DATA
+The system database is
+.I /var/lib/burnbag/history.sqlite3
+and per-user history is stored beneath
+.IR "$XDG_STATE_HOME/burnbag/history.sqlite3"
+(or
+.IR "$HOME/.local/state/burnbag/history.sqlite3" ).
+The viewer never writes to either path. Data availability follows the invoking
+user's read permissions.
+.SH REQUIREMENTS
+GTK 4, PyGObject for the system Python, and a running graphical session are
+required. The viewer is separate from the terminal-only
+.B burnbag
+command.
+.SH SEE ALSO
+.BR burnbag (1)

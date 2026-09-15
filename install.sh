@@ -35,7 +35,7 @@ usage() {
     cat <<'EOF'
 Usage: install.sh [OPTIONS]
 
-Install burnbag, its manual page, and a system service. The default prefix is /usr/local.
+Install burnbag, the GTK 4 history viewer and their manual pages, and a system service. The default prefix is /usr/local.
 
 Options:
   --check                 Verify sources and prerequisites without installing.
@@ -85,7 +85,10 @@ validate_standard_targets() {
     local burnbag_target
     local burnbag_resolved_target
 
-    for burnbag_target in "${BURNBAG_BIN_DIR}/burnbag" "${BURNBAG_MAN_DIR}/burnbag.1"; do
+    for burnbag_target in \
+        "${BURNBAG_BIN_DIR}/burnbag" "${BURNBAG_BIN_DIR}/burnbag-viewer" \
+        "${BURNBAG_BIN_DIR}/burnbag-viewerctl" "${BURNBAG_MAN_DIR}/burnbag.1" \
+        "${BURNBAG_MAN_DIR}/burnbag-viewer.1"; do
         if [[ -d "${burnbag_target}" || -L "${burnbag_target}" ]]; then
             printf '[ERROR] Installation target must not be a directory or symlink: %s\n' \
                 "${burnbag_target}" >&2
@@ -384,7 +387,13 @@ install_dev_mode() {
     ensure_dev_link \
         "${BURNBAG_PROJECT_ROOT}/burnbag.py" "${burnbag_dev_bin_dir}/burnbag"
     ensure_dev_link \
+        "${BURNBAG_PROJECT_ROOT}/burnbag_viewer.py" "${burnbag_dev_bin_dir}/burnbag-viewer"
+    ensure_dev_link \
+        "${BURNBAG_PROJECT_ROOT}/burnbag_viewerctl.py" "${burnbag_dev_bin_dir}/burnbag-viewerctl"
+    ensure_dev_link \
         "${BURNBAG_PROJECT_ROOT}/burnbag.1" "${burnbag_dev_man_dir}/burnbag.1"
+    ensure_dev_link \
+        "${BURNBAG_PROJECT_ROOT}/burnbag-viewer.1" "${burnbag_dev_man_dir}/burnbag-viewer.1"
 
     printf '[OK] Repository-local development target: %s\n' \
         "${burnbag_dev_bin_dir}/burnbag"
@@ -581,6 +590,10 @@ main() {
     for burnbag_source in \
         "${BURNBAG_PROJECT_ROOT}/burnbag.py" \
         "${BURNBAG_PROJECT_ROOT}/burnbag.1" \
+        "${BURNBAG_PROJECT_ROOT}/burnbag_viewer.py" \
+        "${BURNBAG_PROJECT_ROOT}/burnbag_viewer_data.py" \
+        "${BURNBAG_PROJECT_ROOT}/burnbag_viewerctl.py" \
+        "${BURNBAG_PROJECT_ROOT}/burnbag-viewer.1" \
         "${BURNBAG_PREREQUISITE_INSTALLER}" \
         "${BURNBAG_SERVICE_INSTALLER}"; do
         if [[ ! -f "${burnbag_source}" ]]; then
@@ -650,8 +663,8 @@ main() {
         run_privileged mandb --quiet
     fi
 
-    printf '[OK] Installed burnbag to %s and its manual page to %s.\n' \
-        "${BURNBAG_BIN_DIR}/burnbag" "${BURNBAG_MAN_DIR}/burnbag.1"
+    printf '[OK] Installed burnbag and its GTK 4 history viewer to %s, with manuals under %s.\n' \
+        "${BURNBAG_BIN_DIR}" "${BURNBAG_MAN_DIR}"
 }
 
 main "$@"

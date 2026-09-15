@@ -42,6 +42,7 @@ shift
 read_distribution() { printf '%s\\n' "$TEST_DISTRO"; }
 check_python() { return 0; }
 check_pygobject() { [[ -f "$TEST_INSTALLED" ]]; }
+check_gtk4() { [[ -f "$TEST_INSTALLED" ]]; }
 main "$@"
 ''', "prerequisite-test", str(ROOT / "scripts/install_prerequisites.sh"), *args],
             env=environment, text=True, capture_output=True, timeout=10)
@@ -50,12 +51,12 @@ main "$@"
         result = self.run_check("ubuntu debian")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "calls").read_text(),
-                         "apt-get install -y python3-gi gir1.2-glib-2.0\n")
+                         "apt-get install -y python3-gi gir1.2-glib-2.0 gir1.2-gtk-4.0\n")
 
     def test_rhel_derivative_retains_rpm_package(self):
         result = self.run_check("rocky rhel fedora")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.root / "calls").read_text(), "dnf install -y python3-gobject\n")
+        self.assertEqual((self.root / "calls").read_text(), "dnf install -y python3-gobject gtk4\n")
 
     def test_check_does_not_install_and_reports_distribution_hint(self):
         result = self.run_check("ubuntu debian", "--check")

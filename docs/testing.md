@@ -13,6 +13,9 @@ shellcheck install.sh uninstall.sh scripts/install_prerequisites.sh
 ./scripts/install_prerequisites.sh --check
 ./install.sh --check
 ./burnbag.py --help
+./burnbag_viewer.py --help
+./burnbag_viewerctl.py --help
+groff -man -Tutf8 -z -ww burnbag-viewer.1
 /usr/bin/python3 -B makedocs.py --check
 git diff --check
 ```
@@ -29,8 +32,8 @@ and staged system/user uninstall are covered without installing host services.
 Relative history tests cover the requested duration spellings, calendar
 month-end/leap-year adjustment, daylight-saving gaps and ambiguities, and
 actual SQLite range selection. Every installation mode and service scope
-checks the installed manual against the generated source, including its
-`--last` calendar explanation.
+checks the installed CLI manual against its generated source, including its
+`--last` calendar explanation, and installs the viewer manual in every mode.
 
 README and manual sources live in `makedocs.py`. Regenerate with
 `/usr/bin/python3 -B makedocs.py`; changes to generated output must be intentional
@@ -258,3 +261,32 @@ whether the historical graph contains observations and the supervised sleep
 region. Include any exact error. Live installation, reboot activation, and
 physical sleep remain operator checks; staging and simulated clocks establish
 neither real systemd activation nor hardware resume reliability.
+
+
+## GTK history viewer manual verification
+
+After `./install.sh --mode dev --dev-command local` and `hash -r`, open
+`burnbag-viewer`. Check that the GNOME titlebar exposes working minimize,
+restore, maximize, and close controls. F11 must enter and leave fullscreen; on
+the graph tab the graph should fill the screen without the toolbar, status, or
+tab strip.
+
+Check both tabs. Search a value visible in telemetry (for example a battery
+name), scroll through additional table pages, select a row range and choose
+View selection, then double-click a row and a graph point. Each navigation must
+switch tabs and preserve a useful graph range or matching table selection.
+Try wheel zoom, drag/arrow pan, and choose another numeric measurement.
+
+For the opt-in controller, use a private per-user runtime path:
+
+```bash
+socket="$XDG_RUNTIME_DIR/burnbag-viewer-check.sock"
+burnbag-viewer --automation "$socket"
+```
+
+In another terminal, run `burnbag-viewerctl --socket "$socket" status`, toggle
+F11 with `key F11`, switch tabs, select rows, and retrieve a PNG with
+`capture --output "$XDG_RUNTIME_DIR/burnbag-viewer-check.png"`. Confirm the PNG
+shows the entire viewer client area; GNOME's window decorations are supplied by
+the window manager and are not part of the application frame. Close the viewer
+and confirm its socket is removed. Normal launches must not create a socket.

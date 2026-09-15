@@ -38,12 +38,13 @@ FieldManual footer.
   work advances, including completed and manually deferred slices.
 - The new series starts with phase `1000` for historical graph `--last`
   durations. At the operator's direction on 2026-09-15, manual validation
-  phase `V` was renamed `2000`, with its six slices numbered `1000` through
-  `6000` in order. The operator then clarified that all slice names are local;
-  use local IDs throughout the live stack and dashboard. Legacy slice references
-  such as `P2.4` correspond to phase `P2`, local slice `4000`;
-  historical task and request identifiers remain unchanged. Existing published
-  `P1`–`P10` IDs remain legacy references. Allocate the next new phase as `3000`.
+  phase `V` was renamed `2000`, then renumbered to phase `9000` when phase
+  `3000` was assigned to the GTK 4 history viewer. Its six local slices remain
+  numbered `1000` through `6000` in order. All slice names are local; use local
+  IDs throughout the live stack and dashboard. Legacy slice references such as
+  `P2.4` correspond to phase `P2`, local slice `4000`; historical task and
+  request identifiers remain unchanged. Existing published `P1`–`P10` IDs
+  remain legacy references. Allocate the next new phase as `4000`.
 
 <!-- FIELDMANUAL_MANAGED_FOOTER_START -->
 ---

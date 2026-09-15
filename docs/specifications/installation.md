@@ -10,11 +10,11 @@ supported options; help does not load Python bindings or install anything.
 
 ## Standard and staged installation
 
-Standard mode installs the executable as `bin/burnbag` with mode 0755 and the
-manual as `share/man/man1/burnbag.1` with mode 0644 under the selected absolute
-prefix, which defaults to `/usr/local`. Reusable Python modules and the removal
-helper live in `lib/burnbag/`; `bin/burnbag-uninstall` is the installed removal
-entry point. Existing ordinary destination files
+Standard mode installs `bin/burnbag`, `bin/burnbag-viewer`, and
+`bin/burnbag-viewerctl` with mode 0755, and installs their manual pages under
+`share/man/man1/` with mode 0644 beneath the selected absolute prefix, which
+defaults to `/usr/local`. Reusable Python modules and the removal helper live
+in `lib/burnbag/`; `bin/burnbag-uninstall` is the installed removal entry point. Existing ordinary destination files
 may be replaced. A destination file must not be a directory or symlink.
 The installed manual is a byte-for-byte copy of the generated `burnbag.1`,
 including the [`--last` duration and calendar semantics](duration-ranges.md).
@@ -75,15 +75,16 @@ collector currently selected from another installation.
 ## Development installation
 
 Development mode runs as the intended non-root user. It creates repository-local
-links at `.local/bin/burnbag` and `.local/share/man/man1/burnbag.1`. Rerunning
+links for the CLI, viewer, viewer controller, and both manuals under `.local/bin/`
+and `.local/share/man/man1/`. Rerunning
 accepts existing links to the same source; unrelated links and existing files
 are preserved with an error.
 
 Plain `--mode dev` still installs the default system service and its own
 root-owned daemon copy. Reinstall after changing daemon code. Combining dev
 mode with `--install-user-service` makes that daemon execute this checkout
-directly and installs a user-owned manual copy at
-`<user-home>/.local/share/man/man1/burnbag.1` with mode 0644. Reinstall to refresh
+directly and installs user-owned copies of both manual pages under
+`<user-home>/.local/share/man/man1/` with mode 0644. Reinstall to refresh
 this copy after documentation changes; the repository-local manual link still
 follows the checkout immediately. Both variants retain the CLI command-selection
 policy below.

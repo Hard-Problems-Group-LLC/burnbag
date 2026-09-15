@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: No open burnbag bugs are currently recorded. Awaiting operator slice 5000 warning/fallback results. Slice 6000 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Slice 2000 is reserved for any findings from those checks.
+Notes: Automated GTK viewer, installer, and documentation checks pass. Awaiting GNOME title-bar control check in BB-MANUAL-04; phase 9000 retains earlier manual checks.
 
 ## Phases
 
@@ -26,7 +26,8 @@ Notes: No open burnbag bugs are currently recorded. Awaiting operator slice 5000
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
 | 1000 | done | Relative history durations |
-| 2000 | active | Manual validation and final closure |
+| 3000 | active | GTK 4 history viewer |
+| 9000 | blocked | Manual validation and final closure |
 
 ## Slices
 
@@ -75,12 +76,18 @@ Notes: No open burnbag bugs are currently recorded. Awaiting operator slice 5000
 | 2000 | 1000 | done | Parse durations and calculate ranges |
 | 3000 | 1000 | done | Integrate CLI and synchronize docs |
 | 4000 | 1000 | done | Verify edge cases and publish |
-| 1000 | 2000 | blocked | Await profile and suspend checks |
-| 2000 | 2000 | pending | Handle any validation findings |
-| 3000 | 2000 | pending | Close requests and publish closure |
-| 4000 | 2000 | done | Collector and history verified |
-| 5000 | 2000 | active | Await warning and fallback checks |
-| 6000 | 2000 | pending | Verify service sleep coverage |
+| 1000 | 9000 | blocked | Await profile and suspend checks |
+| 2000 | 9000 | pending | Handle any validation findings |
+| 3000 | 9000 | pending | Close requests and publish closure |
+| 4000 | 9000 | done | Collector and history verified |
+| 5000 | 9000 | blocked | Await warning and fallback checks |
+| 6000 | 9000 | pending | Verify service sleep coverage |
+| 1000 | 3000 | done | Define viewer data and automation contracts |
+| 2000 | 3000 | done | Build GTK shell and native window behavior |
+| 3000 | 3000 | done | Implement graph, table, and navigation |
+| 4000 | 3000 | done | Add socket automation and controller |
+| 5000 | 3000 | done | Integrate install and documentation |
+| 6000 | 3000 | active | Verify and hand off GNOME checks |
 
 ## Regenerate local tracking
 
@@ -105,8 +112,7 @@ one phase and one of its slices are active; slices in other phases cannot be
 active. A pending phase may contain already completed independent slices.
 A done phase must have all its slices done.
 
-Keep phase rows in execution order and final validation 2000 after the delivered
-phases. Ubersight shows only two phases before the active row and five after;
+Keep phase rows in execution order and deferred validation phase 9000 after the active delivery phases. Ubersight shows only two phases before the active row and five after;
 appending delivered work after 2000 can hide recent completion. Titles are clipped
 to one line, so keep the current action recognizable in a narrow pane. Lead
 blocked notes with the operator wait because the phase-stack view does not
@@ -119,7 +125,7 @@ activate the next independent phase and slice. Set delivery to `blocked` only
 when all remaining work awaits input; keep the current owning phase and slice
 active and describe the wait in notes. Ubersight requires this active row even
 while blocked. On final completion, set delivery to `complete`, mark every
-slice done, and retain 2000 as the active phase with all other phases done to
+slice done, and retain the final deferred-validation phase as the active phase with all other phases done to
 satisfy the writer's phase requirement.
 
 The installed `ubersight` console command supplies the atomic status writer;

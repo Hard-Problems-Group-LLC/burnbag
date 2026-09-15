@@ -5,13 +5,24 @@ results are in [the testing guide](../docs/testing.md).
 
 ## Pending Requests
 
-No additional queued requests.
+- `BB-MANUAL-04` — GTK 4 viewer GNOME interaction and automation check.
+  - Created 2026-09-15. Owner: operator. Requestor: Codex.
+  - Scope: roadmap phase 3000, slice 6000. Automated work covers the desktop
+    shell, both views, keyset paging, search, navigation, data merging, socket
+    permissions/protocol and PNG capture. Only a real GNOME session can verify
+    the native minimize/restore/maximize/close controls and full-screen layout.
+  - Follow [viewer manual verification](../docs/testing.md#gtk-history-viewer-manual-verification)
+    after the revised build is available through the development launcher.
+  - Acceptance: report native titlebar controls, F11 graph-only fullscreen,
+    table paging/search and both cross-navigation gestures. For automation,
+    report capture usability and socket cleanup. Include any visible errors.
+
 
 ## Active Requests
 
 - `BB-MANUAL-03` — Continuous collector installation and physical sleep history.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
-  - Scope: roadmap P10 operator handoff and manual acceptance in phase 2000,
+  - Scope: roadmap P10 operator handoff and manual acceptance in phase 9000,
     slices 4000–6000.
   - Installation/readiness/initial history passed on 2026-09-15 (slice 4000).
     Operator ran `./install.sh --mode dev --dev-command local`, refreshed
@@ -81,7 +92,7 @@ No additional queued requests.
     requested. Automated tests establish request/failure handling, not physical
     suspend reliability.
   - `BB-2026-09-14-03` delivers actual-suspend diagnostics and graph blocks
-    under phase 2000, slice 2000; 188 native tests and compatibility checks pass.
+    under phase 9000, slice 2000; 188 native tests and compatibility checks pass.
     The continued-run variant in check 3 verifies the new display: leave
     burnbag active, use desktop Suspend, wake, and then press Ctrl-C. Expect measured suspended
     time and approximate full-height white `S` on red regions; plain output
@@ -106,5 +117,5 @@ phase P3, slice 4000. The request remains active for its remaining hardware
 observations.
 
 The installation/readiness/initial-history portion of `BB-MANUAL-03` passed
-on 2026-09-15 and closes phase 2000, slice 4000. Warning/fallback and sleep
+on 2026-09-15 and closes phase 9000, slice 4000. Warning/fallback and sleep
 checks remain active.
