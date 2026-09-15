@@ -411,6 +411,41 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(self.records("lid_closed"), [])
             self.assertEqual(self.records("sleep_interval"), [])
 
+    def test_kernel_critical_sample_commits_itself_and_preceding_buffer(self):
+        reading_started = threading.Event()
+        release_reading = threading.Event()
+
+        class CriticalSampler:
+            def sample(self):
+                reading_started.set()
+                if not release_reading.wait(2):
+                    raise RuntimeError("Test did not release its sensor read")
+                return {"batteries": {"test": {"percentage": 7.0, "capacity_level": "cRiTiCaL"}}, "errors": []}
+
+        with mock.patch.object(burnbag_history, "PowerSampler", CriticalSampler):
+            collector = self.collector()
+        try:
+            self.assertTrue(reading_started.wait(2))
+            collector.writer.submit("buffered_observation", {"pending": True})
+            self.assertEqual(self.records("buffered_observation"), [])
+            release_reading.set()
+            self.wait_for(lambda: bool(self.records("sample")), timeout=1)
+            self.assertEqual(self.records("buffered_observation"), [{"pending": True}])
+            self.assertEqual(self.records("sample")[0]["batteries"]["test"]["capacity_level"], "cRiTiCaL")
+        finally:
+            release_reading.set()
+
+    def test_low_percentage_without_kernel_critical_flag_remains_batched(self):
+        class LowSampler:
+            def sample(self):
+                return {"batteries": {"test": {"percentage": 0.0, "capacity_level": "Low"}}, "errors": []}
+
+        with mock.patch.object(burnbag_history, "PowerSampler", LowSampler):
+            collector = self.collector()
+        self.wait_for(lambda: collector.snapshot is not None)
+        self.wait_for(lambda: collector.writer.status()["pending_records"] > 0)
+        self.assertEqual(self.records("sample"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

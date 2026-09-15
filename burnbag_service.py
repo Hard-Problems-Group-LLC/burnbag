@@ -530,7 +530,16 @@ class _Collector:
                         self._publish_snapshot(connect_snapshot())
                         continue
                     self._publish_snapshot({"captured_at": captured_at, "boottime": boottime, "data": sample})
-                    self.writer.submit("sample", sample, captured_at=captured_at, boottime=boottime)
+                    # Use the kernel's explicit condition, rather than guessing
+                    # a universal critical threshold from battery percentages.
+                    critical = any(
+                        isinstance(reading.get("capacity_level"), str)
+                        and reading["capacity_level"].strip().casefold() == "critical"
+                        for reading in sample.get("batteries", {}).values()
+                        if isinstance(reading, dict)
+                    )
+                    self.writer.submit("sample", sample, urgent=critical,
+                                       captured_at=captured_at, boottime=boottime)
                     self.sampling_progress = time.monotonic()
                 except Exception as exc:
                     self.warn("Power sampling failed: " + str(exc))

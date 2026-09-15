@@ -1,5 +1,14 @@
 # Completed Tasks
 
+- `BB-2026-09-15-P7-CRITICAL` — Immediate critical-battery durability.
+  Completed 2026-09-15 during final acceptance; owner: Codex.
+  - Kernel `capacity_level=Critical` makes each affected sample urgent and
+    commits preceding buffered observations. No inferred percentage threshold
+    or power action is introduced.
+  - All 32 service tests pass, including a real SQLite boundary test confirming
+    critical data commits without an explicit flush or normal batch deadline,
+    and a low-percentage contrast that retains normal batching.
+
 - `BB-2026-09-15-P8` — CLI management, warning envelopes and historical graphs.
   Completed 2026-09-15; owner: Codex; operator-authorized roadmap P8.
   - Added all scoped/inferred service actions, prudent writes, and arbitrary-time
