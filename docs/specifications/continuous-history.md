@@ -38,6 +38,11 @@ collector's startup prudent policy cannot be disabled by a client. SQLite
 controls synchronization; neither manually syncing only the database file
 nor checkpointing every update implements this contract.
 
+The current storage backend uses SQLite rollback journaling (`DELETE`) with
+`synchronous=EXTRA`, allowing ordinary users to read the system database without
+write access to its directory. Acknowledged barriers include successful commit;
+files and directories retain their scope's ownership and permissions.
+
 ## Ownership, fallback and evidence
 
 Exactly one background collector may run on a machine, either the system
@@ -85,6 +90,14 @@ corrupt, incompatible or reduced-resolution history; still report usable data
 from the other source. Never interpolate through missing coverage as if it
 were observed. Long queries must use bounded memory and preserve interval-wide
 coverage and diagnostic events; summaries disclose reduced resolution.
+
+If no battery percentages exist but lid or sleep observations do, render an
+event timeline with both battery-scale extrema labeled `n/a`. Retained
+representatives determine reduced-resolution statistics; they are not exact
+statistics over every stored sample. Continuous coverage metadata preserves
+known continuity when queries reduce samples, while actual gaps remain blank.
+Historical queries return zero for a complete readable result (including an
+empty interval), one for warnings/partial results, and two for invalid bounds.
 
 ## Installation and management
 

@@ -121,8 +121,9 @@ Between session boundaries, synchronized records must cover:
 - inhibitor acquisition intent/result and release intent/result;
 - initial lid state, lid transitions, timer start/cancel/expiry;
 - signal receipt and event-loop entry/exit;
-- battery discovery, timer start/stop, each initial, periodic, and final
-  battery sample, observation failures, and the final battery summary;
+- battery discovery, timer start/stop, observation failures, and the final
+  battery summary; periodic measurements are stored in SQLite under
+  [continuous history](continuous-history.md), without duplicate JSONL writes;
 - suspend or hibernate intent before the D-Bus request;
 - actual suspend observation results, coverage, interval-placement uncertainty,
   and incomplete-observation diagnostics before final reporting;
@@ -133,7 +134,7 @@ Between session boundaries, synchronized records must cover:
 Every safety-relevant host mutation requires a synchronized intent record
 before the mutation and an outcome or deviation record afterward.
 
-Battery sample details use a separate suspend-inclusive `CLOCK_BOOTTIME`
+Legacy direct-controller battery sample details use a separate suspend-inclusive `CLOCK_BOOTTIME`
 elapsed value for plotting and rate calculations and include per-device
 percentage plus optional presence and kernel status. Discovery, each sample,
 and the battery summary also include `percentage_sources`, a kernel-name map

@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: active
 
-Notes: P7 collector ownership, event coverage and fallback complete with 30 service tests; integrating verified CLI and installer. Prior physical checks remain pending.
+Notes: P8 CLI and historical reporting complete; P9 installer final compatibility checks active. Native collector and staged artifact smoke tests pass; live checks remain pending.
 
 ## Phases
 
@@ -24,8 +24,8 @@ Notes: P7 collector ownership, event coverage and fallback complete with 30 serv
 
 | P6 | done | Durable telemetry |
 | P7 | done | Collector services |
-| P8 | active | CLI and history graphs |
-| P9 | pending | Installation and documentation |
+| P8 | done | CLI and history graphs |
+| P9 | active | Installation and documentation |
 | P10 | pending | Integration and handoff |
 
 ## Slices
@@ -67,11 +67,11 @@ Notes: P7 collector ownership, event coverage and fallback complete with 30 serv
 | P8.1 | P8 | done | Add management and warning envelopes |
 | P8.2 | P8 | done | Connect foreground telemetry |
 | P8.3 | P8 | done | Render arbitrary-time history graphs |
-| P8.4 | P8 | active | Verify CLI and reporting |
-| P9.1 | P9 | pending | Install system and user services |
-| P9.2 | P9 | pending | Add scoped uninstaller |
-| P9.3 | P9 | pending | Synchronize contracts and generated docs |
-| P9.4 | P9 | pending | Verify installation and recovery |
+| P8.4 | P8 | done | Verify CLI and reporting |
+| P9.1 | P9 | done | Install system and user services |
+| P9.2 | P9 | done | Add scoped uninstaller |
+| P9.3 | P9 | done | Synchronize contracts and generated docs |
+| P9.4 | P9 | active | Verify installation and recovery |
 | P10.1 | P10 | pending | Run complete automated checks |
 | P10.2 | P10 | pending | Smoke-test sampling and isolated daemon |
 | P10.3 | P10 | pending | Publish evidence and manual handoff |

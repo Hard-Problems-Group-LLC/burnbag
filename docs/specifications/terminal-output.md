@@ -24,6 +24,17 @@ Runtime statuses retain explicit text labels such as `[INFO]`, `[OK]`,
 help entries retain their complete text. Color may add emphasis or hierarchy,
 but must never be the only indication of meaning.
 
+## Continuous-recording warning envelope
+
+Before parsing and after every handled output path, inspect collector status
+with a bounded read-only probe. Missing or unhealthy recording produces a
+prominent textual warning at both boundaries, including help and usage errors.
+Help warnings use stdout around help; operational/error warnings use stderr,
+with streams flushed for terminal ordering. Footer status is freshly checked.
+Foreign private collectors explain the user's local fallback. No help/status
+probe creates a database, starts a service, or requires GI. See
+[continuous history](continuous-history.md).
+
 ## Plain-Output Controls
 
 `--no-color` is a non-default command-line option that disables ANSI styling

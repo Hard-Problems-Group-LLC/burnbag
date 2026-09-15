@@ -256,7 +256,7 @@ class BatteryMonitoringTests(unittest.TestCase):
         self.assertEqual(recovered_sample.percentages, {})
         self.assertIn("0--100", out_of_range_errors[0])
 
-    def test_initial_periodic_and_final_samples_use_fifteen_second_timer(self):
+    def test_initial_periodic_and_final_samples_use_five_second_timer(self):
         bat0 = self.add_supply("BAT0", capacity=88)
         bat1 = self.add_supply("BAT1", capacity=77)
         log = CapturingLog()
@@ -268,7 +268,7 @@ class BatteryMonitoringTests(unittest.TestCase):
         self.assertEqual(len(manager.battery_monitor.samples), 1)
         self.assertEqual(len(FakeGLib.scheduled), 1)
         source_id, milliseconds, callback = FakeGLib.scheduled[0]
-        self.assertEqual(milliseconds, 15_000)
+        self.assertEqual(milliseconds, 5_000)
 
         (bat0 / "capacity").write_text("87\n", encoding="ascii")
         (bat1 / "capacity").write_text("76\n", encoding="ascii")
@@ -838,7 +838,7 @@ class BatteryMonitoringTests(unittest.TestCase):
         rendered = output.getvalue()
         self.assertLess(
             rendered.index("BURNBAG — SHUTDOWN & TEARDOWN"),
-            rendered.index("BATTERY DEPLETION - 15-second samples"),
+            rendered.index("BATTERY DEPLETION - observed samples"),
         )
         self.assertIn("BAT0=70%, BAT1=70%; 3 sample(s)", rendered)
 

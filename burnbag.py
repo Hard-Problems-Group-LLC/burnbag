@@ -29,6 +29,7 @@ import json
 import math
 import os
 from pathlib import Path
+import queue
 import re
 import selectors
 import signal
@@ -42,6 +43,12 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, TextIO, Tuple
 import uuid
+
+# Standard installs keep the reusable collector modules outside bin/. Source
+# checkouts resolve the adjacent modules through Python's normal script path.
+_support_directory = Path(__file__).resolve().parent.parent / "lib" / "burnbag"
+if _support_directory.is_dir():
+    sys.path.insert(0, str(_support_directory))
 
 Gio: Any = None
 GLib: Any = None
@@ -223,6 +230,32 @@ class StyledArgumentParser(argparse.ArgumentParser):
 
 class RunningLogError(RuntimeError):
     """Raised when the mandatory running log cannot meet its durability contract."""
+
+
+class TelemetryDiagnostics:
+    """Bound worker diagnostics until the main thread can safely log them."""
+
+    def __init__(self) -> None:
+        self.messages: Any = queue.Queue(maxsize=128)
+        self.overflow = threading.Event()
+
+    def put(self, message: str) -> None:
+        try:
+            self.messages.put_nowait(str(message)[:2048])
+        except queue.Full:
+            self.overflow.set()
+
+    def drain(self, emit: Callable[[str], None]) -> None:
+        # Limit each drain even if a failed collector continuously reports.
+        for _ in range(128):
+            try:
+                message = self.messages.get_nowait()
+            except queue.Empty:
+                break
+            emit(message)
+        if self.overflow.is_set():
+            self.overflow.clear()
+            emit("Additional telemetry diagnostics exceeded the bounded reporting queue and were omitted.")
 
 
 class RunningLog:
@@ -643,7 +676,7 @@ BACKLIGHT_OFF_DELAY_SECONDS = 3.0
 BACKLIGHT_VERIFY_ATTEMPTS = 10
 BACKLIGHT_VERIFY_INTERVAL_SECONDS = 0.05
 BATTERY_SYSFS_ROOT = Path("/sys/class/power_supply")
-BATTERY_SAMPLE_INTERVAL_MILLISECONDS = 15_000
+BATTERY_SAMPLE_INTERVAL_MILLISECONDS = 5_000
 BATTERY_PLOT_ROWS = 25
 BATTERY_PLOT_FALLBACK_COLUMNS = 80
 # Powered-off styling is reserved; this running process cannot establish an
@@ -660,7 +693,7 @@ def linux_boottime() -> float:
 
     ``CLOCK_MONOTONIC`` stops while the system is suspended. Battery-rate
     durations use ``CLOCK_BOOTTIME`` so an auto-suspend interval cannot be
-    mistaken for an ordinary fifteen-second gauge update.
+    mistaken for an ordinary five-second gauge update.
     """
     clock_id = getattr(time, "CLOCK_BOOTTIME", None)
     if clock_id is None:
@@ -1239,7 +1272,7 @@ class BatteryStatistics:
         Local depletion rates use positive values, so negate before converting
         hours to minutes: falling state of charge is negative and rising state
         of charge is positive. This is a unit conversion of the already-gated
-        transition-rate estimator, not a derivative of raw 15-second samples.
+        transition-rate estimator, not a derivative of raw periodic samples.
         """
         if self.weighted_mean_depletion_pp_per_hour is None:
             return None
@@ -1539,7 +1572,7 @@ def summarize_battery_statistics(
 
     Whole-run OLS describes the reported percentage staircase. Local
     variability deliberately uses only eligible reported-level transitions;
-    differentiating adjacent 15-second integer readings would manufacture
+    differentiating adjacent periodic integer readings would manufacture
     alternating zero and 240 pp/h impulses from a smooth one-point change.
     """
     attempted = len(samples)
@@ -2037,7 +2070,7 @@ def render_battery_depletion_chart(
         }[mask]
         return terminal_style.paint("*", color, selected_stream)
 
-    title = "BATTERY DEPLETION - 15-second samples"
+    title = "BATTERY DEPLETION - observed samples"
     range_text = f"Observed Y range: {observed_min}%--{observed_max}%"
     output = [title[:terminal_columns], range_text[:terminal_columns]]
     if lid_events:
@@ -2516,6 +2549,8 @@ class LidCloseManager:
         running_log: Optional[RunningLog] = None,
         suspend_clock_initial: Optional[SuspendClockSample] = None,
         suspend_clock_error: Optional[str] = None,
+        telemetry_recorder: Any = None,
+        telemetry_diagnostics: Optional[TelemetryDiagnostics] = None,
     ):
         # Configuration parameters from CLI arguments
         self.mode: str = mode
@@ -2532,6 +2567,11 @@ class LidCloseManager:
         )
         self.terminal_style = terminal_style or TerminalStyle.detect()
         self.running_log = running_log
+        self.telemetry_recorder = telemetry_recorder
+        self.telemetry_diagnostics = telemetry_diagnostics
+        self.telemetry_timer_id: Optional[int] = None
+        self.telemetry_closed = False
+        self.last_telemetry_sample: Optional[Tuple[float, float]] = None
         self.battery_monitor = BatteryMonitor(BATTERY_SYSFS_ROOT, self.started_boottime)
         self.suspend_monitor = SuspendMonitor(
             self.started_boottime, suspend_clock_initial, initial_error=suspend_clock_error,
@@ -2621,8 +2661,23 @@ class LidCloseManager:
 
     def check_shutdown_requested(self) -> None:
         """Stop setup at a safe boundary before starting another operation."""
+        self.drain_telemetry_diagnostics()
         if self.shutdown_signal is not None or self.stop_requested:
             raise ShutdownRequested()
+
+    def drain_telemetry_diagnostics(self) -> bool:
+        """Keep synchronized operational diagnostics on the owning main thread."""
+        if self.telemetry_diagnostics is not None:
+            self.telemetry_diagnostics.drain(self._warn)
+        return not self.telemetry_closed
+
+    def start_telemetry_diagnostics(self) -> None:
+        self.drain_telemetry_diagnostics()
+        if self.telemetry_diagnostics is not None and self.mode.startswith("run"):
+            self.telemetry_timer_id = GLib.timeout_add_seconds(
+                1, self.guard_callback("telemetry diagnostics", self.drain_telemetry_diagnostics,
+                                       "telemetry_timer_id"),
+            )
 
     def record_signal_shutdown(self) -> None:
         """Record the first termination signal outside its interrupt handler."""
@@ -2787,6 +2842,10 @@ class LidCloseManager:
         details: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Synchronize one record and fail closed unless teardown is underway."""
+        if self.telemetry_recorder is not None and event == "battery_sample":
+            # Periodic measurements belong to batched SQLite history. Keeping
+            # a synchronized JSONL copy would defeat the approved write policy.
+            return
         if self.running_log is None or self.running_log_finished:
             return
         if self.running_log.failed_reason is not None:
@@ -2796,6 +2855,19 @@ class LidCloseManager:
         was_teardown_in_progress = self.teardown_in_progress
         try:
             self.running_log.append(event, level, message, details)
+            if (self.telemetry_recorder is not None and not self.telemetry_closed
+                    and event in {"lid_closed", "lid_opened", "power_profile_changed",
+                                  "power_profile_restored", "suspend_request_intent",
+                                  "hibernate_request_intent"}):
+                try:
+                    self.telemetry_recorder.record_event(
+                        event, details or {}, urgent=event.endswith("request_intent")
+                    )
+                    if event.endswith("request_intent") and not self.telemetry_recorder.flush(timeout=3):
+                        raise RuntimeError("pre-sleep telemetry flush did not complete within its deadline")
+                except Exception as exc:
+                    message = f"Could not record telemetry event {event}: {exc}"
+                    self._record_failure(message)
         except RunningLogError as exc:
             self._mark_running_log_failure(exc)
             # A log failure before teardown prevents the next host mutation.
@@ -2975,10 +3047,55 @@ class LidCloseManager:
 
     def _take_battery_sample(self, reason: str) -> Optional[BatterySample]:
         """Take and synchronize one sample while retaining per-device gaps."""
+        self.drain_telemetry_diagnostics()
         if not self.battery_monitor.devices:
             return None
         try:
-            sample, errors = self.battery_monitor.sample()
+            if self.telemetry_recorder is None:
+                sample, errors = self.battery_monitor.sample()
+            else:
+                snapshot = self.telemetry_recorder.latest_snapshot(
+                    timeout=1.0 if reason in {"initial", "final"} else 0.0
+                )
+                if not snapshot:
+                    return None
+                stamp = float(snapshot["captured_at"])
+                boottime = float(snapshot["boottime"])
+                identity = (stamp, boottime)
+                if identity == self.last_telemetry_sample:
+                    return None
+                # A cached observation preceding this invocation is not a new
+                # measurement. The collector will provide its next real sample.
+                if boottime < self.started_boottime:
+                    return None
+                self.last_telemetry_sample = identity
+                data = snapshot["data"]
+                batteries = data.get("batteries", {})
+                percentages = {}
+                statuses = {}
+                present = {}
+                for device in self.battery_monitor.devices:
+                    values = batteries.get(device.name, {})
+                    percentage = values.get("percentage")
+                    if (isinstance(percentage, (int, float)) and not isinstance(percentage, bool)
+                            and math.isfinite(percentage) and 0 <= percentage <= 100):
+                        percentages[device.name] = math.floor(percentage + 0.5)
+                    if isinstance(values.get("status"), str):
+                        statuses[device.name] = values["status"]
+                    present[device.name] = bool(values.get("present", True))
+                sample = BatterySample(datetime.fromtimestamp(stamp).astimezone(),
+                                       boottime - self.started_boottime,
+                                       percentages, statuses, present)
+                if (self.battery_monitor.samples and sample.elapsed_seconds
+                        - self.battery_monitor.samples[-1].elapsed_seconds > 15):
+                    previous = self.battery_monitor.samples[-1]
+                    midpoint = (previous.elapsed_seconds + sample.elapsed_seconds) / 2
+                    self.battery_monitor.samples.append(BatterySample(
+                        previous.captured_at + (sample.captured_at - previous.captured_at) / 2,
+                        midpoint, {},
+                    ))
+                self.battery_monitor.samples.append(sample)
+                errors = list(data.get("errors", []))
         except Exception as exc:
             self._record_battery_error(f"Battery sampling failed: {exc}")
             return None
@@ -3009,7 +3126,7 @@ class LidCloseManager:
         return sample
 
     def _on_battery_sample_timer(self) -> bool:
-        """GLib callback for the fixed fifteen-second sampling cadence."""
+        """GLib callback for the fixed five-second sampling cadence."""
         try:
             self._take_battery_sample("periodic")
         except RunningLogError:
@@ -3079,12 +3196,12 @@ class LidCloseManager:
             return
         try:
             self.battery_timer_id = GLib.timeout_add(
-                BATTERY_SAMPLE_INTERVAL_MILLISECONDS,
+                5000 if self.telemetry_recorder is not None else BATTERY_SAMPLE_INTERVAL_MILLISECONDS,
                 self.guard_callback("battery sampling", self._on_battery_sample_timer, "battery_timer_id"),
             )
         except Exception as exc:
             self._record_battery_error(
-                f"Could not schedule fifteen-second battery monitoring: {exc}"
+                f"Could not schedule five-second battery monitoring: {exc}"
             )
             return
         self._log_only(
@@ -3092,7 +3209,8 @@ class LidCloseManager:
             "OK",
             "Battery monitoring timer started.",
             {
-                "interval_milliseconds": BATTERY_SAMPLE_INTERVAL_MILLISECONDS,
+                    "interval_milliseconds": (5000 if self.telemetry_recorder is not None
+                                              else BATTERY_SAMPLE_INTERVAL_MILLISECONDS),
                 "source_id": self.battery_timer_id,
                 "batteries": selected_names,
             },
@@ -3250,6 +3368,16 @@ class LidCloseManager:
                 self.deviations.append(message)
             self._warn(message)
         for interval in self.suspend_monitor.intervals:
+            if self.telemetry_recorder is not None and not self.telemetry_closed:
+                self.telemetry_recorder.record_event("sleep_interval", {
+                    "started_at": interval.started_at.timestamp(),
+                    "ended_at": interval.ended_at.timestamp(),
+                    "start_boottime": self.started_boottime + interval.start_elapsed_seconds,
+                    "end_boottime": self.started_boottime + interval.end_elapsed_seconds,
+                    "sleep_kind": interval.sleep_kind,
+                    "boundary_uncertainty_seconds": interval.boundary_uncertainty_seconds,
+                    "classification_source": interval.classification_source,
+                }, urgent=True)
             self._log_only(
                 "suspend_interval", "INFO", "Detected suspended time; boundaries are estimated.",
                 interval.to_log_details(),
@@ -3792,6 +3920,7 @@ class LidCloseManager:
             ("shutdown_signal_source_id", "Pending shutdown callback cancellation"),
             ("backlight_timer_id", "Backlight timer cancellation"),
             ("suspend_timer_id", "Suspend timer cancellation"),
+            ("telemetry_timer_id", "Telemetry diagnostics timer cancellation"),
         ):
             source_id = getattr(self, attribute)
             setattr(self, attribute, None)
@@ -4481,7 +4610,7 @@ class LidCloseManager:
             )
             self._narrative_field(
                 "Battery Monitoring",
-                f"{battery_names}; every 15 seconds; {plot_policy}",
+                f"{battery_names}; every five seconds; {plot_policy}",
             )
         else:
             self._narrative_field(
@@ -4559,6 +4688,26 @@ class LidCloseManager:
             self.finish_suspend_monitoring()
         except BaseException as exc:
             self._record_failure(f"Suspend reporting could not finish: {exc}")
+        if self.telemetry_recorder is not None and not self.telemetry_closed:
+            self.telemetry_closed = True
+            try:
+                self.telemetry_recorder.close()
+            except Exception as exc:
+                self._record_failure(f"Telemetry could not finish durably: {exc}")
+            self.drain_telemetry_diagnostics()
+            # A first/final sample can arrive while the worker is stopping.
+            # Include that real observation before rendering the final summary.
+            final_sample = self._take_battery_sample("final")
+            if final_sample is not None:
+                updated_statistics = []
+                for device in self.battery_monitor.devices:
+                    try:
+                        updated_statistics.append(summarize_battery_statistics(
+                            device.name, self.battery_monitor.samples
+                        ))
+                    except Exception as exc:
+                        self._record_failure(f"Could not summarize final {device.name!r} telemetry: {exc}")
+                self.battery_statistics = updated_statistics
         if self.exit_code != 0:
             self.goal_achieved = False
 
@@ -4797,6 +4946,7 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
 
     parser.add_argument(
         "mode",
+        nargs="?",
         choices=["suspend", "hibernate", "run", "run-cool", "run-balanced", "run-hot", "normal"],
         help=(
             "Operational mode:\n"
@@ -4866,6 +5016,27 @@ def build_argument_parser(terminal_style: TerminalStyle) -> StyledArgumentParser
             "remain enabled."
         ),
     )
+    commands = parser.add_mutually_exclusive_group()
+    for action in ("enable", "disable", "start", "status", "stop"):
+        for scope in (None, "user", "system"):
+            middle = "" if scope is None else scope + "-"
+            commands.add_argument(
+                f"--{action}-{middle}service", dest="service_action",
+                action="store_const", const=(action, scope),
+                help=f"{action.capitalize()} the {scope or 'automatically selected'} monitoring service.",
+            )
+    commands.add_argument("--graph", action="store_true",
+                          help="Graph merged system and user battery history for a time range.")
+    commands.add_argument("--collector", action="store_true",
+                          help="Run the continuous collector (normally managed by systemd).")
+    parser.add_argument("--service-scope", choices=("system", "user"),
+                        help="Identity and storage scope for --collector.")
+    parser.add_argument("--prudent-writes", action="store_true",
+                        help="Durably commit every telemetry update while this run is active.")
+    parser.add_argument("--from", dest="history_from", metavar="TIME",
+                        help="Historical graph start (ISO 8601; default: 24 hours before --to).")
+    parser.add_argument("--to", dest="history_to", metavar="TIME",
+                        help="Historical graph end (ISO 8601; default: now).")
     return parser
 
 
@@ -4897,7 +5068,7 @@ def print_no_argument_guide(
     )
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def _main(argv: Optional[Sequence[str]] = None) -> int:
     """
     Parses arguments, initializes D-Bus monitoring, installs POSIX signal handlers,
     and runs the appropriate mode lifecycle.
@@ -4922,6 +5093,38 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     args = parser.parse_args(arguments)
+
+    auxiliary = bool(args.service_action or args.graph or args.collector)
+    if auxiliary and args.mode:
+        parser.error("service management, --collector, and --graph cannot be combined with an operational mode")
+    if not auxiliary and args.mode is None:
+        parser.error("an operational mode, service action, or --graph is required")
+    if (args.history_from or args.history_to) and not args.graph:
+        parser.error("--from and --to require --graph")
+    if args.service_scope and not args.collector:
+        parser.error("--service-scope requires --collector")
+    if auxiliary and (args.suspend_after_minutes is not None or args.no_inhibit_auto_suspend
+                      or args.ignore_lid or args.do_not_touch_backlight or args.log_file):
+        parser.error("operational control options cannot be combined with service or history commands")
+    if args.service_action:
+        if args.prudent_writes or args.no_plot:
+            parser.error("--prudent-writes and --no-plot do not apply to service management")
+        from burnbag_service import manage_service
+        return manage_service(*args.service_action)
+    if args.collector:
+        if not args.service_scope:
+            parser.error("--collector requires --service-scope system or user")
+        if args.no_plot:
+            parser.error("--no-plot does not apply to --collector")
+        load_pygobject(terminal_style)
+        from burnbag_service import run_collector
+        return run_collector(args.service_scope, args.prudent_writes, runtime=sys.modules[__name__])
+    if args.graph:
+        if args.prudent_writes:
+            parser.error("--prudent-writes applies to operational runs or --collector")
+        from burnbag_graph import history_command
+        return history_command(sys.modules[__name__], args.history_from, args.history_to,
+                               terminal_style, no_plot=args.no_plot)
 
     # Validate logical constraints on CLI options
     if args.suspend_after_minutes is not None and not (
@@ -4951,6 +5154,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "color_stdout": terminal_style.stdout_color,
                 "color_stderr": terminal_style.stderr_color,
                 "log_path": str(log_path),
+                "prudent_writes": args.prudent_writes,
             }
         )
     except RunningLogError as exc:
@@ -4968,6 +5172,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     assert running_log is not None
 
     manager: Optional[LidCloseManager] = None
+    telemetry_recorder = None
+    telemetry_diagnostics = TelemetryDiagnostics()
     previous_signal_handlers: Dict[int, Any] = {}
     result_code = 1
     pre_manager_reason = "Runtime initialization did not complete."
@@ -4989,6 +5195,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         load_pygobject(terminal_style, running_log)
         pre_manager_reason = "Controller initialization did not complete."
 
+        from burnbag_service import ForegroundRecorder
+        telemetry_recorder = ForegroundRecorder(
+            prudent=args.prudent_writes,
+            on_warning=telemetry_diagnostics.put,
+            runtime=sys.modules[__name__],
+        ).start()
+
         manager = LidCloseManager(
             mode=args.mode,
             suspend_after_minutes=args.suspend_after_minutes,
@@ -5002,6 +5215,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             running_log=running_log,
             suspend_clock_initial=suspend_clock_initial,
             suspend_clock_error=suspend_clock_error,
+            telemetry_recorder=telemetry_recorder,
+            telemetry_diagnostics=telemetry_diagnostics,
         )
 
         def sig_handler(signum: int, frame: Any) -> None:
@@ -5031,6 +5246,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Battery monitoring is read-only and begins before any operational
         # host mutation. Persistent modes schedule subsequent samples on the
         # same GLib loop used for lid and backlight lifecycle events.
+        manager.start_telemetry_diagnostics()
         manager.start_battery_monitoring()
         manager.check_shutdown_requested()
         manager.print_startup_narrative()
@@ -5169,6 +5385,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         elif running_log.file_descriptor is not None:
             # Dependency or controller setup failed after session_start but
             # before a manager could own the final record.
+            if telemetry_recorder is not None:
+                try:
+                    telemetry_recorder.close()
+                except Exception as exc:
+                    telemetry_diagnostics.put(f"Telemetry shutdown failed: {exc}")
+                telemetry_recorder = None
+            def report_initialization_warning(message: str) -> None:
+                terminal_style.write_status("WARNING", message, sys.stderr)
+                if running_log.failed_reason is None:
+                    try:
+                        running_log.append("warning", "WARNING", message)
+                    except RunningLogError:
+                        pass
+            telemetry_diagnostics.drain(report_initialization_warning)
             if running_log.failed_reason is None:
                 try:
                     running_log.end_session(
@@ -5189,7 +5419,59 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except RunningLogError as exc:
                 terminal_style.write_status("FATAL ERROR", str(exc), sys.stderr)
 
+        if telemetry_recorder is not None and (manager is None or not manager.telemetry_closed):
+            try:
+                telemetry_recorder.close()
+            except Exception as exc:
+                terminal_style.write_status("ERROR", f"Telemetry shutdown failed: {exc}", sys.stderr)
+                result_code = 1
+
     return result_code
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Wrap every CLI output path, including argparse's early exits."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    style = TerminalStyle.detect(no_color="--no-color" in arguments)
+    warning_stream = sys.stdout if any(arg in ("--help", "-h") for arg in arguments) else sys.stderr
+
+    def service_warning() -> None:
+        try:
+            from burnbag_service import probe_service, warning_for_service
+            warning = warning_for_service(probe_service())
+        except Exception as exc:
+            warning = f"Continuous recording status is unavailable: {exc}. Operational runs use local history."
+        if warning:
+            # Synchronize stream ordering for combined terminal output while
+            # retaining stdout/stderr separation for redirected commands.
+            for stream in (sys.stdout, sys.stderr):
+                try:
+                    stream.flush()
+                except (OSError, ValueError):
+                    pass
+            try:
+                style.write_status("WARNING", warning, warning_stream)
+                warning_stream.flush()
+            except (OSError, ValueError):
+                pass
+
+    service_warning()
+    try:
+        return _main(arguments)
+    except KeyboardInterrupt:
+        try:
+            style.write_status("INFO", "Interrupted.", sys.stderr)
+        except (OSError, ValueError):
+            pass
+        return 130
+    except Exception as exc:
+        try:
+            style.write_status("ERROR", f"{type(exc).__name__}: {exc}", sys.stderr)
+        except (OSError, ValueError):
+            pass
+        return 1
+    finally:
+        service_warning()
 
 
 if __name__ == "__main__":

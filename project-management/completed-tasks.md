@@ -1,5 +1,22 @@
 # Completed Tasks
 
+- `BB-2026-09-15-P8` — CLI management, warning envelopes and historical graphs.
+  Completed 2026-09-15; owner: Codex; operator-authorized roadmap P8.
+  - Added all scoped/inferred service actions, prudent writes, and arbitrary-time
+    merged history graphs. Every CLI path freshly probes recording and warns
+    at both ends when absent/unhealthy, including help and usage errors.
+  - Operational runs consume shared snapshots without repeated hardware polls;
+    diagnostics drain durably on the main thread, final samples precede reports,
+    and failed pre-sleep flushes prevent burnbag's own sleep request.
+  - Historical views preserve real gaps, extrema, lid/sleep markers and event-only
+    intervals. Malformed or unreadable sources warn while usable data survives;
+    reduced-resolution graphs retain actual coverage metadata.
+  - Validation: 15 CLI/history tests, seven recorder integration tests, 19
+    native GLib lifecycle cases, 27 battery and 13 failure-handling tests pass.
+    Isolated installed executable imports support modules and runs help/history
+    without creating state; native shared foreground collection has one owner,
+    real five-second samples, prudent flush and clean teardown.
+
 - `BB-2026-09-15-P7` — Optional collector services and coordinated fallback.
   Completed 2026-09-15; owner: Codex; operator-authorized roadmap P7.
   - Atomic machine-wide ownership, bounded peer-verified discovery, service

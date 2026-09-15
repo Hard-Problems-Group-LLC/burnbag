@@ -223,9 +223,14 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
     if scenario in {"no_plot", "lid_events_no_plot", "suspends_no_plot", "hibernates_no_plot"}:
         args.append("--no-plot")
 
+    import burnbag_service
+    # These native GLib tests own a fixture battery/clock boundary. Collector
+    # IPC, persistence and handoff have independent real-process tests.
     with contextlib.ExitStack() as boundaries, \
+            mock.patch.object(burnbag_service, "ForegroundRecorder") as recorder, \
             mock.patch.object(gio, "bus_get_sync", side_effect=connect_bus), \
             mock.patch.object(gio.DBusProxy, "new_sync", side_effect=new_proxy):
+        recorder.return_value.start.return_value = None
         if clocks is not None:
             boundaries.enter_context(mock.patch.object(burnbag, "read_suspend_clocks", clocks.read))
             boundaries.enter_context(mock.patch.object(burnbag, "linux_boottime", clocks.boottime))
@@ -326,7 +331,7 @@ class ShutdownSubprocessTests(unittest.TestCase):
         self.assertEqual(output.count("BURNBAG — SHUTDOWN & TEARDOWN"), 1)
         self.assertEqual(output.count("BATTERY SUMMARY"), 1)
         no_plot = scenario in {"no_plot", "lid_events_no_plot", "suspends_no_plot", "hibernates_no_plot"}
-        self.assertEqual(output.count("BATTERY DEPLETION - 15-second samples"), 0 if no_plot else 1)
+        self.assertEqual(output.count("BATTERY DEPLETION - observed samples"), 0 if no_plot else 1)
         self.assertEqual(sum(row["event"] == "session_end" for row in records), 1)
         self.assertEqual(records[-1]["event"], "session_end")
         final = records[-1]["details"]

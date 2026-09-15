@@ -10,7 +10,7 @@
 
 ## Scope
 
-This specification defines read-only battery discovery, fifteen-second
+This specification defines read-only battery discovery, five-second
 sampling, durable observation records, the handled-exit depletion plot, and
 quantization-aware per-battery statistics.
 It does not change power profiles, sleep decisions, backlight behavior, or
@@ -61,11 +61,13 @@ informational result and no plot, not a mission failure.
 
 ## Sampling Lifecycle
 
-Burnbag takes an initial sample before operational host mutation. Persistent
-`run*` modes then use the GLib event loop to sample every 15,000 milliseconds.
-Handled teardown cancels the timer before other cleanup and takes one final
-sample so the plot includes the end of the run. One-shot modes therefore have
-initial and final observations but do not establish a periodic timer.
+The optional collector samples available power observations every five seconds.
+Operational runs use the accessible service, or start/join a private foreground
+collector when unavailable. The GLib graph consumer checks for actual new
+observations every 5,000 milliseconds and at handled teardown. It never counts
+an unchanged cached record as another sample or relabels an observation that
+preceded invocation startup. Very short runs can finish before data arrives.
+The direct BatteryMonitor interface remains usable with fixture-backed sampling.
 
 Each sample stores:
 
@@ -80,10 +82,12 @@ Each sample stores:
 `status` does not invalidate a percentage. Wall clock is never used for rate
 calculation, so clock adjustment cannot reorder or distort the series.
 
-Every cycle is appended to the mandatory synchronized running log as a
-`battery_sample` record, including initial, periodic, and final reasons.
-Discovery, timer start and stop, read failures, and the final summary are also
-recorded. A running-log failure retains its existing fail-closed behavior.
+Every collection cycle is stored in SQLite under the batching or prudent-write
+policy in [continuous history](continuous-history.md). Operational JSONL records
+retain discovery, timer lifecycle, errors, final statistics and immediately
+durable mutation intent/outcomes; routine measurements are not duplicated
+there. The direct BatteryMonitor/controller interface without a recorder retains
+its legacy JSONL sample behavior for callers that explicitly use that interface.
 
 A sysfs discovery or read failure is observational: burnbag reports it,
 records a deviation and nonzero final status, and continues the primary power
@@ -214,7 +218,7 @@ each has magnitude of at least 2 pp. Kernel `status=Discharging` or
 `status=Charging` may corroborate the corresponding wording; otherwise the
 display says falling or rising SoC.
 
-Raw differences between adjacent 15-second integer readings are prohibited:
+Raw differences between adjacent periodic integer readings are prohibited:
 a one-point update would manufacture a `240 pp/h` impulse among zeros. Instead,
 each reported level change between consecutive valid observations is an
 interval-censored event placed at the midpoint of its two observation times.
@@ -300,7 +304,7 @@ records remain the forensic result in those cases.
   and source records. Charge fallback, source priority, half-up quantization,
   invalid ratios, missing source recovery, and mixed-unit/design rejection are
   covered without touching host state.
-- Timer tests verify an immediate sample, 15,000-millisecond cadence, handled
+- Timer tests verify an immediate sample, 5,000-millisecond cadence, handled
   cancellation, and a final sample.
 - Chart tests verify 25 data rows, selected terminal width with a 20-column
   minimum, observed-only Y range, unconditional top/bottom percentage labels,
