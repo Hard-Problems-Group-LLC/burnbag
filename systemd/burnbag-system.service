@@ -1,0 +1,32 @@
+# burnbag-managed system collector
+[Unit]
+Description=Burnbag continuous power history
+Documentation=man:burnbag(1)
+After=dbus.service systemd-logind.service
+Wants=systemd-logind.service
+
+[Service]
+Type=notify
+User=burnbag
+Group=burnbag
+ExecStart=@EXECUTABLE@ --collector --service-scope system
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=73
+TimeoutStartSec=30
+TimeoutStopSec=30
+StateDirectory=burnbag
+StateDirectoryMode=0755
+UMask=0022
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

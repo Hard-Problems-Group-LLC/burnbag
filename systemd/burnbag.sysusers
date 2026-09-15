@@ -1,0 +1,2 @@
+# burnbag-managed service identity; no login or home directory is needed.
+u burnbag - "Burnbag power history" /nonexistent /usr/sbin/nologin

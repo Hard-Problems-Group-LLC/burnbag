@@ -1,0 +1,8 @@
+// burnbag-managed: permit only bounded preparation for sleep and shutdown.
+polkit.addRule(function(action, subject) {
+    if (subject.user === "burnbag" &&
+        (action.id === "org.freedesktop.login1.inhibit-delay-sleep" ||
+         action.id === "org.freedesktop.login1.inhibit-delay-shutdown")) {
+        return polkit.Result.YES;
+    }
+});

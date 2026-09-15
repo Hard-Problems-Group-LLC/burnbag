@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: active
 
-Notes: P8 CLI and historical reporting complete; P9 installer final compatibility checks active. Native collector and staged artifact smoke tests pass; live checks remain pending.
+Notes: P6–P9 complete and published by phase; final native integration and delivery handoff active. Python 3.9/3.14 compatibility passes; operator installation and physical checks remain pending.
 
 ## Phases
 
@@ -25,8 +25,8 @@ Notes: P8 CLI and historical reporting complete; P9 installer final compatibilit
 | P6 | done | Durable telemetry |
 | P7 | done | Collector services |
 | P8 | done | CLI and history graphs |
-| P9 | active | Installation and documentation |
-| P10 | pending | Integration and handoff |
+| P9 | done | Installation and documentation |
+| P10 | active | Integration and handoff |
 
 ## Slices
 
@@ -71,9 +71,9 @@ Notes: P8 CLI and historical reporting complete; P9 installer final compatibilit
 | P9.1 | P9 | done | Install system and user services |
 | P9.2 | P9 | done | Add scoped uninstaller |
 | P9.3 | P9 | done | Synchronize contracts and generated docs |
-| P9.4 | P9 | active | Verify installation and recovery |
-| P10.1 | P10 | pending | Run complete automated checks |
-| P10.2 | P10 | pending | Smoke-test sampling and isolated daemon |
+| P9.4 | P9 | done | Verify installation and recovery |
+| P10.1 | P10 | active | Run complete automated checks |
+| P10.2 | P10 | done | Smoke-test sampling and isolated daemon |
 | P10.3 | P10 | pending | Publish evidence and manual handoff |
 
 ## Regenerate local tracking

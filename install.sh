@@ -27,6 +27,7 @@ trap 'report_install_failure "$?"' ERR
 BURNBAG_PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly BURNBAG_PROJECT_ROOT
 readonly BURNBAG_PREREQUISITE_INSTALLER="${BURNBAG_PROJECT_ROOT}/scripts/install_prerequisites.sh"
+readonly BURNBAG_SERVICE_INSTALLER="${BURNBAG_PROJECT_ROOT}/scripts/install_services.py"
 readonly BURNBAG_DEV_LAUNCHER_MARKER="# burnbag-managed-dev-launcher"
 readonly BURNBAG_DEV_LAUNCHER_MODE_ENV="BURNBAG_DEV_LAUNCHER_MODE"
 
@@ -34,7 +35,7 @@ usage() {
     cat <<'EOF'
 Usage: install.sh [OPTIONS]
 
-Install burnbag and its manual page. The default prefix is /usr/local.
+Install burnbag, its manual page, and a system service. The default prefix is /usr/local.
 
 Options:
   --check                 Verify sources and prerequisites without installing.
@@ -42,10 +43,11 @@ Options:
   --dev-command MODE      In dev mode, select prompt, local, or system command
                           resolution (default: prompt).
   --force                 Allow replacement of an unmanaged user launcher.
+  --install-user-service  Select the login user's service instead of the system service.
   --mode MODE             Select standard or repo-local dev mode (default: standard).
   --prefix DIR            Install beneath absolute DIR (default: /usr/local).
   --skip-prerequisites    Do not check or install prerequisite packages.
-  --user-home DIR         Use absolute DIR for the dev launcher user scope.
+  --user-home DIR         Use absolute DIR for the dev launcher or user service.
   -h, --help              Show this help text.
 
 For non-interactive dev setup, BURNBAG_DEV_LAUNCHER_MODE may select local or
@@ -54,6 +56,10 @@ unchanged. Declining the interactive prompt or reaching EOF also preserves it.
 Paths must not contain parent-directory (..) components. Staging refuses
 symlinks that lead outside DIR; file targets must not be directories or symlinks.
 Staging checks prerequisites without installing host packages.
+New services are enabled and started; updates preserve stopped/disabled state.
+Dev mode deploys a system-daemon copy while the CLI follows the checkout.
+Dev plus --install-user-service runs the daemon from the checkout. User lingering
+is never changed. Use uninstall.sh to remove managed artifacts and retain history.
 EOF
 }
 
@@ -97,7 +103,7 @@ validate_standard_targets() {
 }
 
 run_privileged() {
-    if [[ ${EUID} -eq 0 || -n "${BURNBAG_DESTDIR}" ]]; then
+    if [[ ${EUID} -eq 0 || -n "${BURNBAG_DESTDIR}" || "${BURNBAG_USER_PREFIX}" == true ]]; then
         "$@"
         return
     fi
@@ -305,7 +311,9 @@ write_managed_dev_launcher() {
     fi
 
     BURNBAG_INSTALL_ACTION="writing the managed user launcher"
-    install -d -m 0755 "${BURNBAG_USER_BIN_DIR}"
+    if [[ ! -d "${BURNBAG_USER_BIN_DIR}" ]]; then
+        install -d -m 0755 "${BURNBAG_USER_BIN_DIR}"
+    fi
     BURNBAG_TEMP_LAUNCHER="$(mktemp "${BURNBAG_USER_BIN_DIR}/.burnbag-launcher.XXXXXXXX")"
     {
         printf '#!/usr/bin/bash\n'
@@ -367,7 +375,12 @@ install_dev_mode() {
     resolve_dev_command_mode
 
     BURNBAG_INSTALL_ACTION="creating repository-local development links"
-    install -d -m 0755 "${burnbag_dev_bin_dir}" "${burnbag_dev_man_dir}"
+    local burnbag_dev_directory
+    for burnbag_dev_directory in "${burnbag_dev_bin_dir}" "${burnbag_dev_man_dir}"; do
+        if [[ ! -d "${burnbag_dev_directory}" ]]; then
+            install -d -m 0755 "${burnbag_dev_directory}"
+        fi
+    done
     ensure_dev_link \
         "${BURNBAG_PROJECT_ROOT}/burnbag.py" "${burnbag_dev_bin_dir}/burnbag"
     ensure_dev_link \
@@ -396,6 +409,7 @@ main() {
     BURNBAG_DEV_COMMAND_WAS_SET=false
     BURNBAG_EFFECTIVE_USER_HOME=""
     BURNBAG_FORCE=false
+    BURNBAG_INSTALL_USER_SERVICE=false
     BURNBAG_MODE="standard"
     BURNBAG_PREFIX="/usr/local"
     BURNBAG_PREFIX_WAS_SET=false
@@ -404,6 +418,7 @@ main() {
     BURNBAG_USER_HOME=""
     BURNBAG_USER_HOME_WAS_SET=false
     BURNBAG_USER_LAUNCHER=""
+    BURNBAG_USER_PREFIX=false
     BURNBAG_RESOLVED_DEV_COMMAND=""
 
     while [[ $# -gt 0 ]]; do
@@ -437,6 +452,10 @@ main() {
                 ;;
             --force)
                 BURNBAG_FORCE=true
+                shift
+                ;;
+            --install-user-service)
+                BURNBAG_INSTALL_USER_SERVICE=true
                 shift
                 ;;
             --mode)
@@ -529,9 +548,12 @@ main() {
             printf '[ERROR] --force is only supported with --mode dev.\n' >&2
             return 2
         fi
-        if [[ "${BURNBAG_USER_HOME_WAS_SET}" == true ]]; then
+        if [[ "${BURNBAG_USER_HOME_WAS_SET}" == true && "${BURNBAG_INSTALL_USER_SERVICE}" != true ]]; then
             printf '[ERROR] --user-home requires --mode dev.\n' >&2
             return 2
+        fi
+        if [[ "${BURNBAG_INSTALL_USER_SERVICE}" == true ]]; then
+            select_user_home
         fi
     fi
 
@@ -548,6 +570,9 @@ main() {
     BURNBAG_INSTALL_ROOT="${BURNBAG_DESTDIR%/}${BURNBAG_PREFIX%/}"
     BURNBAG_BIN_DIR="${BURNBAG_INSTALL_ROOT}/bin"
     BURNBAG_MAN_DIR="${BURNBAG_INSTALL_ROOT}/share/man/man1"
+    if [[ "${BURNBAG_INSTALL_USER_SERVICE}" == true && "${BURNBAG_PREFIX}" == "${BURNBAG_EFFECTIVE_USER_HOME}/"* ]]; then
+        BURNBAG_USER_PREFIX=true
+    fi
     if [[ "${BURNBAG_MODE}" == "standard" ]]; then
         validate_standard_targets
     fi
@@ -556,13 +581,29 @@ main() {
     for burnbag_source in \
         "${BURNBAG_PROJECT_ROOT}/burnbag.py" \
         "${BURNBAG_PROJECT_ROOT}/burnbag.1" \
-        "${BURNBAG_PREREQUISITE_INSTALLER}"; do
+        "${BURNBAG_PREREQUISITE_INSTALLER}" \
+        "${BURNBAG_SERVICE_INSTALLER}"; do
         if [[ ! -f "${burnbag_source}" ]]; then
             printf '[ERROR] Required source file not found: %s\n' \
                 "${burnbag_source}" >&2
             return 1
         fi
     done
+
+    local -a burnbag_service_options=(--source "${BURNBAG_PROJECT_ROOT}" --prefix "${BURNBAG_PREFIX}" --mode "${BURNBAG_MODE}")
+    if [[ "${BURNBAG_INSTALL_USER_SERVICE}" == true ]]; then
+        burnbag_service_options+=(--user-service)
+    else
+        burnbag_service_options+=(--system-service)
+    fi
+    if [[ -n "${BURNBAG_EFFECTIVE_USER_HOME}" ]]; then
+        burnbag_service_options+=(--user-home "${BURNBAG_EFFECTIVE_USER_HOME}")
+    fi
+    if [[ -n "${BURNBAG_DESTDIR}" ]]; then
+        burnbag_service_options+=(--destdir "${BURNBAG_DESTDIR}")
+    fi
+    BURNBAG_INSTALL_ACTION="validating service installation sources and destinations"
+    /usr/bin/python3 -B "${BURNBAG_SERVICE_INSTALLER}" check "${burnbag_service_options[@]}"
 
     if [[ "${BURNBAG_SKIP_PREREQUISITES}" == false ]]; then
         BURNBAG_INSTALL_ACTION="checking or installing prerequisite packages"
@@ -581,16 +622,28 @@ main() {
 
     if [[ "${BURNBAG_MODE}" == "dev" ]]; then
         install_dev_mode
-        return 0
+        if [[ "${BURNBAG_INSTALL_USER_SERVICE}" == true ]]; then
+            BURNBAG_INSTALL_ACTION="installing the development user service"
+            /usr/bin/python3 -B "${BURNBAG_SERVICE_INSTALLER}" install "${burnbag_service_options[@]}"
+            return 0
+        fi
     fi
 
     BURNBAG_INSTALL_ACTION="installing the executable and manual page"
-    run_privileged install -d -m 0755 "${BURNBAG_BIN_DIR}" "${BURNBAG_MAN_DIR}"
+    local burnbag_install_directory
+    for burnbag_install_directory in "${BURNBAG_BIN_DIR}" "${BURNBAG_MAN_DIR}"; do
+        if [[ ! -d "${burnbag_install_directory}" ]]; then
+            run_privileged install -d -m 0755 "${burnbag_install_directory}"
+        fi
+    done
     validate_standard_targets
     run_privileged install -T -m 0755 \
         "${BURNBAG_PROJECT_ROOT}/burnbag.py" "${BURNBAG_BIN_DIR}/burnbag"
     run_privileged install -T -m 0644 \
         "${BURNBAG_PROJECT_ROOT}/burnbag.1" "${BURNBAG_MAN_DIR}/burnbag.1"
+
+    BURNBAG_INSTALL_ACTION="installing support modules and the selected service"
+    /usr/bin/python3 -B "${BURNBAG_SERVICE_INSTALLER}" install "${burnbag_service_options[@]}"
 
     if [[ -z "${BURNBAG_DESTDIR}" ]] && command -v mandb >/dev/null 2>&1; then
         BURNBAG_INSTALL_ACTION="updating the manual-page index"

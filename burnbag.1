@@ -34,7 +34,7 @@ provides narrative console logging on startup and exit, detailing intended syste
 .PP
 Every accepted operational session also writes an append-only JSON Lines running log. Each complete record is serialized against concurrent burnbag writers and synchronized to the filesystem before execution continues.
 .PP
-Burnbag reads up to two installed Linux power-supply batteries before operational host mutation, every fifteen seconds in persistent run modes, and at handled exit. Shutdown includes quantization-aware per-battery statistics and, unless disabled, a full-width 25-row battery depletion plot.
+An optional system or user service collects available power measurements every five seconds. Operational runs use its observations or collect into private user SQLite history when the service is unavailable. Shutdown includes quantization-aware per-battery statistics and, unless disabled, a full-width 25-row battery depletion plot.
 .SH MODES
 The following mutually exclusive operational modes are supported:
 .TP
@@ -102,9 +102,9 @@ is specified. Text labels such as [INFO], [OK], [WARNING], and [FATAL ERROR] rem
 .PP
 Invoking burnbag without a mode prints a concise quick-start guide to standard error and exits with status 2. Help, the zero-argument guide, and command-line validation run before PyGObject is loaded.
 .SH BATTERY MONITORING, EXIT PLOT, AND STATISTICS
-Burnbag discovers present entries of type Battery under /sys/class/power_supply in lexical kernel-name order and monitors up to two independently. It takes an initial reading before operational host mutation, samples persistent run modes every 15 seconds, and takes a final reading as handled teardown begins. One-shot modes receive initial and final readings. Percentage ordering and rate calculations use suspend-inclusive Linux CLOCK_BOOTTIME; local wall clock is presentation-only. Systems without a battery continue normally and omit battery output. Native capacity percentages are preferred; drivers without them use matching energy_now/energy_full or charge_now/charge_full readings rounded to whole percentages. The selected source is identified and logged; invalid readings remain gaps.
+Burnbag discovers present entries of type Battery under /sys/class/power_supply in lexical kernel-name order and monitors up to two independently. The collector samples every five seconds; operational runs consume actual available observations through handled teardown. Very short runs may end before the first observation becomes available. Percentage ordering and rate calculations use suspend-inclusive Linux CLOCK_BOOTTIME; local wall clock is presentation-only. Systems without a battery continue normally and omit battery output. Native capacity percentages are preferred; drivers without them use matching energy_now/energy_full or charge_now/charge_full readings rounded to whole percentages. The selected source is identified and logged; invalid readings remain gaps.
 .PP
-Every cycle is retained in the synchronized running log. Discovery or read failures are reported as operational deviations and select nonzero exit status, but never prevent backlight, inhibitor, or power-profile recovery. More than two eligible devices produce an explicit warning identifying which first two devices were selected.
+Every cycle is retained in SQLite under the selected batching policy; operational JSONL diagnostics remain immediately synchronized. Discovery or read failures are reported as operational deviations and select nonzero exit status, but never prevent backlight, inhibitor, or power-profile recovery. More than two eligible devices produce an explicit warning identifying which first two devices were selected.
 .PP
 The handled-exit chart contains exactly 25 data rows and uses the current standard-output terminal width, with a 20-column minimum and an 80-column fallback. Its Y axis spans only observed percentages. The top always labels the maximum and the bottom always labels the minimum, including equal percentages at both boundaries; constant data remains vertically centered. Each row has at most one observed percentage label.
 .PP
@@ -122,7 +122,7 @@ With ANSI color enabled, the first battery is yellow, the second blue, and overl
 .B \-\-no\-plot
 to suppress only the graph.
 .PP
-Below the graph, or by itself when the graph is suppressed, burnbag prints one to three summary lines per battery. Endpoints, net percentage-point change, elapsed span, a whole-run least-squares gauge trend, fit, and coverage are shown. When enough reported whole-percentage transitions exist, gauge depletion-rate variability sigma is reported in percentage points per hour as the duration-weighted standard deviation of transition-to-transition gauge rates. The summary also shows signed average reported-gauge change per minute and its nonnegative standard deviation in pp/min; falling state of charge is negative and rising state of charge is positive. These are conversions of the same gated transition-rate distribution, not raw 15-second derivatives or an independent physical measurement. They describe uneven reported depletion velocity, not acceleration, watts, instantaneous load, or zero draw when the integer gauge stays flat. Missing readings, long intervals, and known charge-status changes break local-rate continuity; short, flat, mixed, and gapped histories are explicitly qualified with n/a where necessary.
+Below the graph, or by itself when the graph is suppressed, burnbag prints one to three summary lines per battery. Endpoints, net percentage-point change, elapsed span, a whole-run least-squares gauge trend, fit, and coverage are shown. When enough reported whole-percentage transitions exist, gauge depletion-rate variability sigma is reported in percentage points per hour as the duration-weighted standard deviation of transition-to-transition gauge rates. The summary also shows signed average reported-gauge change per minute and its nonnegative standard deviation in pp/min; falling state of charge is negative and rising state of charge is positive. These are conversions of the same gated transition-rate distribution, not raw five-second derivatives or an independent physical measurement. They describe uneven reported depletion velocity, not acceleration, watts, instantaneous load, or zero draw when the integer gauge stays flat. Missing readings, long intervals, and known charge-status changes break local-rate continuity; short, flat, mixed, and gapped histories are explicitly qualified with n/a where necessary.
 .PP
 SIGKILL, sudden power loss, and equivalent unhandled exits cannot render a chart or summary or take a final sample; previously synchronized records remain available.
 .PP
@@ -130,7 +130,7 @@ Ctrl-C, SIGTERM, SIGHUP, lid-cycle completion, and handled errors attempt the sa
 .SH RUNNING LOG
 Every accepted operational invocation establishes a mandatory append-only running log before PyGObject is loaded or host state is changed. The default path is $XDG_STATE_HOME/burnbag/burnbag.log, falling back to $HOME/.local/state/burnbag/burnbag.log. There is no no-log option.
 .PP
-The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and every initial, periodic, and final battery sample are included; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown and final reporting attempts, including observed output failures. Absence of session_end is retained as evidence of an unhandled process or power interruption.
+The UTF-8 JSON Lines records include UTC and monotonic time, a session UUID, sequence number, PID, effective UID, selected mode, stable event code, severity, message, and structured details. Battery discovery and operational summaries are included; periodic samples are stored in SQLite instead of duplicated in this log; final battery records include versioned, unit-bearing derived statistics, signed per-minute average and standard-deviation fields, and explicit validity reasons. session_start is synchronized before runtime initialization. A handled session_end is synchronized after teardown and final reporting attempts, including observed output failures. Absence of session_end is retained as evidence of an unhandled process or power interruption.
 .PP
 Actual lid property transitions include local wall-clock observation time, CLOCK_BOOTTIME elapsed time, and cumulative close/open counts. Lid events and battery samples share one process-start elapsed origin. Final state includes lid_close_count and lid_open_count; individual transition records retain the history without copying an unbounded event array into the final record.
 .PP
@@ -154,6 +154,37 @@ The daemon returns a file descriptor handle for each lock. As long as
 holds the handle open, sleep is blocked. When
 .B burnbag
 terminates, its owned descriptors close. Other processes and system policy may still inhibit sleep.
+.SH CONTINUOUS HISTORY AND SERVICES
+An optional system or user burnbag.service records available power measurements every five seconds. Exactly one background collector owns the machine. An absent or unhealthy collector causes foreground operations to record into private user SQLite history. Prominent warnings wrap all CLI output, including help and rejected commands.
+.PP
+System history is /var/lib/burnbag/history.sqlite3 and is readable by local users. User history is $XDG_STATE_HOME/burnbag/history.sqlite3, falling back to $HOME/.local/state/burnbag/history.sqlite3. User history is private. Operational JSONL diagnostics retain immediate synchronization; routine samples are not duplicated there.
+.TP
+.B \\-\\-prudent\\-writes
+Commit every telemetry update durably. During an operational run, request this behavior from its collector until the run ends. Concurrent requests combine; a collector startup setting remains effective. Normally records commit after 60 seconds or 64 KiB, ordinary events within five seconds, and lifecycle/critical events immediately. Kernel battery capacity_level=Critical makes a sample urgent; a low percentage alone does not invent a critical state. Abrupt failure may lose approximately the latest minute while storage is healthy.
+.TP
+.B \\-\\-graph
+Render merged system and user battery history, summary, lid markers and observed sleep regions. Omitted bounds select the last 24 hours. --no-plot retains the summary. Existing databases are queried read-only; they are never created by querying.
+.TP
+.BI \\-\\-from " TIME"
+Historical start in ISO 8601. Default: 24 hours before the selected end. Local times must be unambiguous and existent; supply an offset or Z at daylight-saving transitions.
+.TP
+.BI \\-\\-to " TIME"
+Historical end in ISO 8601; default now. The start must precede the end. Queries including current time request a bounded collector flush. Reduced-query statistics describe retained observations. Without battery data, known events still produce a timeline with an n/a battery scale.
+.TP
+.B \\-\\-enable\\-service, \\-\\-disable\\-service
+Enable or disable automatic activation without starting or stopping the current process. Use --enable-user-service, --enable-system-service, --disable-user-service or --disable-system-service for an explicit scope.
+.TP
+.B \\-\\-start\\-service, \\-\\-status\\-service, \\-\\-stop\\-service
+Start, inspect, or stop the current service. Each action also accepts an explicit user or system scope, for example --status-user-service and --stop-system-service. Automatic scope selects the active applicable service or sole installation; ambiguous changes fail with guidance.
+.TP
+.B \\-\\-collector
+Run the continuous collector under systemd. Requires --service-scope system or --service-scope user. Supports --prudent-writes as its baseline durability policy.
+.PP
+Historical queries warn on conflicting coverage or duplicate record identities and prefer system observations. Underlying records remain unchanged. Distinct equal-time events survive. Unreadable sources yield partial-result warnings; long queries disclose representative sampling. Calendar time forms the historical axis. Missing coverage never establishes suspend, hibernate or power-off.
+.SH SERVICE INSTALLATION AND REMOVAL
+install.sh selects a system service as the non-login burnbag user and group by default. --install-user-service selects the intended user and does not enable lingering. New installs enable and start; upgrades preserve intentional stopped/disabled state. Plain --mode dev installs a root-owned system-daemon copy and a checkout CLI; dev with --install-user-service runs the daemon from the checkout.
+.PP
+--check is read-only. --destdir stages files without host service/account changes. uninstall.sh --system-service or --user-service stops/disables the selected installation and removes managed files. History and configuration remain unless --purge-data explicitly selects history deletion. Dependencies and other users are untouched. If both user installation modes exist, select --mode standard or --mode dev. Finish foreground recording before purging user history. Shared files remain while another installation references them.
 .SH EXAMPLES
 Request performance mode with a 15\-minute continuous-lid-closure countdown:
 .PP

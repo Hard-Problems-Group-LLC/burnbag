@@ -1,6 +1,7 @@
 # Continuous power history and service lifecycle
 
-Status: approved for implementation, 2026-09-15. Authorization: operator's
+Status: implemented, 2026-09-15; live installation/physical acceptance pending.
+Authorization: operator's
 continuous-monitoring design, six explicit design selections, and instruction
 to fully implement. Delivery: roadmap P6–P10.
 
@@ -30,6 +31,10 @@ not stall on storage. Report failed commits, bounded queue exhaustion and
 lost coverage. Durability is acknowledged only after SQLite commits
 successfully. Abrupt failures can lose approximately one minute of buffered
 samples when storage is healthy; blocked or failed storage extends that window.
+
+A battery's explicit kernel `capacity_level=Critical` makes its sample urgent.
+Missing critical-state telemetry does not invent a percentage threshold or a
+power action; collection remains observational.
 
 `--prudent-writes` commits every update durably. During a foreground run it
 requests this policy from the serving collector until the run ends. Multiple
@@ -85,7 +90,9 @@ Merge for display without changing either source. Duplicate record identities
 and overlapping collection coverage for the same machine, boot and measurement
 stream cause an explicit warning; system observations win within conflicting
 coverage. Preserve user observations elsewhere and distinct events even when
-timestamps coincide. Coverage boundaries are half-open. Warn about unreadable,
+timestamps coincide. Coverage segments include their first and last actual
+observations without extrapolating beyond them; gaps and discontinuities split
+segments. Warn about unreadable,
 corrupt, incompatible or reduced-resolution history; still report usable data
 from the other source. Never interpolate through missing coverage as if it
 were observed. Long queries must use bounded memory and preserve interval-wide

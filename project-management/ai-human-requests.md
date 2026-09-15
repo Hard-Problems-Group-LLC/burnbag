@@ -9,6 +9,23 @@ No additional queued requests.
 
 ## Active Requests
 
+- `BB-MANUAL-03` — Continuous collector installation and physical sleep history.
+  - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
+  - Scope: roadmap P10 operator handoff. The operator retains installation:
+    `./install.sh --mode dev --dev-command local` now deploys the default
+    root-owned system daemon as well as the checkout CLI.
+  - Follow [continuous service acceptance](../docs/testing.md#continuous-service-acceptance):
+    check readiness/help, recent historical graph, stopped-service warnings,
+    prudent foreground fallback and merged history, then restart the service.
+  - When desktop interruption is acceptable, save other work and perform a
+    supervised desktop suspend/wake with only the service recording; query its
+    interval and confirm clock-evidenced sleep coverage. Unavailable journal
+    mode evidence remains explicitly unverified. No hibernation is requested.
+  - Acceptance: report service status, graph observations, warning placement,
+    fallback result, and whether the sleep region appears. Installation and
+    hardware checks remain separate from isolated automated tests. Existing
+    BB-MANUAL-01/02 remain open for their earlier hardware observations.
+
 - `BB-MANUAL-01` — Revised-build graph, lid, backlight, and profile confirmation.
   - Created and activated: 2026-09-14. Owner: operator. Requestor: Codex.
   - Remaining scope: roadmap P2.4; P3.4 passed and closed on 2026-09-14.

@@ -30,8 +30,19 @@ class InstallTests(unittest.TestCase):
         self.user_home.mkdir()
         self.system_bin.mkdir()
 
-        for relative_path in ("install.sh", "burnbag.py", "burnbag.1"):
+        for relative_path in ("install.sh", "uninstall.sh", "burnbag.py", "burnbag.1", "burnbag_history.py", "burnbag_service.py", "burnbag_graph.py"):
             shutil.copy2(PROJECT_ROOT / relative_path, self.checkout / relative_path)
+        shutil.copytree(PROJECT_ROOT / "systemd", self.checkout / "systemd")
+        shutil.copy2(PROJECT_ROOT / "scripts/install_services.py", self.checkout / "scripts/install_services_real.py")
+        # These launcher tests exercise the real service helper only in an
+        # isolated staging tree. Live service lifecycle is covered separately
+        # with a controlled command boundary in test_service_install.py.
+        (self.checkout / "scripts/install_services.py").write_text(
+            "import runpy, sys\nfrom pathlib import Path\n"
+            "if '--destdir' in sys.argv:\n"
+            "    runpy.run_path(str(Path(__file__).with_name('install_services_real.py')), run_name='__main__')\n",
+            encoding="utf-8",
+        )
         shutil.copy2(
             PROJECT_ROOT / "scripts" / "install_prerequisites.sh",
             self.checkout / "scripts" / "install_prerequisites.sh",
@@ -42,6 +53,9 @@ class InstallTests(unittest.TestCase):
             "#!/usr/bin/bash\nprintf 'system burnbag\\n'\n", encoding="utf-8"
         )
         self.system_burnbag.chmod(0o755)
+        # Plain dev now also deploys a system daemon. Never allow this fixture
+        # to write /usr/local or manage the host service.
+        self.write_command("sudo", "exit 0")
 
     def tearDown(self) -> None:
         shutil.rmtree(self.run_root)
@@ -161,6 +175,14 @@ class InstallTests(unittest.TestCase):
         self.assertIn("Non-interactive dev install", result.stdout)
         self.assertFalse(launcher.exists())
         self.assertEqual(self.resolve_burnbag(environment), str(self.system_burnbag))
+
+    def test_dev_install_preserves_private_existing_launcher_directory(self) -> None:
+        user_bin = self.user_home / ".local/bin"
+        user_bin.mkdir(parents=True, mode=0o700)
+        result = self.run_installer("--mode", "dev", "--dev-command", "local", "--skip-prerequisites",
+                                    "--user-home", str(self.user_home))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(user_bin.stat().st_mode & 0o777, 0o700)
 
     def test_noninteractive_environment_policy_can_select_local_checkout(self) -> None:
         environment = self.environment()

@@ -9,8 +9,9 @@ collector, then instructed full implementation. The canonical contract is
 [continuous history](docs/specifications/continuous-history.md).
 
 Current delivery status (2026-09-15): P6 durable history, P7 collector
-services and P8 CLI/history are complete. P9 installer/document compatibility
-checks and P10 final integration are in progress. Native isolated background and shared foreground collectors have
+services, P8 CLI/history and P9 installation/documentation are complete. P10
+final native integration and handoff are in progress; both Python 3.9 and 3.14
+compatibility suites pass. Native isolated background and shared foreground collectors have
 recorded real ARM sensor data and completed durable flushes. Installed systemd
 activation and physical sleep remain operator checks in BB-MANUAL-03, alongside
 the earlier P2/V checks. The [phase stack](project-management/state/phase-slice-stack.md)

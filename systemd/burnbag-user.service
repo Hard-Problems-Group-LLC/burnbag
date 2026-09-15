@@ -1,0 +1,20 @@
+# burnbag-managed user collector
+[Unit]
+Description=Burnbag continuous power history (user)
+Documentation=man:burnbag(1)
+
+[Service]
+Type=notify
+ExecStart=@EXECUTABLE@ --collector --service-scope user
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=73
+TimeoutStartSec=30
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target

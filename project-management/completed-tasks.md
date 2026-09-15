@@ -1,5 +1,24 @@
 # Completed Tasks
 
+- `BB-2026-09-15-P9` — Service installation, scoped removal and documentation.
+  Completed 2026-09-15; owner: Codex; operator-authorized roadmap P9.
+  - Default system installation creates the non-login service account, managed
+    units/support modules and narrow delay-inhibition policy; optional user
+    installation preserves login/lingering boundaries. Dev CLI follows the
+    checkout while default system daemon uses a root-owned copy.
+  - New installs activate recording; updates preserve intentional stopped or
+    disabled state. Custom system prefixes publish a tracked unit under /etc.
+    Uninstall preserves history/configuration by default, guards explicit purge
+    against active foreground writers, and preserves shared or modified artifacts.
+  - Validation: 46 installer tests pass on native Python 3.13 and Python 3.14,
+    including both user-mode removal orders, custom-prefix registration,
+    shared ownership, private directory modes, unsafe destinations and purge
+    races. Staged executable help/history/imports and scoped removal pass.
+  - README/man sources, specifications, install/remove help and manual guide are
+    synchronized. Shellcheck, Bash syntax, prerequisite/install read-only checks,
+    generated-document verification and warning-free manual rendering pass.
+    No host installation was performed; BB-MANUAL-03 provides the operator steps.
+
 - `BB-2026-09-15-P7-CRITICAL` — Immediate critical-battery durability.
   Completed 2026-09-15 during final acceptance; owner: Codex.
   - Kernel `capacity_level=Critical` makes each affected sample urgent and

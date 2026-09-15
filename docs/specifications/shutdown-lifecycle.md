@@ -1,6 +1,6 @@
 # Handled shutdown and reporting
 
-- Status: implemented; original visible symptom awaits operator confirmation
+- Status: implemented; original graph/summary symptom confirmed fixed by the operator on 2026-09-14
 - Authorization: operator request of 2026-09-14, roadmap phase P3
 
 An operational session begins when the controller starts battery monitoring,

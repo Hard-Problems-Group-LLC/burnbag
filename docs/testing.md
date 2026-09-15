@@ -8,8 +8,8 @@ Authorization and acceptance criteria are in [the roadmap](../ROADMAP.md).
 
 ```bash
 /usr/bin/python3 -B -m unittest discover -s tests
-bash -n install.sh scripts/install_prerequisites.sh
-shellcheck install.sh scripts/install_prerequisites.sh
+bash -n install.sh uninstall.sh scripts/install_prerequisites.sh
+shellcheck install.sh uninstall.sh scripts/install_prerequisites.sh
 ./scripts/install_prerequisites.sh --check
 ./install.sh --check
 ./burnbag.py --help
@@ -22,6 +22,10 @@ files, locks, subprocess signals, native GLib, and staged installer destinations
 external power and backlight mutations use fakes. Native-GLib tests explicitly
 skip on interpreters without PyGObject; a skipped suite does not establish
 native integration readiness. No automated test suspends or hibernates the host.
+The compatibility baseline is Python 3.9 or later; run the same discovery suite
+on the oldest supported interpreter and a current release. Real SQLite,
+socket ownership, concurrent prudent clients, fallback handoff, history merging,
+and staged system/user uninstall are covered without installing host services.
 
 README and manual sources live in `makedocs.py`. Regenerate with
 `/usr/bin/python3 -B makedocs.py`; changes to generated output must be intentional
@@ -30,8 +34,17 @@ and `/usr/bin/python3 -B makedocs.py --check` must pass afterward. Render the ma
 
 ## Physical validation awaiting the operator
 
-The operator selected development installation. Run `./install.sh --mode dev`
-and answer **yes** when it asks whether bare `burnbag` should use this checkout.
+The operator selected development installation. Run:
+
+```bash
+./install.sh --mode dev --dev-command local
+```
+
+This now installs and starts the default system collector as well as selecting
+the checkout CLI. The daemon uses its own root-owned installed copy; rerun the
+installer after changing collector code. Selecting `--install-user-service`
+instead creates a login-session service whose dev daemon follows the checkout.
+It does not enable lingering.
 Then run `hash -r` and `command -v burnbag`; the result should be the managed
 user launcher in `~/.local/bin/burnbag`. The installer reports any PATH ordering
 problem. Use `man ./burnbag.1` to view this checkout's updated manual directly.
@@ -175,11 +188,60 @@ power-off detector or generated `0` blocks.
 
 `./install.sh --check` checks sources and native prerequisites without installing.
 Use `--destdir` under a unique `.local/tmp/` child for staged file checks. Staging
-does not elevate privileges, update the host's manual index, or install host
-packages. `--skip-prerequisites` deliberately skips only dependency checks.
+does not elevate privileges, create host accounts, activate services, update
+the host's manual index, or install host packages. `--skip-prerequisites`
+deliberately skips only dependency checks.
 
 Standard installation uses `./install.sh` and the default `/usr/local` prefix.
 Development setup uses `./install.sh --mode dev`; publishing a user launcher
 requires explicit selection or an affirmative interactive answer. To inspect
 command selection, run `command -v burnbag` and clear an old shell lookup with
 `hash -r`. `--dev-command system` removes only burnbag's managed user launcher.
+
+## Continuous service acceptance
+
+After installing the verified build, start with a desk check that does not
+change power profiles or backlight state:
+
+```bash
+hash -r
+burnbag --status-service
+burnbag --help
+burnbag --graph
+```
+
+Expect the selected system service to be active and recording health to be
+ready. Help should have no absent-service warning. Allow at least 15 seconds
+after installation; the graph query requests a bounded flush and should find
+new system observations, retaining any nonconflicting earlier user history.
+Use explicit `--from` and `--to` ISO timestamps to inspect an earlier interval.
+If history overlaps, the warning and system preference are intentional.
+
+To verify fallback and prudent writes, finish other burnbag runs, then:
+
+```bash
+burnbag --stop-service
+burnbag --help
+burnbag run --ignore-lid --do-not-touch-backlight --prudent-writes
+```
+
+Expect the service warning above and below help. Leave the run open for at
+least 15 seconds, then press Ctrl-C. Expect its chart/summary, clean teardown,
+and the same warning at both ends. It records private user history while the
+background service is stopped. Inspect `burnbag --graph`, then restore service
+recording with `burnbag --start-service` and verify `burnbag --status-service`.
+Start/stop acts now; enable/disable changes automatic activation without
+implicitly starting or stopping anything.
+
+For continuous sleep coverage, leave the service running, save other work,
+use the desktop's Suspend command, and wake normally after 20 seconds. Query
+the interval with `burnbag --graph`. Expect a clock-confirmed sleep region;
+missing journal permission can leave its mode explicitly unverified. No
+foreground burnbag process is needed for this check. Do not request live
+hibernation on this unsupported host.
+
+Report service status, whether warning placement and fallback passed, and
+whether the historical graph contains observations and the supervised sleep
+region. Include any exact error. Live installation, reboot activation, and
+physical sleep remain operator checks; staging and simulated clocks establish
+neither real systemd activation nor hardware resume reliability.
