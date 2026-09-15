@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+from datetime import datetime, timedelta
 import errno
 import json
 import os
@@ -11,6 +13,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -28,9 +31,69 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
     burnbag.BATTERY_SYSFS_ROOT = root / "power_supply"
     original_handlers = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     descriptors = []
+    suspend_scenario = scenario in {"suspends", "suspends_no_plot", "suspends_ordinary"}
 
     def ready(stage: str) -> None:
         os.write(ready_fd, (stage + "\n").encode("ascii"))
+
+    class KernelClocks:
+        """External clock boundary; real worker and GLib code consume its reads."""
+
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.sleep_offset = 0.0
+            self.awake_offset = 0.0
+            self.worker_reads = 0
+            self.stage = 0
+            self.final_sleep_pending = False
+            self.final_sleep_read = False
+
+        def read(self):
+            with self.lock:
+                worker = threading.current_thread() is not threading.main_thread()
+                if worker:
+                    self.worker_reads += 1
+                elif self.final_sleep_pending:
+                    # The final clock read must detect this period even though
+                    # the GLib loop and worker have already stopped.
+                    self.sleep_offset += 3.0
+                    self.final_sleep_pending = False
+                    self.final_sleep_read = True
+                monotonic = time.monotonic() + self.awake_offset
+                return burnbag.SuspendClockSample(
+                    datetime.now().astimezone() + timedelta(seconds=self.awake_offset + self.sleep_offset),
+                    monotonic + self.sleep_offset, monotonic,
+                )
+
+        def boottime(self):
+            with self.lock:
+                return time.monotonic() + self.awake_offset + self.sleep_offset
+
+        def restored(self):
+            with self.lock:
+                self.final_sleep_pending = True
+
+        def advance(self):
+            """Inject separate periods only after the worker consumed each one."""
+            with self.lock:
+                if self.stage and self.worker_reads < 2:
+                    return True
+                # The second read proves the previous read completed the real
+                # monitor's observation before the next offset change occurs.
+                self.worker_reads = 0
+                if self.stage == 0:
+                    self.sleep_offset += 5.0
+                elif self.stage == 1:
+                    self.awake_offset += 3.0
+                elif self.stage == 2:
+                    self.sleep_offset += 7.0
+                else:
+                    ready("loop")
+                    return False
+                self.stage += 1
+                return True
+
+    clocks = KernelClocks() if suspend_scenario else None
 
     class FDList:
         def get(self, index):
@@ -57,6 +120,8 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
                 return glib.Variant("(v)", (glib.Variant("b" if isinstance(value, bool) else "s", value),))
             if method == "Set":
                 self.active_profile = arguments.unpack()[2]
+                if self.active_profile == "balanced" and clocks is not None:
+                    clocks.restored()
                 if self.active_profile == "balanced" and scenario == "repeated":
                     ready("cleanup")
                     sys.stdin.readline()
@@ -104,6 +169,8 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
 
     if scenario in {"loop", "repeated", "no_plot", "broken_output"}:
         glib.idle_add(loop_ready)
+    if clocks is not None:
+        glib.timeout_add(5, clocks.advance)
 
     # Observe the narrow race between the final setup checkpoint and loop entry
     # using the real GLib loop after actual OS signal delivery.
@@ -115,13 +182,18 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
 
     args = ["suspend" if scenario == "setup_one_shot" else "run-cool",
             "--do-not-touch-backlight", "--no-color", "--log-file", str(root / "run.log")]
-    if scenario != "lid":
+    if scenario not in {"lid", "suspends_ordinary"}:
         args.append("--ignore-lid")
-    if scenario in {"no_plot", "lid_events_no_plot"}:
+    if scenario in {"no_plot", "lid_events_no_plot", "suspends_no_plot"}:
         args.append("--no-plot")
 
-    with mock.patch.object(gio, "bus_get_sync", side_effect=connect_bus), \
+    with contextlib.ExitStack() as boundaries, \
+            mock.patch.object(gio, "bus_get_sync", side_effect=connect_bus), \
             mock.patch.object(gio.DBusProxy, "new_sync", side_effect=new_proxy):
+        if clocks is not None:
+            boundaries.enter_context(mock.patch.object(burnbag, "read_suspend_clocks", clocks.read))
+            boundaries.enter_context(mock.patch.object(burnbag, "linux_boottime", clocks.boottime))
+            boundaries.enter_context(mock.patch.object(burnbag.SuspendMonitor, "SAMPLE_SECONDS", 0.01))
         if scenario == "race":
             with mock.patch.object(glib.MainLoop, "run", signal_before_run):
                 result = burnbag.main(args)
@@ -131,6 +203,10 @@ def run_child(root: Path, scenario: str, ready_fd: int) -> int:
             except SystemExit as exc:
                 result = int(exc.code)
 
+    if clocks is not None:
+        assert clocks.final_sleep_read, "final suspend reconciliation was skipped"
+    assert not any(thread.name == "burnbag-suspend-monitor" for thread in threading.enumerate()), \
+        "suspend worker leaked beyond main()"
     for signum, original in original_handlers.items():
         assert signal.getsignal(signum) == original, "process signal handler leaked"
     for descriptor in descriptors:
@@ -183,7 +259,8 @@ class ShutdownSubprocessTests(unittest.TestCase):
             )
             os.close(writer)
             try:
-                if scenario in {"loop", "repeated", "no_plot", "setup", "setup_one_shot", "broken_output", "lid_events", "lid_events_no_plot"}:
+                if scenario in {"loop", "repeated", "no_plot", "setup", "setup_one_shot", "broken_output", "lid_events", "lid_events_no_plot",
+                                "suspends", "suspends_no_plot", "suspends_ordinary"}:
                     setup = scenario.startswith("setup")
                     self.wait_ready(reader, "setup" if setup else "loop")
                     if scenario == "broken_output":
@@ -212,7 +289,7 @@ class ShutdownSubprocessTests(unittest.TestCase):
         self.assertNotIn("Traceback", errors)
         self.assertEqual(output.count("BURNBAG — SHUTDOWN & TEARDOWN"), 1)
         self.assertEqual(output.count("BATTERY SUMMARY"), 1)
-        no_plot = scenario in {"no_plot", "lid_events_no_plot"}
+        no_plot = scenario in {"no_plot", "lid_events_no_plot", "suspends_no_plot"}
         self.assertEqual(output.count("BATTERY DEPLETION - 15-second samples"), 0 if no_plot else 1)
         self.assertEqual(sum(row["event"] == "session_end" for row in records), 1)
         self.assertEqual(records[-1]["event"], "session_end")
@@ -245,6 +322,39 @@ class ShutdownSubprocessTests(unittest.TestCase):
             else:
                 self.assertIn("Lid: C/|=close", output)
                 self.assertIn("O/:=open", output)
+        if scenario in {"suspends", "suspends_no_plot", "suspends_ordinary"}:
+            self.assertIn("Suspended Time", output)
+            self.assertIn("3 observed interval(s), 15.000s total", output)
+            self.assertNotIn("COVERAGE INCOMPLETE", output)
+            intervals = [row["details"] for row in records if row["event"] == "suspend_interval"]
+            summaries = [row["details"] for row in records if row["event"] == "suspend_monitor_summary"]
+            self.assertEqual(len(intervals), 3)
+            self.assertEqual(len(summaries), 1)
+            summary = summaries[0]
+            self.assertEqual(summary, final["final_state"]["suspend_monitor"])
+            self.assertEqual(summary["interval_count"], 3)
+            self.assertAlmostEqual(summary["total_suspended_seconds"], 15.0)
+            self.assertTrue(summary["coverage_complete"])
+            self.assertEqual(summary["errors"], [])
+            for interval, duration in zip(intervals, (5.0, 7.0, 3.0)):
+                self.assertAlmostEqual(interval["suspended_seconds"], duration)
+                self.assertEqual(interval["timebase"], "CLOCK_BOOTTIME")
+            self.assertLess(intervals[0]["end_elapsed_seconds"], intervals[1]["start_elapsed_seconds"])
+            self.assertLess(intervals[1]["end_elapsed_seconds"], intervals[2]["start_elapsed_seconds"])
+            battery_times = [row["details"]["elapsed_seconds"] for row in records if row["event"] == "battery_sample"]
+            self.assertGreater(intervals[-1]["end_elapsed_seconds"], battery_times[-1])
+            self.assertGreaterEqual(summary["coverage_end_elapsed_seconds"], intervals[-1]["end_elapsed_seconds"])
+            self.assertLessEqual(summary["coverage_start_elapsed_seconds"], battery_times[0])
+            self.assertEqual("Lid Events Detected" in output, scenario != "suspends_ordinary")
+            if no_plot:
+                self.assertNotIn("Suspend: S=", output)
+            else:
+                self.assertIn("Suspend: S=suspended (full-height block)", output)
+                rows = [row.split("|", 1)[1] for row in output.splitlines() if " |" in row]
+                self.assertEqual(len(rows), 25)
+                suspend_columns = [{i for i, cell in enumerate(row) if cell == "S"} for row in rows]
+                self.assertTrue(suspend_columns[0])
+                self.assertTrue(all(columns == suspend_columns[0] for columns in suspend_columns))
 
     def test_ignore_lid_sigint_reports_chart_and_summary(self):
         self.run_scenario("loop")
@@ -287,6 +397,15 @@ class ShutdownSubprocessTests(unittest.TestCase):
 
     def test_ignore_lid_counts_survive_no_plot(self):
         self.run_scenario("lid_events_no_plot")
+
+    def test_multiple_suspends_and_final_read_reach_graph_and_log_on_sigint(self):
+        self.run_scenario("suspends")
+
+    def test_suspend_summary_and_final_read_survive_no_plot(self):
+        self.run_scenario("suspends_no_plot")
+
+    def test_suspend_blocks_also_appear_with_ordinary_lid_policy(self):
+        self.run_scenario("suspends_ordinary")
 
 
 if __name__ == "__main__":

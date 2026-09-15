@@ -107,13 +107,13 @@ the same percentage appears at both boundaries while the constant series
 remains vertically centered. The Y axis renders no more than one observed
 percentage callout per plot row.
 
-The X axis orders sample attempts by elapsed time and uses their actual local
-wall-clock `HH:mm` values for labels. With the `--ignore-lid` diagnostic overlay,
-its range includes the union of sample-attempt and lid-event timestamps, so
-every event falls within the plotted interval. Otherwise only sample attempts
-establish the range. Its left and right boundaries always label the earliest
-and latest entries in that range, including missing battery readings or events
-beyond the sample interval. These two callouts are reserved before any interior
+The X axis uses suspend-inclusive elapsed time and covers the entire run from
+application entry through the final post-recovery, pre-report observation.
+It includes startup and recovery even when battery samples cover a shorter
+interval; those unsampled edges stay blank. Sample attempts, detected suspend
+regions, and enabled lid events retain their positions on that shared timeline.
+Its left and right boundaries always label the actual local wall-clock `HH:mm`
+of the coverage endpoints. These two callouts are reserved before any interior
 labels are selected. Equal `HH:mm` values are repeated at both boundaries.
 When the entire plotted timeline has one elapsed value, both true endpoint
 labels remain without inventing a duration, and plotted points remain at the
@@ -149,6 +149,31 @@ See [lid observation semantics](power-lifecycle.md) and
 along with the graph but does not suppress counts or event logging. Without
 any valid battery observation there is no graph, while counts remain available.
 Without `--ignore-lid`, the battery graph has no lid-event overlay.
+
+### Actual suspend regions
+
+Before reporting, burnbag finalizes the independent clock observer defined by
+[power lifecycle](power-lifecycle.md#actual-suspend-observation). Positive
+growth in suspend-inclusive time relative to awake time verifies suspended
+duration. The location of that duration within its bounding observations is
+inferred, with explicit boundary uncertainty; the graph must identify the
+regions as approximate. One observation window can contain multiple sleeps,
+so displayed region count is not a claim of the exact number of suspend cycles.
+
+Each region occupies at least one screen column across all 25 data rows and
+is filled with capital `S` characters: white foreground on red background when
+ANSI color is enabled, plain `S` otherwise. These blocks take precedence over
+battery glyphs and lid-event lines within their columns. The separate lid
+header remains visible, and both axes retain their required extrema labels.
+Suspend blocks do not fabricate battery observations, change statistics, or
+connect missing readings. Overlapping regions share the same `S` encoding.
+
+Detection and blocks apply to every operational mode, independently of
+`--ignore-lid`. `--no-plot` suppresses blocks with the graph, while detection,
+the shutdown suspend summary, and durable records continue. Without valid
+battery observations there is no chart; the suspend summary remains available.
+An unavailable or incomplete observer must be reported explicitly rather than
+being represented as a verified absence of suspend.
 
 ## Derived Statistics Contract
 

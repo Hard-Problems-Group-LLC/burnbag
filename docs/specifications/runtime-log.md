@@ -124,6 +124,8 @@ Between session boundaries, synchronized records must cover:
 - battery discovery, timer start/stop, each initial, periodic, and final
   battery sample, observation failures, and the final battery summary;
 - suspend or hibernate intent before the D-Bus request;
+- actual suspend observation results, coverage, interval-placement uncertainty,
+  and incomplete-observation diagnostics before final reporting;
 - all console status, warning, error, and fatal messages associated with an
   operational session; and
 - teardown deviations and final state.
@@ -158,6 +160,40 @@ individual synchronized records carry that history. This additive detail
 preserves record schema version 1 and avoids an unbounded final-state array.
 Counting and event logging continue with `--no-plot` and when no valid battery
 observations are available.
+
+Before report rendering, the clock observer is joined and reconciled through
+its final post-recovery snapshot. Each detected region is then written as a
+separate `suspend_interval` record with:
+
+- `start_local_estimate` and `end_local_estimate`, timezone-aware estimated
+  local boundary times;
+- `start_elapsed_seconds`, `end_elapsed_seconds`, and `suspended_seconds`;
+- `boundary_uncertainty_seconds`, including the bounding awake window and
+  clock-read uncertainty;
+- `observed_start_elapsed_seconds` and `observed_end_elapsed_seconds`, retaining
+  the actual observation bracket; and
+- `timebase: "CLOCK_BOOTTIME"`, sharing the battery/lid process-start origin.
+
+These records describe clock-confirmed duration and inferred placement rather
+than a timestamped kernel sleep notification. They are synchronized during
+shutdown; an unhandled process death can therefore leave battery samples but
+no finalized suspend records.
+
+`suspend_monitor_summary` records `interval_count`, `total_suspended_seconds`,
+`coverage_complete`, `coverage_start_elapsed_seconds`,
+`coverage_end_elapsed_seconds`, `sample_interval_seconds`,
+`detection_floor_seconds`, `boundaries_estimated`, `rapid_cycles_may_merge`, and
+`errors`. Missing clock coverage uses JSON `null` for unavailable values and
+`coverage_complete: false`, never an assertion of verified absence of sleep.
+The measured cumulative total can include small changes beneath the threshold
+for a separately plotted region. Several physical sleep cycles may share one
+observed interval. See [the detection contract](power-lifecycle.md#actual-suspend-observation).
+
+Handled `session_end` includes this bounded summary as `final_state.suspend_monitor`.
+Individual interval history is not embedded in that final record, preserving
+the log's record-size limit. These additive fields keep record schema version
+1. Observation, interval records, and summary remain active with `--no-plot`
+and without valid battery observations.
 
 The final summary and
 `session_end` contain versioned, unit-bearing per-battery derived statistics:

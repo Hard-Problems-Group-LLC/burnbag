@@ -137,3 +137,12 @@ counts for switch troubleshooting, keep battery observations visible, and
 provide distinct plain-output markers and explicit overlap behavior. This is
 an authorized addition to V.2; it does not change the battery estimator or
 remove the outstanding physical profile/suspend checks.
+
+The operator then requested `BB-2026-09-14-03`: check the entire run for actual
+suspend periods before assembling the exit report, and mark those regions as
+full-height blocks of white capital `S` characters on a red background.
+V.2 now covers a read-only clock observer from application entry through the
+post-recovery reporting snapshot, verified suspend-time accounting, approximate
+interval placement with explicit uncertainty, full-run graph coverage, and
+plain-output and no-plot behavior. Automated checks precede publication;
+the existing supervised P2.4 suspend check also verifies the visible blocks.

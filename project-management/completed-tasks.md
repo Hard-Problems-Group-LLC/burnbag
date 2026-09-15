@@ -1,5 +1,40 @@
 # Completed Tasks
 
+- `BB-2026-09-14-03` — Actual suspend diagnostics and graph regions. Started
+  and completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP V.2.
+  - A read-only background observer compares required Linux `CLOCK_BOOTTIME`
+    and `CLOCK_MONOTONIC` independently of GLib, with a one-second cadence and
+    a final post-recovery snapshot. Coverage includes setup and teardown.
+    Paired-read uncertainty and a one-millisecond threshold reject jitter;
+    cumulative accounting retains smaller changes. Clock/worker failure is
+    reported as incomplete observation rather than verified absence of sleep.
+  - Suspended duration is measured; interval boundaries are estimated within
+    their observation brackets. Numeric uncertainty is logged, and graph and
+    summary identify approximate timing. Several rapid sleeps can merge into
+    one region; region count is not a physical suspend-cycle count.
+  - Full-run X coverage retains blank unsampled battery edges. Suspend regions
+    fill all 25 rows with white capital `S` on red, taking precedence over
+    battery/lid cells while retaining axis labels and the lid header. Plain
+    output uses `S`. Every mode receives detection, logging, and summary,
+    independently of `--ignore-lid` or `--no-plot`; no battery data means no chart.
+    Separate interval records keep the final session summary bounded.
+  - Validation: 188 native tests passed on Ubuntu/aarch64 Python 3.13.7,
+    including 17 actual GLib subprocess cases. Python 3.9.21 and 3.14.6 each
+    passed 171 compatibility cases with one native-GLib module skip. The 24
+    focused detector/chart cases cover clock noise and failure, cumulative
+    changes, approximate geometry, overlaps, colors, and whole-run coverage.
+    Three new GLib integrations verify multiple sleeps, final reconciliation,
+    ordinary/ignore-lid behavior, no-plot, reporting order, and cleanup.
+    Ten thousand real paired-clock observations plus worker/finalization
+    produced no false intervals or errors. Generated-document consistency,
+    man rendering, help, manual-guide shell syntax, and whitespace checks pass.
+    No live suspend or host state mutation was needed for automated validation.
+  - Manual handoff: [BB-MANUAL-02](ai-human-requests.md) now includes the
+    continued-run supervised suspend check in [the testing guide](../docs/testing.md#3-supervised-suspendresume).
+    Physical sleep/resume and visible `S` blocks remain awaiting the operator,
+    together with the earlier P2 profile-transition check. The development
+    launcher selects these changes on the next invocation.
+
 - `BB-2026-09-14-02` — Lid-event diagnostics for `--ignore-lid`. Started and
   completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP V.2.
   - Shutdown reports separate detected close/open counts, including zero.

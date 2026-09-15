@@ -53,6 +53,15 @@ No additional queued requests.
   - Hibernation is reported unsupported on this host; no hibernation test is
     requested. Automated tests establish request/failure handling, not physical
     suspend reliability.
+  - `BB-2026-09-14-03` delivers actual-suspend diagnostics and graph blocks
+    under V.2; 188 native tests and compatibility checks pass. The continued-run
+    variant in check 3 verifies the new display: leave burnbag active, use
+    desktop Suspend, wake, and then press Ctrl-C. Expect measured suspended time and approximate full-height
+    white `S` on red regions; plain output uses `S`. The countdown request can
+    finish before physical sleep begins, so it cannot by itself prove this
+    display. The development launcher uses the delivered feature on its next
+    invocation. No live suspend has been performed by the agent; physical sleep
+    and visible-block confirmation remain pending.
 
 ## Completed Requests
 

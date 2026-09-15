@@ -50,9 +50,10 @@ preserves the estimator's evidence gates. Summary layout supports one to three
 lines per battery at terminal widths of 40 columns or more. Compact output may
 use `avgΔ` and `σrate`, with a footer defining their gauge-only meaning.
 
-The shutdown narrative reports detected lid closes and opens separately,
-including zero. These counters describe actual observed state changes; the
-initial snapshot and duplicate same-state notifications are excluded. Counts
+With `--ignore-lid`, the shutdown narrative reports detected lid closes and
+opens separately, including zero. These counters describe actual observed
+state changes; the initial snapshot and duplicate same-state notifications
+are excluded. Counts
 remain visible with `--no-plot` or when battery observations are unavailable.
 
 With `--ignore-lid`, the battery chart adds vertical lid-event markers behind
@@ -66,6 +67,18 @@ Exact narrative counts are unaffected when several events share a screen
 column. The chart still has 25 data rows; marker headers are outside them.
 These diagnostic markers are absent without `--ignore-lid` and do not create
 a chart when no valid battery observations exist.
+
+Actual suspend regions use full-height blocks of white capital `S` characters
+on a red background across all 25 data rows, or plain `S` when color is
+disabled. They take precedence over battery glyphs and lid lines while leaving
+the separate lid header and axis labels visible. The legend identifies their
+approximate timing. Suspend detection applies in every operational mode,
+independently of `--ignore-lid`; `--no-plot` suppresses its blocks with the chart
+but retains the shutdown summary and log. The summary distinguishes no detected
+intervals at the one-millisecond floor from incomplete observation and qualifies
+approximate boundaries. See
+[suspend semantics](power-lifecycle.md#actual-suspend-observation) and
+[chart geometry](battery-monitoring.md#actual-suspend-regions).
 
 ## Reporting failures
 

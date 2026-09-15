@@ -111,6 +111,44 @@ the application's bounds explicit. A timed-out action can still complete on
 the service side, so its result remains unverified rather than being described
 as definitely rejected.
 
+## Actual suspend observation
+
+Every accepted operational run uses a read-only clock observer with a nominal
+one-second sampling interval. It runs independently of GLib in a background
+thread, starting from the application-entry clock baseline and ending with a
+final snapshot after host recovery and immediately before shutdown reporting.
+This coverage includes setup, persistent operation or one-shot action, and
+teardown. It requires no journal access, elevated privileges, or additional
+runtime package and never requests, delays, or inhibits sleep itself.
+
+Linux `CLOCK_BOOTTIME` includes suspended time while `CLOCK_MONOTONIC` excludes
+it. Their offset therefore supplies suspend evidence independently of wall
+clock changes and event-loop or process scheduling delays. Burnbag brackets
+each monotonic read with boottime reads and retains the tightest of three
+captures to reduce read uncertainty. Offset growth must exceed both a
+one-millisecond floor and read uncertainty; cumulative accounting retains
+smaller changes for reconciliation instead of discarding each one. Clock
+absence, invalid readings, or observer failure make coverage incomplete,
+never a claim that no suspend occurred.
+This detector requires the real boottime clock rather than using a monotonic
+fallback. See the [Linux clock contract](https://man7.org/linux/man-pages/man3/clock_gettime.3.html).
+
+Suspended duration is measured; its placement between observations is an
+estimate. Burnbag subtracts the suspended duration from the observation window,
+splits the remaining awake time equally before and after it, and records half
+that awake window plus clock-read error as boundary uncertainty. Scheduling
+delays enlarge that uncertainty. Multiple sleeps between observations can
+merge into one detected region; neither a region nor its plotted width
+establishes a physical sleep cycle count. The shutdown summary and
+[graph](battery-monitoring.md#actual-suspend-regions)
+identify approximate timing; structured records retain numeric uncertainty.
+The summary remains available without battery output or with `--no-plot`.
+
+Sleep requests and `PrepareForSleep` notifications alone do not establish
+actual suspended time. In particular, logind can emit the end-of-preparation
+signal when its operation fails; the clock observer avoids treating those
+notifications as proof. See [systemd's failure path](https://github.com/systemd/systemd/blob/main/src/login/logind-dbus.c).
+
 ## Verification
 
 Stateful service fakes cover actual profile values, unavailable selections,

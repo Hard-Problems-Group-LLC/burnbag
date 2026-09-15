@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import fcntl
 import io
 import json
@@ -36,6 +36,7 @@ import stat
 import statistics
 import sys
 import textwrap
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, TextIO, Tuple
 import uuid
@@ -729,6 +730,215 @@ class LidEvent:
 
 
 @dataclass(frozen=True)
+class SuspendInterval:
+    """Clock-confirmed sleep duration with estimated graph boundaries."""
+
+    started_at: datetime
+    ended_at: datetime
+    start_elapsed_seconds: float
+    end_elapsed_seconds: float
+    boundary_uncertainty_seconds: float = 0.0
+    observed_start_elapsed_seconds: float = 0.0
+    observed_end_elapsed_seconds: float = 0.0
+
+    def to_log_details(self) -> Dict[str, Any]:
+        return {
+            "start_local_estimate": self.started_at.isoformat(timespec="microseconds"),
+            "end_local_estimate": self.ended_at.isoformat(timespec="microseconds"),
+            "start_elapsed_seconds": self.start_elapsed_seconds,
+            "end_elapsed_seconds": self.end_elapsed_seconds,
+            "suspended_seconds": self.end_elapsed_seconds - self.start_elapsed_seconds,
+            "boundary_uncertainty_seconds": self.boundary_uncertainty_seconds,
+            "observed_start_elapsed_seconds": self.observed_start_elapsed_seconds,
+            "observed_end_elapsed_seconds": self.observed_end_elapsed_seconds,
+            "timebase": "CLOCK_BOOTTIME",
+        }
+
+
+@dataclass(frozen=True)
+class SuspendClockSample:
+    """Paired kernel clocks, with an upper bound on sequential-read error."""
+
+    captured_at: datetime
+    boottime: float
+    monotonic: float
+    uncertainty_seconds: float = 0.0
+
+    @property
+    def offset(self) -> float:
+        return self.boottime - self.monotonic
+
+
+def read_suspend_clocks() -> SuspendClockSample:
+    """Bracket MONOTONIC with BOOTTIME; never silently substitute a clock.
+
+    BOOTTIME bracketing also exposes a suspend between the individual reads.
+    Keep the tightest of three pairs to reduce scheduling and syscall noise.
+    """
+    clock_id = getattr(time, "CLOCK_BOOTTIME", None)
+    if clock_id is None:
+        raise RuntimeError("Linux CLOCK_BOOTTIME is unavailable")
+    candidates = []
+    for _ in range(3):
+        before = time.clock_gettime(clock_id)
+        monotonic = time.monotonic()
+        captured_at = datetime.now().astimezone()
+        after = time.clock_gettime(clock_id)
+        if not all(math.isfinite(value) for value in (before, monotonic, after)) or after < before:
+            raise RuntimeError("Invalid or backwards kernel clock reading")
+        candidates.append(SuspendClockSample(
+            captured_at, (before + after) / 2.0, monotonic, (after - before) / 2.0,
+        ))
+    return min(candidates, key=lambda sample: sample.uncertainty_seconds)
+
+
+class SuspendMonitor:
+    """Observe actual suspended time independently of the GLib event loop.
+
+    The worker reads clocks only. The main thread joins it before finalizing
+    intervals or writing output/logs, so it never races device recovery or log
+    ownership. Memory grows only with detected sleep windows, not uptime.
+    """
+
+    SAMPLE_SECONDS = 1.0
+    DETECTION_FLOOR_SECONDS = 0.001
+    WORKER_JOIN_SECONDS = 2.0
+
+    def __init__(
+        self, started_boottime: float,
+        initial: Optional[SuspendClockSample] = None,
+        reader: Optional[Callable[[], SuspendClockSample]] = None,
+        initial_error: Optional[str] = None,
+    ) -> None:
+        self.started_boottime = started_boottime
+        self.reader = read_suspend_clocks if reader is None else reader
+        self.initial = initial
+        self.latest = initial
+        self.accounted = initial
+        self.pending_start: Optional[SuspendClockSample] = None
+        self.intervals: List[SuspendInterval] = []
+        self.errors: List[str] = [initial_error] if initial_error else []
+        self.started = False
+        self.finished = False
+        self.final_read_succeeded = False
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+
+    def _error(self, exc: Exception) -> None:
+        message = f"{type(exc).__name__}: {exc}"
+        if message not in self.errors and len(self.errors) < 8:
+            self.errors.append(message)
+
+    def observe(self, current: SuspendClockSample) -> None:
+        """Accumulate confirmed offset growth without counting read jitter."""
+        values = (current.boottime, current.monotonic, current.uncertainty_seconds)
+        if not all(math.isfinite(value) for value in values) or current.uncertainty_seconds < 0:
+            raise ValueError("Invalid paired clock observation")
+        if self.latest is None:
+            self.initial = self.latest = self.accounted = current
+            return
+        previous = self.latest
+        assert self.accounted is not None
+        uncertainty = current.uncertainty_seconds + self.accounted.uncertainty_seconds
+        change = current.offset - self.accounted.offset
+        if (current.boottime < previous.boottime
+                or current.monotonic < previous.monotonic
+                or change < -max(self.DETECTION_FLOOR_SECONDS, uncertainty)):
+            raise ValueError("Kernel clock continuity lost; suspend coverage is incomplete")
+        if change > uncertainty and self.pending_start is None:
+            self.pending_start = previous
+        if change > max(self.DETECTION_FLOOR_SECONDS, uncertainty):
+            start = self.pending_start or previous
+            window_seconds = current.boottime - start.boottime
+            suspended_seconds = min(change, window_seconds)
+            awake_seconds = max(0.0, window_seconds - suspended_seconds)
+            start_elapsed = max(0.0, start.boottime - self.started_boottime + awake_seconds / 2.0)
+            end_elapsed = max(start_elapsed, current.boottime - self.started_boottime - awake_seconds / 2.0)
+            if end_elapsed > start_elapsed:
+                self.intervals.append(SuspendInterval(
+                    current.captured_at - timedelta(seconds=current.boottime - self.started_boottime - start_elapsed),
+                    current.captured_at - timedelta(seconds=current.boottime - self.started_boottime - end_elapsed),
+                    start_elapsed, end_elapsed,
+                    awake_seconds / 2.0 + uncertainty,
+                    max(0.0, start.boottime - self.started_boottime),
+                    max(0.0, current.boottime - self.started_boottime),
+                ))
+            self.accounted = current
+            self.pending_start = None
+        elif change <= uncertainty:
+            self.pending_start = None
+        self.latest = current
+
+    def sample(self, worker: bool = False) -> bool:
+        try:
+            current = self.reader()
+            with self._lock:
+                if worker and self._stop.is_set():
+                    return False
+                self.observe(current)
+        except Exception as exc:
+            with self._lock:
+                if worker and self._stop.is_set():
+                    return False
+                self._error(exc)
+            return False
+        return True
+
+    def start(self) -> None:
+        if self.started or self.finished:
+            return
+        self.started = True
+        self.sample()
+        try:
+            self._thread = threading.Thread(target=self._run, name="burnbag-suspend-monitor", daemon=True)
+            self._thread.start()
+        except Exception as exc:
+            self._thread = None
+            self._error(exc)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.SAMPLE_SECONDS):
+            self.sample(worker=True)
+
+    def finish(self) -> None:
+        """Stop the worker and reconcile through the pre-report clock read."""
+        if self.finished:
+            return
+        self.finished = True
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=self.WORKER_JOIN_SECONDS)
+            if self._thread.is_alive():
+                with self._lock:
+                    self._error(RuntimeError("Suspend clock worker did not stop"))
+                return
+        self.final_read_succeeded = self.sample()
+
+    def to_log_details(self) -> Dict[str, Any]:
+        total = (
+            max(0.0, self.latest.offset - self.initial.offset)
+            if self.latest is not None and self.initial is not None else None
+        )
+        return {
+            "interval_count": len(self.intervals),
+            "total_suspended_seconds": total,
+            "coverage_complete": self.final_read_succeeded and not self.errors,
+            "coverage_start_elapsed_seconds": (
+                max(0.0, self.initial.boottime - self.started_boottime) if self.initial else None
+            ),
+            "coverage_end_elapsed_seconds": (
+                max(0.0, self.latest.boottime - self.started_boottime) if self.latest else None
+            ),
+            "sample_interval_seconds": self.SAMPLE_SECONDS,
+            "detection_floor_seconds": self.DETECTION_FLOOR_SECONDS,
+            "boundaries_estimated": True,
+            "rapid_cycles_may_merge": True,
+            "errors": list(self.errors),
+        }
+
+
+@dataclass(frozen=True)
 class BatteryStatistics:
     """Descriptive fuel-gauge statistics for one battery and handled run."""
 
@@ -1407,12 +1617,17 @@ def render_battery_depletion_chart(
     stream: Optional[TextIO] = None,
     columns: Optional[int] = None,
     lid_events: Sequence[LidEvent] = (),
+    suspend_intervals: Sequence[SuspendInterval] = (),
+    coverage_start: Optional[Tuple[datetime, float]] = None,
+    coverage_end: Optional[Tuple[datetime, float]] = None,
 ) -> str:
     """Return the full-width 25-row battery chart, or an empty string.
 
     Only actual observations establish the Y range and Y labels. Monotonic
     elapsed time controls X placement so a wall-clock adjustment cannot reorder
     samples; the displayed labels remain actual local wall-clock `HH:mm` values.
+    Suspend intervals cover all data rows, including battery and lid traces.
+    Coverage endpoints retain setup and teardown time outside battery sampling.
     """
     selected_stream = sys.stdout if stream is None else stream
     selected_names = [device.name for device in devices[:2]]
@@ -1458,13 +1673,41 @@ def render_battery_depletion_chart(
     plot_width = max(1, terminal_columns - axis_width - 2)
     canvas = [[0 for _ in range(plot_width)] for _ in range(BATTERY_PLOT_ROWS)]
 
-    # Include transition times even if the final battery read failed. Events
-    # can extend the visible time domain but never add battery observations.
-    timeline = [*samples, *lid_events]
-    first_observation = min(timeline, key=lambda item: item.elapsed_seconds)
-    last_observation = max(reversed(timeline), key=lambda item: item.elapsed_seconds)
-    first_elapsed = first_observation.elapsed_seconds
-    last_elapsed = last_observation.elapsed_seconds
+    # Include event and run-coverage times even if battery reads at those times
+    # failed. None of these endpoints creates a battery observation. Discard
+    # invalid intervals so malformed suspend evidence cannot prevent reporting.
+    if coverage_start is not None and not math.isfinite(coverage_start[1]):
+        coverage_start = None
+    if coverage_end is not None and not math.isfinite(coverage_end[1]):
+        coverage_end = None
+    if (coverage_start is not None and coverage_end is not None
+            and coverage_end[1] < coverage_start[1]):
+        coverage_start = coverage_end = None
+    valid_intervals: List[Tuple[float, float]] = []
+    timeline = [(item.captured_at, item.elapsed_seconds) for item in [*samples, *lid_events]]
+    for interval in suspend_intervals:
+        start_elapsed = interval.start_elapsed_seconds
+        end_elapsed = interval.end_elapsed_seconds
+        if (not math.isfinite(start_elapsed) or not math.isfinite(end_elapsed)
+                or start_elapsed < 0 or end_elapsed <= start_elapsed):
+            continue
+        started_at, ended_at = interval.started_at, interval.ended_at
+        if coverage_start is not None and start_elapsed < coverage_start[1]:
+            started_at, start_elapsed = coverage_start
+        if coverage_end is not None and end_elapsed > coverage_end[1]:
+            ended_at, end_elapsed = coverage_end
+        if end_elapsed <= start_elapsed:
+            continue
+        valid_intervals.append((start_elapsed, end_elapsed))
+        timeline.extend(((started_at, start_elapsed), (ended_at, end_elapsed)))
+    if coverage_start is not None:
+        timeline.insert(0, coverage_start)
+    if coverage_end is not None:
+        timeline.append(coverage_end)
+    first_observation = min(timeline, key=lambda item: item[1])
+    last_observation = max(reversed(timeline), key=lambda item: item[1])
+    first_elapsed = first_observation[1]
+    last_elapsed = last_observation[1]
 
     def column_for(elapsed: float) -> int:
         if last_elapsed == first_elapsed or plot_width == 1:
@@ -1494,6 +1737,13 @@ def render_battery_depletion_chart(
     event_columns = [0 for _ in range(plot_width)]
     for event in lid_events:
         event_columns[column_for(event.elapsed_seconds)] |= 1 if event.closed else 2
+    suspend_columns = [False for _ in range(plot_width)]
+    for start_elapsed, end_elapsed in valid_intervals:
+        # Rasterize each interval separately. Very short suspends remain at
+        # least one column wide; elapsed gaps between periods remain unfilled
+        # whenever terminal resolution can represent them.
+        for column in range(column_for(start_elapsed), column_for(end_elapsed) + 1):
+            suspend_columns[column] = True
 
     def render_event(mask: int, row_index: int, header: bool = False) -> str:
         if mask == 0:
@@ -1534,7 +1784,9 @@ def render_battery_depletion_chart(
     for row_index, row in enumerate(canvas):
         label = labels_by_row.get(row_index, "").rjust(axis_width)
         cells = "".join(
-            render_cell(cell, event_columns[column], row_index)
+            terminal_style.paint("S", "37;41", selected_stream)
+            if suspend_columns[column]
+            else render_cell(cell, event_columns[column], row_index)
             for column, cell in enumerate(row)
         )
         output.append(f"{label} |{cells}")
@@ -1570,8 +1822,8 @@ def render_battery_depletion_chart(
         )
         return sample_column, label, start, start + len(label) - 1
 
-    first_callout = make_callout(first_observation.captured_at, 0)
-    final_callout = make_callout(last_observation.captured_at, plot_width - 1)
+    first_callout = make_callout(first_observation[0], 0)
+    final_callout = make_callout(last_observation[0], plot_width - 1)
     callout_candidates: List[Tuple[int, str, int, int]] = []
     for index, group in enumerate(candidate_groups):
         sample = group[0]
@@ -1643,6 +1895,9 @@ def render_battery_depletion_chart(
             "O/|=open" if color_enabled else "O/:=open", TerminalStyle.YELLOW, selected_stream
         )
         output.append(f"Lid: {close_key}  {open_key}  B/!=both in one column")
+    if valid_intervals:
+        suspend_key = terminal_style.paint("S", "37;41", selected_stream)
+        output.append(f"Suspend: {suspend_key}=suspended (full-height block); boundaries approximate")
     return "\n".join(output) + "\n"
 
 
@@ -1988,6 +2243,8 @@ class LidCloseManager:
         started_boottime: Optional[float] = None,
         terminal_style: Optional[TerminalStyle] = None,
         running_log: Optional[RunningLog] = None,
+        suspend_clock_initial: Optional[SuspendClockSample] = None,
+        suspend_clock_error: Optional[str] = None,
     ):
         # Configuration parameters from CLI arguments
         self.mode: str = mode
@@ -2005,6 +2262,10 @@ class LidCloseManager:
         self.terminal_style = terminal_style or TerminalStyle.detect()
         self.running_log = running_log
         self.battery_monitor = BatteryMonitor(BATTERY_SYSFS_ROOT, self.started_boottime)
+        self.suspend_monitor = SuspendMonitor(
+            self.started_boottime, suspend_clock_initial, initial_error=suspend_clock_error,
+        )
+        self.suspend_report_finalized = False
 
         # State tracking variables for clean teardown and narrative reporting
         self.original_power_profile: Optional[str] = None
@@ -2354,6 +2615,7 @@ class LidCloseManager:
                         "lid_was_closed": self.lid_was_closed_during_session,
                         "lid_close_count": self.lid_close_count,
                         "lid_open_count": self.lid_open_count,
+                        "suspend_monitor": self.suspend_monitor.to_log_details(),
                         "battery_names": [
                             device.name for device in self.battery_monitor.devices
                         ],
@@ -2645,6 +2907,17 @@ class LidCloseManager:
                     self.terminal_style,
                     preferred,
                     lid_events=self.lid_events if self.ignore_lid else (),
+                    suspend_intervals=self.suspend_monitor.intervals,
+                    coverage_start=(
+                        (self.suspend_monitor.initial.captured_at,
+                         max(0.0, self.suspend_monitor.initial.boottime - self.started_boottime))
+                        if self.suspend_monitor.started and self.suspend_monitor.initial else None
+                    ),
+                    coverage_end=(
+                        (self.suspend_monitor.latest.captured_at,
+                         max(0.0, self.suspend_monitor.latest.boottime - self.started_boottime))
+                        if self.suspend_monitor.started and self.suspend_monitor.latest else None
+                    ),
                 )))
         renderers.append(("battery statistics", lambda: render_battery_statistics(
                 self.battery_statistics,
@@ -2665,6 +2938,30 @@ class LidCloseManager:
             if not self._write_output(text, preferred):
                 alternate = sys.stdout if preferred is sys.stderr else sys.stderr
                 self._write_output(text, alternate)
+
+    def finish_suspend_monitoring(self) -> None:
+        """Reconcile sleep after host recovery, before graph/report assembly."""
+        if self.suspend_report_finalized or not self.suspend_monitor.started:
+            return
+        self.suspend_report_finalized = True
+        self.suspend_monitor.finish()
+        details = self.suspend_monitor.to_log_details()
+        # Intervals remain separate records so a long run cannot overflow the
+        # bounded final-session record with an embedded history array.
+        if self.suspend_monitor.errors:
+            message = "Suspend detection coverage is incomplete: " + "; ".join(self.suspend_monitor.errors)
+            if message not in self.deviations:
+                self.deviations.append(message)
+            self._warn(message)
+        for interval in self.suspend_monitor.intervals:
+            self._log_only(
+                "suspend_interval", "INFO", "Detected suspended time; boundaries are estimated.",
+                interval.to_log_details(),
+            )
+        self._log_only(
+            "suspend_monitor_summary", "INFO" if details["coverage_complete"] else "WARNING",
+            "Reconciled suspend observations through the pre-report clock reading.", details,
+        )
 
     # --------------------------------------------------------------------------
     # D-BUS INITIALIZATION & CONNECTION HELPERS
@@ -3959,11 +4256,15 @@ class LidCloseManager:
 
     def print_shutdown_narrative(self) -> None:
         """Attempt independent reports, then synchronize their final outcome."""
-        if self.exit_code != 0:
-            self.goal_achieved = False
         if self.shutdown_narrative_printed:
             return
         self.shutdown_narrative_printed = True
+        try:
+            self.finish_suspend_monitoring()
+        except BaseException as exc:
+            self._record_failure(f"Suspend reporting could not finish: {exc}")
+        if self.exit_code != 0:
+            self.goal_achieved = False
 
         def render_narrative() -> str:
             try:
@@ -4009,6 +4310,22 @@ class LidCloseManager:
         status_color = TerminalStyle.GREEN if success else TerminalStyle.RED
         self._narrative_field("Primary Mission Status", status_str, status_color)
         self._narrative_field("Final Reason for Exit", self.shutdown_reason)
+
+        if self.suspend_monitor.started:
+            suspend_details = self.suspend_monitor.to_log_details()
+            count = suspend_details["interval_count"]
+            if count:
+                suspend_summary = (
+                    f"{count} observed interval(s), "
+                    f"{suspend_details['total_suspended_seconds']:.3f}s total; boundaries approximate"
+                )
+            elif suspend_details["coverage_complete"]:
+                suspend_summary = "None detected (1 ms detection floor)"
+            else:
+                suspend_summary = "Unknown; no intervals verified"
+            if not suspend_details["coverage_complete"]:
+                suspend_summary += "; COVERAGE INCOMPLETE"
+            self._narrative_field("Suspended Time", suspend_summary)
 
         if self.ignore_lid:
             lid_summary = f"close={self.lid_close_count}/open={self.lid_open_count}"
@@ -4283,8 +4600,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     Parses arguments, initializes D-Bus monitoring, installs POSIX signal handlers,
     and runs the appropriate mode lifecycle.
     """
-    process_started_at = time.monotonic()
-    process_started_boottime = linux_boottime()
+    suspend_clock_initial = None
+    suspend_clock_error = None
+    try:
+        suspend_clock_initial = read_suspend_clocks()
+    except Exception as exc:
+        suspend_clock_error = f"Initial suspend clock reading failed: {type(exc).__name__}: {exc}"
+    process_started_at = (
+        suspend_clock_initial.monotonic if suspend_clock_initial else time.monotonic()
+    )
+    process_started_boottime = (
+        suspend_clock_initial.boottime if suspend_clock_initial else linux_boottime()
+    )
     arguments = list(sys.argv[1:] if argv is None else argv)
     terminal_style = TerminalStyle.detect(no_color="--no-color" in arguments)
     parser = build_argument_parser(terminal_style)
@@ -4371,6 +4698,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             started_boottime=process_started_boottime,
             terminal_style=terminal_style,
             running_log=running_log,
+            suspend_clock_initial=suspend_clock_initial,
+            suspend_clock_error=suspend_clock_error,
         )
 
         def sig_handler(signum: int, frame: Any) -> None:
@@ -4382,6 +4711,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             previous_signal_handlers[signum] = signal.getsignal(signum)
             signal.signal(signum, sig_handler)
 
+        manager.suspend_monitor.start()
         manager._log_only(
             "startup_plan",
             "INFO",

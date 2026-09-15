@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Lid counts and colored event markers delivered; 161 native tests pass. Await P2 profile/suspend observations and optional marker check.
+Notes: Suspend detection and graph regions delivered; 188 native tests pass. Await P2 profile/suspend observations and visible suspend-block check.
 
 ## Phases
 

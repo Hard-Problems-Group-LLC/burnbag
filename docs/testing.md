@@ -133,6 +133,31 @@ platform observation; the automated tests do not establish hardware suspend
 reliability. Hibernation is currently reported unsupported by this host, so
 there is no requested live hibernation test.
 
+To verify the new suspend regions while burnbag remains active, use a separate
+run with backlight control disabled:
+
+```bash
+./burnbag.py run --ignore-lid --do-not-touch-backlight
+```
+
+Wait at least 15 seconds, select **Suspend** from the desktop's power controls,
+leave the system asleep for at least 20 seconds, then wake it normally. Wait
+another 15 seconds and press Ctrl-C. If desired, repeat the supervised sleep
+cycle before Ctrl-C to check separate regions. Expect the suspend summary to
+report detected time and approximate boundaries, and a full-height block of
+white capital `S` characters on a red background for each separately observed
+region. The block covers all 25 data rows, including battery/lid intersections;
+axis labels and any lid-marker header remain visible. Battery data before and
+after the block remains correctly positioned over the whole run. With
+`--no-color`, the block uses plain `S`; `--no-plot` retains the suspend summary
+and log while omitting the chart.
+
+Report missing regions, an incomplete-observation diagnostic, or an unexpected
+duration. Boundary positions are estimates between clock observations; rapid
+sleeps can share a region. The earlier countdown test can finish reporting
+before the accepted sleep request actually suspends the machine. A suspend
+that starts after coverage ends must not create a block for that earlier run.
+
 ## Installation validation
 
 `./install.sh --check` checks sources and native prerequisites without installing.
