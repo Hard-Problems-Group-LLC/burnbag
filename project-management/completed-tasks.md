@@ -1,5 +1,22 @@
 # Completed Tasks
 
+- `BB-2026-09-15-TRACKING` — Review Ubersight expectations and refresh live state.
+  Completed 2026-09-15; owner: Codex; direct operator request.
+  - Reconciled FieldManual guidance, the installed Ubersight 0.1.0 writer and
+    reader, and project completion/manual records. Moved final validation V
+    after delivered phases so phase 1000 remains in the visible phase window.
+    Marked deferred platform observations V.1 blocked and led notes with the
+    V.5 operator wait. All three existing human requests remain open.
+  - Updated regeneration/visibility/staleness guidance and roadmap indexes;
+    republished the ignored live status with private directory/file modes.
+    The installed consumer reads this checkout's default status path.
+  - Validation: producer dry run, installed writer/reader normalization,
+    fresh timezone-aware timestamp, expected V/V.5 ownership, phase 1000 done,
+    blocked delivery, private modes and ignore boundary pass. Status-only
+    rendering at 40x20, 50x24 and 80x30 shows recent completion and the operator
+    wait. No dashboard environment refresh, runtime-job rewrite or program
+    behavior change was needed; whitespace checks pass.
+
 - `BB-2026-09-15-1000` — Relative graph durations and spaced phase numbering.
   Started and completed 2026-09-15; owner: Codex; direct operator authorization.
   - All four phase 1000 slices are complete. AGENTS.md numbering guidance and
@@ -31,7 +48,7 @@
     shellcheck/Bash syntax, read-only prerequisite/install checks, generated
     documentation, warning-free man rendering, ten guide shell blocks and
     whitespace checks pass.
-  - ROADMAP and Ubersight are current; phase ACP is authorized without review.
+  - ROADMAP and Ubersight are current; phase ACP completed in `754deab` on main.
     No host installation or service change was performed. Existing physical
     and fallback requests remain open under V; the operator retains deployment
     with `./install.sh --mode dev --dev-command local`.

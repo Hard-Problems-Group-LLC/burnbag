@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Phase 1000 complete: --last, calendar subtraction and installed manual verified on native and compatibility interpreters. Awaiting V.5 warning/fallback and earlier physical observations in BB-MANUAL-01/02/03.
+Notes: Awaiting operator V.5 warning/fallback results. V.6 service sleep and BB-MANUAL-01/02 profile/suspend checks remain. Phase 1000 complete and pushed (754deab); 378 native tests and both compatibility suites passed.
 
 ## Phases
 
@@ -20,14 +20,13 @@ Notes: Phase 1000 complete: --last, calendar subtraction and installed manual ve
 | P3 | done | Shutdown graph and summary |
 | P4 | done | Error and exception hardening |
 | P5 | done | Documentation and installation |
-| V | active | Manual validation and final closure |
-
 | P6 | done | Durable telemetry |
 | P7 | done | Collector services |
 | P8 | done | CLI and history graphs |
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
 | 1000 | done | Relative history durations |
+| V | active | Manual validation and final closure |
 
 ## Slices
 
@@ -53,13 +52,6 @@ Notes: Phase 1000 complete: --last, calendar subtraction and installed manual ve
 | P5.2 | P5 | done | Regenerate README and manual |
 | P5.3 | P5 | done | Validate delivery and installer handoff |
 | P5.4 | P5 | done | Publish evidence and handoff |
-| V.1 | V | pending | Collect remaining platform observations |
-| V.2 | V | pending | Repair and verify reported defects |
-| V.3 | V | pending | Close requests and publish closure |
-| V.4 | V | done | Verify installed collector and initial history |
-| V.5 | V | active | Verify warnings and foreground fallback |
-| V.6 | V | pending | Verify continuous service sleep coverage |
-
 | P6.1 | P6 | done | Specify approved behavior |
 | P6.2 | P6 | done | Implement SQLite and bounded writer |
 | P6.3 | P6 | done | Collect sensors and merge history |
@@ -83,6 +75,12 @@ Notes: Phase 1000 complete: --last, calendar subtraction and installed manual ve
 | 1000.2000 | 1000 | done | Parse durations and calculate ranges |
 | 1000.3000 | 1000 | done | Integrate CLI and synchronize docs |
 | 1000.4000 | 1000 | done | Verify edge cases and publish |
+| V.1 | V | blocked | Await profile and suspend checks |
+| V.2 | V | pending | Repair and verify reported defects |
+| V.3 | V | pending | Close requests and publish closure |
+| V.4 | V | done | Installed collector and history verified |
+| V.5 | V | active | Await warning and fallback checks |
+| V.6 | V | pending | Verify service sleep coverage |
 
 ## Regenerate local tracking
 
@@ -90,6 +88,7 @@ Run from this checkout:
 
 ```bash
 python3 scripts/update_ubersight.py --dry-run
+umask 077
 python3 scripts/update_ubersight.py
 ```
 
@@ -102,6 +101,13 @@ remain stable. States are `pending`,
 one phase and one of its slices are active; slices in other phases cannot be
 active. A pending phase may contain already completed independent slices.
 A done phase must have all its slices done.
+
+Keep phase rows in execution order and final validation V after the delivered
+phases. Ubersight shows only two phases before the active row and five after;
+appending delivered work after V can hide recent completion. Titles are clipped
+to one line, so keep the current action recognizable in a narrow pane. Lead
+blocked notes with the operator wait because the phase-stack view does not
+show the global blocked label.
 
 `Delivery` is `active`, `blocked`, or `complete`; `Notes` is one concise line.
 When manual checks are deferred, mark their slices and phase `blocked`, keep
@@ -124,6 +130,15 @@ The ignored `.local/ubersight/status.json` is a disposable projection using
 after checkout, cache loss, or context recovery. No prompts, transcripts,
 credentials, private host details, or runtime identifiers belong in these
 tables or status notes. Keep `.local/` private and out of commits.
+
+Republish on work start/resume, slice or phase transitions, long verification
+or publication waits, manual deferral, and closeout. A refresh must recheck
+the durable records; do not keep an idle dashboard looking active with blind
+timestamp updates. The default stale threshold is 900 seconds. Use the
+installed writer for atomic replacement; a restrictive umask (`077`) keeps
+new status files private. The project-owned `.local/ubersight/` directory is
+private to the operator. Environment caches and per-job runtime telemetry
+have separate owners and must not be rewritten to manufacture agent progress.
 
 Validated against installed Ubersight 0.1.0, with writer source matching
 revision `1ec5d3ccb662f89f7b8c8b8cfd47349894094545`. The protocol and

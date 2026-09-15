@@ -8,5 +8,5 @@ specifications, and ISO 8601 timestamps.
 
 ## Current Queue
 
-No unstarted phases; remaining physical checks are tracked in
+No unstarted phases; remaining warning/fallback and physical checks are tracked in
 [the human-request queue](ai-human-requests.md).

@@ -22,5 +22,8 @@ ordered backlog and the active-task record; it does not replace either.
 
 The operator requested a root [ROADMAP.md](../ROADMAP.md) on 2026-09-14.
 It is the canonical phase design for Ubuntu support, ARM support, shutdown
-reporting, exception hardening, and documentation/installer consistency.
+reporting, exception hardening, documentation/installer consistency, continuous
+history and services, and phase 1000 relative graph durations. All automated
+implementation is delivered; warning/fallback and physical observations remain
+under V. New phases and slices follow AGENTS.md's 1000-step numbering rule.
 See [current phase and slice state](state/phase-slice-stack.md) for progress.
