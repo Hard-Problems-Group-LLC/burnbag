@@ -1,5 +1,43 @@
 # Completed Tasks
 
+- `BB-2026-09-14-04` — Hibernate diagnostics and reserved powered-off styling.
+  Started and completed 2026-09-14. Owner: Codex; requestor: operator;
+  scope: ROADMAP V.2.
+  - Clock-confirmed hibernate regions use green capital `H` on magenta;
+    suspend remains white `S` on red. Both fill all 25 data rows, preserve axes
+    and the lid header, and alternate glyphs/colors when they share a screen
+    column. Plain output retains `S`/`H`. Black digit `0` on dark gray is reserved
+    for future powered-off regions; no current detector or generated `0` block
+    was added.
+  - An optional read-only systemd journal query classifies existing clock
+    regions using one unambiguous successful operation matched by boot,
+    process, unit, invocation when available, and monotonic observation window.
+    The actual suboperation determines the kind. Failed, missing, malformed,
+    or ambiguous evidence retains clock-confirmed `S` with mode unverified;
+    compound labels alone cannot establish hibernation. Query time, bytes, and
+    accepted records are bounded at three seconds, 2 MiB, and 4,096 records.
+    Failure cleanup kills and reaps the owned query process.
+  - A final paired-clock read includes the query duration. Additional sleep
+    remains mode unverified without repeating the lookup. Logs preserve mode,
+    source, monotonic brackets, bounded classification status, and region
+    counts; optional journal failure does not erase valid clock coverage.
+    Summary and records remain available with `--no-plot` or no battery data.
+  - Validation: 225 tests passed natively on Ubuntu/aarch64 Python 3.13.7,
+    including 19 actual GLib subprocess cases. Python 3.9.21 and 3.14.6 each
+    passed 206 compatibility cases with one native-GLib module skip. New
+    coverage includes 25 classification/reader cases with actual subprocess
+    limits and reaping, nine hibernate chart cases, mixed-mode and no-plot
+    GLib exits, and a final-coverage regression for sleep during the query.
+    A read-only query of this host's 132 historical records classified a
+    matching completed operation as suspend; no live sleep or host mutation
+    was used. Generated-document consistency, warning-free man rendering,
+    manual-guide shell syntax, and whitespace checks pass; FieldManual is clean.
+  - Delivery: documentation, manual, roadmap, and Ubersight are synchronized
+    for the operator-authorized ACP. Existing P2 profile-transition and
+    supervised suspend checks remain in [BB-MANUAL-01/02](ai-human-requests.md).
+    This host does not advertise hibernation, so no live hibernate check is
+    requested. The development launcher picks up the change on its next run.
+
 - `BB-2026-09-14-03` — Actual suspend diagnostics and graph regions. Started
   and completed 2026-09-14. Owner: Codex; requestor: operator; scope: ROADMAP V.2.
   - A read-only background observer compares required Linux `CLOCK_BOOTTIME`

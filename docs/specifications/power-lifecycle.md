@@ -149,6 +149,51 @@ actual suspended time. In particular, logind can emit the end-of-preparation
 signal when its operation fails; the clock observer avoids treating those
 notifications as proof. See [systemd's failure path](https://github.com/systemd/systemd/blob/main/src/login/logind-dbus.c).
 
+## Sleep mode classification
+
+Clock evidence establishes actual suspended time but does not distinguish
+suspend from hibernate. After recovery, only when detected intervals exist,
+burnbag may query the current boot's systemd journal to classify those
+intervals. This optional read-only query has a three-second deadline, a 2 MiB
+output cap, and a 4,096-record cap. It requires no elevated privileges and
+never alters journal access, installs a dependency, or requests sleep.
+
+Classification requires one unambiguous, successful start/stop pair emitted by
+root's `systemd-sleep`, matched within the interval's monotonic observation
+window and across the same boot, PID, system unit, and invocation identity when
+available. The recognized start
+message must identify the actual `suspend` or `hibernate` suboperation; a
+compound `SLEEP` field alone is insufficient. Start messages indicate intent,
+and stop records can be emitted after failure, so neither alone proves success.
+Missing pairs, explicit failure, unrecognized formats, competing operations,
+and compound or mixed operations that cannot be split reliably retain mode
+`unknown`. See the systemd sleep implementation for
+[structured suboperation records](https://github.com/systemd/systemd/blob/v257/src/sleep/sleep.c),
+[earlier explicit messages](https://github.com/systemd/systemd/blob/v249/src/sleep/sleep.c),
+and [legacy single-operation messages](https://github.com/systemd/systemd/blob/v239/src/sleep/sleep.c).
+
+Only a successful matched hibernation pair changes a clock-confirmed region to
+`H`; verified suspend and unknown mode use `S`, with unknown mode identified in
+the report. Journal absence, inaccessible records, timeout, malformed output,
+or limit exhaustion cannot erase clock evidence or turn a complete clock
+observation into a coverage failure. They leave mode classification explicitly
+unavailable or unverified. Classification changes neither measured duration
+nor estimated boundaries; it does not infer separately timed stages from one
+clock observation window. Counts describe classified regions, not guaranteed
+physical sleep-cycle totals.
+
+After the optional query, one final paired-clock observation extends coverage
+through the query itself. Additional sleep detected in that window is retained
+with mode `unknown`, and classification counts and the reason are updated.
+Burnbag does not repeat the query, so another sleep cannot create an unbounded
+shutdown lookup cycle.
+
+The green-on-magenta hibernate encoding and reserved black-on-dark-gray
+powered-off encoding are defined by [the chart contract](battery-monitoring.md#actual-suspend-regions).
+The reservation introduces no power-off detection. Unhandled power loss cannot
+finalize this process's report, and elapsed time alone cannot identify it as a
+powered-off region.
+
 ## Verification
 
 Stateful service fakes cover actual profile values, unavailable selections,

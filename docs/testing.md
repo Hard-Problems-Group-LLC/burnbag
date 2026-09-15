@@ -146,8 +146,11 @@ another 15 seconds and press Ctrl-C. If desired, repeat the supervised sleep
 cycle before Ctrl-C to check separate regions. Expect the suspend summary to
 report detected time and approximate boundaries, and a full-height block of
 white capital `S` characters on a red background for each separately observed
-region. The block covers all 25 data rows, including battery/lid intersections;
-axis labels and any lid-marker header remain visible. Battery data before and
+region. A readable matching successful journal operation identifies suspend;
+otherwise the report explicitly says its mode is unverified while preserving
+the clock-confirmed region. The block covers all 25 data rows, including
+battery/lid intersections; axis labels and any lid-marker header remain visible.
+Battery data before and
 after the block remains correctly positioned over the whole run. With
 `--no-color`, the block uses plain `S`; `--no-plot` retains the suspend summary
 and log while omitting the chart.
@@ -157,6 +160,16 @@ duration. Boundary positions are estimates between clock observations; rapid
 sleeps can share a region. The earlier countdown test can finish reporting
 before the accepted sleep request actually suspends the machine. A suspend
 that starts after coverage ends must not create a block for that earlier run.
+
+Hibernate classification and green `H` on magenta blocks are covered by
+automated journal fixtures and graph checks. No live hibernation test is
+requested on this host, which does not advertise that capability. On a future
+supported platform, a completed hibernate/wake cycle during a continued run
+can verify the `H` display when matching successful journal evidence is
+readable. Without that evidence, expect clock-confirmed `S` with mode unverified;
+the program must not guess hibernation from a request. Black `0` on dark gray is
+reserved for future powered-off regions; current tests must not expect a
+power-off detector or generated `0` blocks.
 
 ## Installation validation
 

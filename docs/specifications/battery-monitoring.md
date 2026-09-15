@@ -160,13 +160,27 @@ inferred, with explicit boundary uncertainty; the graph must identify the
 regions as approximate. One observation window can contain multiple sleeps,
 so displayed region count is not a claim of the exact number of suspend cycles.
 
-Each region occupies at least one screen column across all 25 data rows and
-is filled with capital `S` characters: white foreground on red background when
-ANSI color is enabled, plain `S` otherwise. These blocks take precedence over
-battery glyphs and lid-event lines within their columns. The separate lid
-header remains visible, and both axes retain their required extrema labels.
-Suspend blocks do not fabricate battery observations, change statistics, or
-connect missing readings. Overlapping regions share the same `S` encoding.
+Each region occupies at least one screen column across all 25 data rows.
+Verified suspend uses capital `S` in white on red (ANSI `37;41`), and verified
+hibernate uses capital `H` in green on magenta (ANSI `32;45`). Clock-confirmed
+sleep whose mode cannot be verified retains the `S` encoding with an explicit
+unverified-mode qualification in the legend and summary. Plain output retains
+`S` and `H`. Mode classification uses the bounded evidence contract in
+[power lifecycle](power-lifecycle.md#sleep-mode-classification).
+
+These blocks take precedence over battery glyphs and lid-event lines within
+their columns. The separate lid header remains visible, and both axes retain
+their required extrema labels. Blocks do not fabricate battery observations,
+change statistics, or connect missing readings. Several regions of the same
+kind can share a column. If suspend/unverified sleep and hibernate map to one
+column, alternate `S` and `H` down its rows, preserving each kind's color and
+explaining the shared column in the legend. This is a display overlap, not an
+inferred split of a compound sleep operation.
+
+Reserve digit `0` in black on dark gray (ANSI `30;100`) for a future powered-off
+region; its plain encoding is `0`. This is only a reserved
+style: the current observer and classifier do not detect power-off periods,
+and current runs do not generate such regions or add them to the legend.
 
 Detection and blocks apply to every operational mode, independently of
 `--ignore-lid`. `--no-plot` suppresses blocks with the graph, while detection,

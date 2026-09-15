@@ -146,3 +146,13 @@ post-recovery reporting snapshot, verified suspend-time accounting, approximate
 interval placement with explicit uncertainty, full-run graph coverage, and
 plain-output and no-plot behavior. Automated checks precede publication;
 the existing supervised P2.4 suspend check also verifies the visible blocks.
+
+The related `BB-2026-09-14-04` follow-up distinguishes verified hibernation
+with full-height green `H` on magenta and reserves black `0` on dark gray for
+future powered-off regions. Clock evidence continues to establish actual sleep;
+a bounded read-only journal lookup may classify its mode from an unambiguous
+successful systemd sleep operation. Missing, failed, or ambiguous mode evidence
+retains `S` with an explicit unverified-mode qualification. Shared suspend and
+hibernate columns preserve both encodings. The reserved powered-off style adds
+no current detector or generated powered-off region. Synchronize contracts,
+generated documentation, tests, and tracking before the authorized ACP.

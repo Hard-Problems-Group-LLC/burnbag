@@ -56,12 +56,21 @@ No additional queued requests.
   - `BB-2026-09-14-03` delivers actual-suspend diagnostics and graph blocks
     under V.2; 188 native tests and compatibility checks pass. The continued-run
     variant in check 3 verifies the new display: leave burnbag active, use
-    desktop Suspend, wake, and then press Ctrl-C. Expect measured suspended time and approximate full-height
-    white `S` on red regions; plain output uses `S`. The countdown request can
+    desktop Suspend, wake, and then press Ctrl-C. Expect measured suspended
+    time and approximate full-height white `S` on red regions; plain output
+    uses `S`. The countdown request can
     finish before physical sleep begins, so it cannot by itself prove this
     display. The development launcher uses the delivered feature on its next
     invocation. No live suspend has been performed by the agent; physical sleep
     and visible-block confirmation remain pending.
+  - Related `BB-2026-09-14-04` delivers hibernate identification and green `H`
+    on magenta regions; 225 native tests and compatibility checks pass.
+    Successful matching journal evidence identifies the
+    sleep kind; unavailable or ambiguous mode evidence preserves clock-confirmed
+    `S` with an explicit unverified-mode report. This does not add a live
+    hibernation request on the unsupported host. Black `0` on dark gray is
+    reserved for future powered-off regions, with no current detector or
+    operator check.
 
 ## Completed Requests
 

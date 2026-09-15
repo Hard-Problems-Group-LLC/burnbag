@@ -51,6 +51,13 @@ class SuspendMonitoringTests(unittest.TestCase):
         self.assertEqual(first.started_at, self.wall + timedelta(seconds=1.5))
         self.assertEqual(monitor.to_log_details()["total_suspended_seconds"], 80)
         self.assertEqual(first.to_log_details()["timebase"], "CLOCK_BOOTTIME")
+        self.assertEqual(first.to_log_details()["observed_start_monotonic_seconds"], 101)
+        self.assertEqual(first.to_log_details()["observed_end_monotonic_seconds"], 102)
+        self.assertEqual(first.to_log_details()["sleep_kind"], "unknown")
+        self.assertEqual(first.to_log_details()["classification_source"], "clock-only")
+        self.assertEqual(monitor.to_log_details()["sleep_kind_counts"], {
+            "suspend": 0, "hibernate": 0, "unknown": 2,
+        })
 
     def test_delayed_sampling_expands_boundary_uncertainty_not_sleep_duration(self):
         monitor = self.monitor()
@@ -211,6 +218,7 @@ class SuspendMonitoringTests(unittest.TestCase):
             manager.battery_monitor.samples = [burnbag.BatterySample(self.wall, 0, {"BAT0": 80})]
             with contextlib.redirect_stdout(io.StringIO()) as output, \
                     contextlib.redirect_stderr(io.StringIO()), \
+                    mock.patch.object(burnbag, "read_sleep_journal", return_value=[]), \
                     mock.patch.object(burnbag.os, "fsync", side_effect=OSError("injected fsync failure")):
                 manager.print_shutdown_narrative()
             self.assertEqual(manager.exit_code, 1)
@@ -219,6 +227,32 @@ class SuspendMonitoringTests(unittest.TestCase):
             self.assertIn("Suspend: S=suspended", output.getvalue())
             self.assertEqual(output.getvalue().count("BURNBAG — SHUTDOWN & TEARDOWN"), 1)
             self.assertIsNone(log.file_descriptor)
+
+    def test_sleep_during_optional_journal_query_is_retained_as_unverified(self):
+        current = [self.clock(31, awake=1)]
+        monitor = self.monitor(reader=lambda: current[0])
+        monitor.started = True
+        manager = burnbag.LidCloseManager(
+            "run", None, False, True, do_not_touch_backlight=True,
+            terminal_style=burnbag.TerminalStyle(False, False),
+        )
+        manager.suspend_monitor = monitor
+
+        def journal(_boot_id):
+            current[0] = self.clock(42, awake=2)
+            return []
+
+        with mock.patch.object(burnbag, "read_sleep_journal", side_effect=journal), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            manager.print_shutdown_narrative()
+        details = monitor.to_log_details()
+        self.assertEqual(details["interval_count"], 2)
+        self.assertEqual(details["total_suspended_seconds"], 40)
+        self.assertEqual(details["coverage_end_elapsed_seconds"], 42)
+        self.assertEqual(details["sleep_kind_counts"]["unknown"], 2)
+        self.assertEqual(details["type_classification"]["unclassified_intervals"], 2)
+        self.assertIn("after the journal snapshot", details["type_classification"]["reason"])
+        self.assertIn("2 observed interval(s), 40.000s total", output.getvalue())
 
 
 if __name__ == "__main__":

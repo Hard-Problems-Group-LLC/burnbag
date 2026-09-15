@@ -68,12 +68,18 @@ column. The chart still has 25 data rows; marker headers are outside them.
 These diagnostic markers are absent without `--ignore-lid` and do not create
 a chart when no valid battery observations exist.
 
-Actual suspend regions use full-height blocks of white capital `S` characters
-on a red background across all 25 data rows, or plain `S` when color is
-disabled. They take precedence over battery glyphs and lid lines while leaving
-the separate lid header and axis labels visible. The legend identifies their
-approximate timing. Suspend detection applies in every operational mode,
-independently of `--ignore-lid`; `--no-plot` suppresses its blocks with the chart
+Actual sleep regions fill all 25 data rows: verified suspend uses white `S`
+on red (`37;41`), and verified hibernate uses green `H` on magenta (`32;45`).
+When only actual suspended time is verified, retain `S` and explicitly qualify
+the mode as unverified. Plain output retains the distinct `S`/`H` characters.
+If both kinds occupy one screen column, alternate their glyphs and colors down
+its rows and explain the overlap in the legend. Blocks take precedence over
+battery glyphs and lid lines while leaving the separate lid header and axis
+labels visible. The legend identifies approximate timing. Black `0` on dark
+gray (`30;100`) is reserved for future powered-off regions; current runs do not
+detect or generate those regions or display their legend. Detection applies in
+every operational mode, independently of `--ignore-lid`; `--no-plot` suppresses
+its blocks with the chart
 but retains the shutdown summary and log. The summary distinguishes no detected
 intervals at the one-millisecond floor from incomplete observation and qualifies
 approximate boundaries. See

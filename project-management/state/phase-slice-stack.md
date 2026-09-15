@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Suspend detection and graph regions delivered; 188 native tests pass. Await P2 profile/suspend observations and visible suspend-block check.
+Notes: Hibernate classification/colors and reserved powered-off styling delivered; 225 native tests pass. Await P2 profile/suspend observations and visible blocks.
 
 ## Phases
 

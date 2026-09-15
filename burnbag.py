@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import fcntl
 import io
@@ -30,10 +30,12 @@ import math
 import os
 from pathlib import Path
 import re
+import selectors
 import signal
 import shutil
 import stat
 import statistics
+import subprocess
 import sys
 import textwrap
 import threading
@@ -644,6 +646,13 @@ BATTERY_SYSFS_ROOT = Path("/sys/class/power_supply")
 BATTERY_SAMPLE_INTERVAL_MILLISECONDS = 15_000
 BATTERY_PLOT_ROWS = 25
 BATTERY_PLOT_FALLBACK_COLUMNS = 80
+# Powered-off styling is reserved; this running process cannot establish an
+# interval during which it was powered off, and unknown sleep stays an S.
+SLEEP_REGION_STYLES = {
+    "suspend": ("S", "37;41"),
+    "hibernate": ("H", "32;45"),
+    "powered-off": ("0", "30;100"),
+}
 
 
 def linux_boottime() -> float:
@@ -740,6 +749,10 @@ class SuspendInterval:
     boundary_uncertainty_seconds: float = 0.0
     observed_start_elapsed_seconds: float = 0.0
     observed_end_elapsed_seconds: float = 0.0
+    observed_start_monotonic_seconds: Optional[float] = None
+    observed_end_monotonic_seconds: Optional[float] = None
+    sleep_kind: str = "unknown"
+    classification_source: str = "clock-only"
 
     def to_log_details(self) -> Dict[str, Any]:
         return {
@@ -751,6 +764,10 @@ class SuspendInterval:
             "boundary_uncertainty_seconds": self.boundary_uncertainty_seconds,
             "observed_start_elapsed_seconds": self.observed_start_elapsed_seconds,
             "observed_end_elapsed_seconds": self.observed_end_elapsed_seconds,
+            "observed_start_monotonic_seconds": self.observed_start_monotonic_seconds,
+            "observed_end_monotonic_seconds": self.observed_end_monotonic_seconds,
+            "sleep_kind": self.sleep_kind,
+            "classification_source": self.classification_source,
             "timebase": "CLOCK_BOOTTIME",
         }
 
@@ -821,6 +838,7 @@ class SuspendMonitor:
         self.started = False
         self.finished = False
         self.final_read_succeeded = False
+        self.type_classification: Dict[str, Any] = {"status": "not_attempted"}
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
@@ -863,6 +881,7 @@ class SuspendMonitor:
                     awake_seconds / 2.0 + uncertainty,
                     max(0.0, start.boottime - self.started_boottime),
                     max(0.0, current.boottime - self.started_boottime),
+                    start.monotonic, current.monotonic,
                 ))
             self.accounted = current
             self.pending_start = None
@@ -922,6 +941,11 @@ class SuspendMonitor:
         )
         return {
             "interval_count": len(self.intervals),
+            "sleep_kind_counts": {
+                kind: sum(interval.sleep_kind == kind for interval in self.intervals)
+                for kind in ("suspend", "hibernate", "unknown")
+            },
+            "type_classification": dict(self.type_classification),
             "total_suspended_seconds": total,
             "coverage_complete": self.final_read_succeeded and not self.errors,
             "coverage_start_elapsed_seconds": (
@@ -936,6 +960,236 @@ class SuspendMonitor:
             "rapid_cycles_may_merge": True,
             "errors": list(self.errors),
         }
+
+
+SLEEP_JOURNAL_START_ID = "6bbd95ee977941e497c48be27c254128"
+SLEEP_JOURNAL_STOP_ID = "8811e6df2a8e40f58a94cea26f8ebf14"
+SLEEP_JOURNAL_MAX_RECORDS = 4096
+SLEEP_JOURNAL_MAX_BYTES = 2 * 1024 * 1024
+SLEEP_JOURNAL_TIMEOUT_SECONDS = 3.0
+SLEEP_JOURNAL_FIELDS = (
+    "MESSAGE_ID", "MESSAGE", "SLEEP", "PRIORITY", "ERRNO", "_UID", "_COMM",
+    "_PID", "_SYSTEMD_UNIT", "_SYSTEMD_INVOCATION_ID", "_BOOT_ID",
+    "__MONOTONIC_TIMESTAMP",
+)
+SLEEP_JOURNAL_UNITS = {
+    "systemd-suspend.service": "suspend",
+    "systemd-hibernate.service": "hibernate",
+    "systemd-hybrid-sleep.service": "hybrid-sleep",
+    "systemd-suspend-then-hibernate.service": "suspend-then-hibernate",
+}
+
+
+def _sleep_classification_result(
+    intervals: Sequence[SuspendInterval], status: str, reason: str, record_count: int = 0,
+) -> Tuple[List[SuspendInterval], Dict[str, Any]]:
+    """Keep optional journal coverage separate from measured clock coverage."""
+    result = list(intervals)
+    classified = sum(interval.sleep_kind in ("suspend", "hibernate") for interval in result)
+    return result, {
+        "source": "systemd-journal", "status": status, "reason": reason,
+        "record_count": record_count, "classified_intervals": classified,
+        "unclassified_intervals": len(result) - classified,
+    }
+
+
+def read_sleep_journal(boot_id: str) -> List[Dict[str, Any]]:
+    """Read a bounded, unprivileged snapshot; always kill/reap a failed child.
+
+    Journal timestamps are monotonic, so neither wall-clock changes nor an old
+    boot can turn a nearby sleep request into evidence for this run. Reading
+    one extra record detects a truncated history rather than trusting it.
+    """
+    if not isinstance(boot_id, str) or not re.fullmatch(r"[0-9a-f]{32}", boot_id):
+        raise ValueError("Current boot identity is unavailable")
+    command = [
+        "journalctl", "--quiet", "--no-pager", "--output=json", f"--boot={boot_id}",
+        f"--lines={SLEEP_JOURNAL_MAX_RECORDS + 1}",
+        "--output-fields=" + ",".join(SLEEP_JOURNAL_FIELDS),
+        "MESSAGE_ID=" + SLEEP_JOURNAL_START_ID,
+        "MESSAGE_ID=" + SLEEP_JOURNAL_STOP_ID,
+        "_COMM=systemd-sleep", "_UID=0",
+    ]
+    deadline = time.monotonic() + SLEEP_JOURNAL_TIMEOUT_SECONDS
+    output = bytearray()
+    total_bytes = 0
+    process = subprocess.Popen(
+        command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        assert process.stdout is not None and process.stderr is not None
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ, True)
+            selector.register(process.stderr, selectors.EVENT_READ, False)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Sleep journal query exceeded its time limit")
+                for key, _ in selector.select(remaining):
+                    chunk = os.read(key.fd, 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    total_bytes += len(chunk)
+                    if total_bytes > SLEEP_JOURNAL_MAX_BYTES:
+                        raise ValueError("Sleep journal query exceeded its byte limit")
+                    if key.data:
+                        output.extend(chunk)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Sleep journal query exceeded its time limit")
+        if process.wait(timeout=remaining) != 0:
+            raise RuntimeError("Sleep journal query failed or access was denied")
+        records = []
+        for line in output.decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if not isinstance(record, dict):
+                raise ValueError("Sleep journal returned a malformed record")
+            records.append(record)
+            if len(records) > SLEEP_JOURNAL_MAX_RECORDS:
+                raise ValueError("Sleep journal history exceeds its record limit")
+        return records
+    except BaseException:
+        # A descendant holding a pipe must not keep teardown blocked either.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        raise
+    finally:
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+
+def classify_sleep_records(
+    intervals: Sequence[SuspendInterval], records: Sequence[Dict[str, Any]], boot_id: str,
+) -> Tuple[List[SuspendInterval], Dict[str, Any]]:
+    """Name clock-confirmed regions only when one successful attempt matches.
+
+    START names the actual suboperation in modern systemd. The SLEEP field
+    names the overall operation, including compound operations and fallback
+    paths. STOP is also emitted for failures, so its identity alone proves
+    neither sleep nor hibernation. Hybrid sleep does not prove disk restoration.
+    """
+    unknown = [replace(interval, sleep_kind="unknown", classification_source="clock-only")
+               for interval in intervals]
+    if not unknown:
+        return _sleep_classification_result([], "not-needed", "No detected sleep regions")
+    if not isinstance(boot_id, str) or not re.fullmatch(r"[0-9a-f]{32}", boot_id):
+        return _sleep_classification_result(unknown, "unavailable", "Current boot identity is unavailable")
+    if len(records) > SLEEP_JOURNAL_MAX_RECORDS:
+        return _sleep_classification_result(unknown, "unavailable", "Sleep journal history is truncated")
+    trusted = []
+    for record in records:
+        if (not isinstance(record, dict) or record.get("_BOOT_ID") != boot_id
+                or record.get("_UID") != "0" or record.get("_COMM") != "systemd-sleep"
+                or not isinstance(record.get("_SYSTEMD_UNIT"), str)
+                or record.get("_SYSTEMD_UNIT") not in SLEEP_JOURNAL_UNITS
+                or record.get("MESSAGE_ID") not in (SLEEP_JOURNAL_START_ID, SLEEP_JOURNAL_STOP_ID)):
+            continue
+        stamp, pid = record.get("__MONOTONIC_TIMESTAMP"), record.get("_PID")
+        if (not isinstance(stamp, str) or not re.fullmatch(r"[0-9]{1,20}", stamp)
+                or not isinstance(pid, str) or not re.fullmatch(r"[1-9][0-9]{0,19}", pid)):
+            return _sleep_classification_result(
+                unknown, "unavailable", "Sleep journal contains malformed trusted timestamps or identities",
+                len(records),
+            )
+        trusted.append((int(stamp) / 1000000.0, record))
+    trusted.sort(key=lambda entry: entry[0])
+    # Attempts retain failures and incomplete pairs so neighboring activity
+    # cannot lend its successful result to an unrelated clock observation.
+    attempts: List[Tuple[float, float, Optional[str]]] = []
+    pending: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+    for stamp, record in trusted:
+        key = (record["_PID"], record["_SYSTEMD_UNIT"])
+        if record["MESSAGE_ID"] == SLEEP_JOURNAL_START_ID:
+            previous = pending.get(key)
+            if previous is not None:
+                attempts.append((previous[0], stamp, None))
+            pending[key] = (stamp, record)
+            continue
+        previous = pending.pop(key, None)
+        if previous is None:
+            attempts.append((-math.inf, stamp, None))
+            continue
+        start, opening = previous
+        operation = None
+        message = opening.get("MESSAGE")
+        if isinstance(message, str):
+            match = re.fullmatch(
+                r"(?:Performing sleep operation|Entering sleep state) '(suspend|hibernate|hybrid-sleep)'\.\.\.",
+                message,
+            )
+            if match:
+                operation = match.group(1)
+            elif message == "Suspending system..." and opening.get("SLEEP") in ("suspend", "hibernate"):
+                operation = opening["SLEEP"]
+        overall = SLEEP_JOURNAL_UNITS[record["_SYSTEMD_UNIT"]]
+        stop_message = record.get("MESSAGE")
+        stop_operation = (
+            re.fullmatch(r"System returned from sleep operation '([^']+)'\.", stop_message)
+            if isinstance(stop_message, str) else None
+        )
+        successful_message = (
+            stop_operation is not None and stop_operation.group(1) == overall
+            or stop_message in ("System returned from sleep state.", "System resumed.")
+        )
+        invocation = opening.get("_SYSTEMD_INVOCATION_ID")
+        valid_invocation = (
+            invocation is None or isinstance(invocation, str) and bool(re.fullmatch(r"[0-9a-f]{32}", invocation))
+        )
+        success = (
+            stamp > start and opening.get("PRIORITY") == "6" and record.get("PRIORITY") == "6"
+            and "ERRNO" not in opening and "ERRNO" not in record
+            and opening.get("SLEEP") == record.get("SLEEP") == overall
+            and valid_invocation and invocation == record.get("_SYSTEMD_INVOCATION_ID")
+            and operation in ("suspend", "hibernate")
+            and (overall not in ("suspend", "hibernate") or operation == overall)
+            and successful_message
+        )
+        attempts.append((start, stamp, operation if success else None))
+    attempts.extend((start, math.inf, None) for start, _ in pending.values())
+    result = []
+    for interval in unknown:
+        lower, upper = interval.observed_start_monotonic_seconds, interval.observed_end_monotonic_seconds
+        if (lower is None or upper is None or not math.isfinite(lower) or not math.isfinite(upper)
+                or lower < 0 or upper < lower):
+            result.append(interval)
+            continue
+        matches = [attempt for attempt in attempts if attempt[0] <= upper and attempt[1] >= lower]
+        if len(matches) == 1:
+            start, stop, operation = matches[0]
+            if operation is not None and lower <= start < stop <= upper:
+                interval = replace(interval, sleep_kind=operation, classification_source="systemd-journal")
+        result.append(interval)
+    reason = ("Successful sleep operations matched to clock observations"
+              if all(interval.sleep_kind != "unknown" for interval in result)
+              else "Some sleep regions lack an unambiguous successful journal operation")
+    return _sleep_classification_result(result, "available", reason, len(records))
+
+
+def classify_sleep_intervals(
+    intervals: Sequence[SuspendInterval],
+) -> Tuple[List[SuspendInterval], Dict[str, Any]]:
+    """Optionally classify observed sleep without affecting recovery or exit status."""
+    if not intervals:
+        return _sleep_classification_result([], "not-needed", "No detected sleep regions")
+    unknown = [replace(interval, sleep_kind="unknown", classification_source="clock-only")
+               for interval in intervals]
+    try:
+        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip().replace("-", "")
+        if not re.fullmatch(r"[0-9a-f]{32}", boot_id):
+            raise ValueError("Current boot identity is unavailable")
+        records = read_sleep_journal(boot_id)
+        return classify_sleep_records(unknown, records, boot_id)
+    except Exception as exc:
+        return _sleep_classification_result(
+            unknown, "unavailable", f"{type(exc).__name__}: sleep type could not be verified from the journal",
+        )
 
 
 @dataclass(frozen=True)
@@ -1626,7 +1880,7 @@ def render_battery_depletion_chart(
     Only actual observations establish the Y range and Y labels. Monotonic
     elapsed time controls X placement so a wall-clock adjustment cannot reorder
     samples; the displayed labels remain actual local wall-clock `HH:mm` values.
-    Suspend intervals cover all data rows, including battery and lid traces.
+    Sleep intervals cover all data rows, including battery and lid traces.
     Coverage endpoints retain setup and teardown time outside battery sampling.
     """
     selected_stream = sys.stdout if stream is None else stream
@@ -1683,7 +1937,7 @@ def render_battery_depletion_chart(
     if (coverage_start is not None and coverage_end is not None
             and coverage_end[1] < coverage_start[1]):
         coverage_start = coverage_end = None
-    valid_intervals: List[Tuple[float, float]] = []
+    valid_intervals: List[Tuple[float, float, str]] = []
     timeline = [(item.captured_at, item.elapsed_seconds) for item in [*samples, *lid_events]]
     for interval in suspend_intervals:
         start_elapsed = interval.start_elapsed_seconds
@@ -1698,7 +1952,10 @@ def render_battery_depletion_chart(
             ended_at, end_elapsed = coverage_end
         if end_elapsed <= start_elapsed:
             continue
-        valid_intervals.append((start_elapsed, end_elapsed))
+        sleep_kind = interval.sleep_kind
+        if sleep_kind not in ("suspend", "hibernate"):
+            sleep_kind = "unknown"
+        valid_intervals.append((start_elapsed, end_elapsed, sleep_kind))
         timeline.extend(((started_at, start_elapsed), (ended_at, end_elapsed)))
     if coverage_start is not None:
         timeline.insert(0, coverage_start)
@@ -1737,13 +1994,20 @@ def render_battery_depletion_chart(
     event_columns = [0 for _ in range(plot_width)]
     for event in lid_events:
         event_columns[column_for(event.elapsed_seconds)] |= 1 if event.closed else 2
-    suspend_columns = [False for _ in range(plot_width)]
-    for start_elapsed, end_elapsed in valid_intervals:
+    sleep_columns = [0 for _ in range(plot_width)]
+    for start_elapsed, end_elapsed, sleep_kind in valid_intervals:
         # Rasterize each interval separately. Very short suspends remain at
         # least one column wide; elapsed gaps between periods remain unfilled
         # whenever terminal resolution can represent them.
         for column in range(column_for(start_elapsed), column_for(end_elapsed) + 1):
-            suspend_columns[column] = True
+            sleep_columns[column] |= 2 if sleep_kind == "hibernate" else 1
+
+    def render_sleep(mask: int, row_index: int) -> str:
+        # Rasterization can put distinct sleep types into the same column.
+        # Alternate their glyphs and colors so neither observation disappears.
+        sleep_kind = "hibernate" if mask == 2 or (mask == 3 and row_index % 2 == 0) else "suspend"
+        symbol, color = SLEEP_REGION_STYLES[sleep_kind]
+        return terminal_style.paint(symbol, color, selected_stream)
 
     def render_event(mask: int, row_index: int, header: bool = False) -> str:
         if mask == 0:
@@ -1784,8 +2048,8 @@ def render_battery_depletion_chart(
     for row_index, row in enumerate(canvas):
         label = labels_by_row.get(row_index, "").rjust(axis_width)
         cells = "".join(
-            terminal_style.paint("S", "37;41", selected_stream)
-            if suspend_columns[column]
+            render_sleep(sleep_columns[column], row_index)
+            if sleep_columns[column]
             else render_cell(cell, event_columns[column], row_index)
             for column, cell in enumerate(row)
         )
@@ -1895,9 +2159,16 @@ def render_battery_depletion_chart(
             "O/|=open" if color_enabled else "O/:=open", TerminalStyle.YELLOW, selected_stream
         )
         output.append(f"Lid: {close_key}  {open_key}  B/!=both in one column")
-    if valid_intervals:
-        suspend_key = terminal_style.paint("S", "37;41", selected_stream)
+    if any(mask & 1 for mask in sleep_columns):
+        suspend_key = terminal_style.paint(*SLEEP_REGION_STYLES["suspend"], selected_stream)
         output.append(f"Suspend: {suspend_key}=suspended (full-height block); boundaries approximate")
+    if any(mask & 2 for mask in sleep_columns):
+        hibernate_key = terminal_style.paint(*SLEEP_REGION_STYLES["hibernate"], selected_stream)
+        output.append(f"Hibernate: {hibernate_key}=hibernated (full-height block); boundaries approximate")
+    if 3 in sleep_columns:
+        output.append("Sleep: S/H alternate where both types share one column")
+    if any(kind == "unknown" for _start, _end, kind in valid_intervals):
+        output.append("Sleep mode: S includes mode-unverified sleep")
     return "\n".join(output) + "\n"
 
 
@@ -2945,6 +3216,31 @@ class LidCloseManager:
             return
         self.suspend_report_finalized = True
         self.suspend_monitor.finish()
+        try:
+            intervals, classification = classify_sleep_intervals(self.suspend_monitor.intervals)
+            self.suspend_monitor.intervals = intervals
+            self.suspend_monitor.type_classification = classification
+        except Exception as exc:
+            # Sleep duration remains usable when optional type evidence fails.
+            self.suspend_monitor.type_classification = {
+                "source": "systemd-journal", "status": "unavailable",
+                "reason": f"{type(exc).__name__}: {exc}"[:256],
+                "classified_intervals": 0,
+                "unclassified_intervals": len(self.suspend_monitor.intervals),
+            }
+        # The optional journal read can itself span sleep. Extend coverage up
+        # to report assembly without starting another query or claiming a mode
+        # for a period that occurred after the journal snapshot.
+        classified_count = len(self.suspend_monitor.intervals)
+        worker = self.suspend_monitor._thread
+        if worker is None or not worker.is_alive():
+            self.suspend_monitor.final_read_succeeded = self.suspend_monitor.sample()
+        if len(self.suspend_monitor.intervals) > classified_count:
+            classification = self.suspend_monitor.type_classification
+            classification["unclassified_intervals"] = sum(
+                interval.sleep_kind == "unknown" for interval in self.suspend_monitor.intervals
+            )
+            classification["reason"] = "Additional sleep occurred after the journal snapshot; its mode is unverified"
         details = self.suspend_monitor.to_log_details()
         # Intervals remain separate records so a long run cannot overflow the
         # bounded final-session record with an embedded history array.
@@ -4326,6 +4622,12 @@ class LidCloseManager:
             if not suspend_details["coverage_complete"]:
                 suspend_summary += "; COVERAGE INCOMPLETE"
             self._narrative_field("Suspended Time", suspend_summary)
+            if count:
+                kinds = suspend_details["sleep_kind_counts"]
+                self._narrative_field(
+                    "Sleep Types Detected",
+                    f"suspend={kinds['suspend']}/hibernate={kinds['hibernate']}/unverified={kinds['unknown']}",
+                )
 
         if self.ignore_lid:
             lid_summary = f"close={self.lid_close_count}/open={self.lid_open_count}"

@@ -162,7 +162,10 @@ Counting and event logging continue with `--no-plot` and when no valid battery
 observations are available.
 
 Before report rendering, the clock observer is joined and reconciled through
-its final post-recovery snapshot. Each detected region is then written as a
+its post-recovery snapshot. After optional journal classification, one final
+paired-clock read extends coverage through the query; additional observed sleep
+retains kind `unknown` without repeating the query. Final classification counts
+and reason reflect those additions. Each detected region is then written as a
 separate `suspend_interval` record with:
 
 - `start_local_estimate` and `end_local_estimate`, timezone-aware estimated
@@ -171,7 +174,12 @@ separate `suspend_interval` record with:
 - `boundary_uncertainty_seconds`, including the bounding awake window and
   clock-read uncertainty;
 - `observed_start_elapsed_seconds` and `observed_end_elapsed_seconds`, retaining
-  the actual observation bracket; and
+  the actual boottime observation bracket;
+- `observed_start_monotonic_seconds` and `observed_end_monotonic_seconds`,
+  absolute monotonic readings used to match same-boot journal evidence;
+- `sleep_kind`, one of `suspend`, `hibernate`, or `unknown`, and
+  `classification_source`, identifying clock-only or journal-backed mode
+  evidence; and
 - `timebase: "CLOCK_BOOTTIME"`, sharing the battery/lid process-start origin.
 
 These records describe clock-confirmed duration and inferred placement rather
@@ -183,7 +191,13 @@ no finalized suspend records.
 `coverage_complete`, `coverage_start_elapsed_seconds`,
 `coverage_end_elapsed_seconds`, `sample_interval_seconds`,
 `detection_floor_seconds`, `boundaries_estimated`, `rapid_cycles_may_merge`, and
-`errors`. Missing clock coverage uses JSON `null` for unavailable values and
+`errors`. It also includes `sleep_kind_counts`, with separate `suspend`,
+`hibernate`, and `unknown` region counts, and `type_classification` with
+`source`, `status`, `reason`, `record_count`, `classified_intervals`, and
+`unclassified_intervals`. These bounded fields describe optional mode evidence;
+journal access failure or ambiguity does not itself change clock coverage to
+incomplete. No powered-off kind is produced by this observer or classifier.
+Missing clock coverage uses JSON `null` for unavailable values and
 `coverage_complete: false`, never an assertion of verified absence of sleep.
 The measured cumulative total can include small changes beneath the threshold
 for a separately plotted region. Several physical sleep cycles may share one
