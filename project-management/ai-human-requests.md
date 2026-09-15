@@ -11,11 +11,18 @@ No additional queued requests.
 
 - `BB-MANUAL-03` — Continuous collector installation and physical sleep history.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
-  - Scope: roadmap P10 operator handoff. The operator retains installation:
-    `./install.sh --mode dev --dev-command local` now deploys the default
-    root-owned system daemon as well as the checkout CLI.
+  - Scope: roadmap P10 operator handoff and V.4–V.6 manual acceptance.
+  - Installation/readiness/initial history passed on 2026-09-15 (V.4).
+    Operator ran `./install.sh --mode dev --dev-command local`, refreshed
+    command lookup, and reported system service loaded/active/enabled, user
+    service absent, and collector ready in system scope. The initial graph
+    contained seven valid system observations over 30 seconds at 80%, both
+    axis extrema, summary and no absent-service warning. The point at the
+    right edge is expected for new data in the default 24-hour interval;
+    flat/short data correctly leaves variability and trend unavailable.
+    The earlier `lokcal` typo was rejected and the corrected command succeeded.
   - Follow [continuous service acceptance](../docs/testing.md#continuous-service-acceptance):
-    check readiness/help, recent historical graph, stopped-service warnings,
+    next check help and stopped-service warnings (V.5),
     prudent foreground fallback and merged history, then restart the service.
   - When desktop interruption is acceptable, save other work and perform a
     supervised desktop suspend/wake with only the service recording; query its
@@ -93,3 +100,6 @@ No additional queued requests.
 
 The graph/summary portion of `BB-MANUAL-01` passed on 2026-09-14 and closes
 P3.4. The request remains active for its remaining hardware observations.
+
+The installation/readiness/initial-history portion of `BB-MANUAL-03` passed
+on 2026-09-15 and closes V.4. Warning/fallback and sleep checks remain active.

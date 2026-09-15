@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: P6–P10 complete: 344 native tests and both compatibility suites pass; phase ACP delivered. Awaiting operator dev installation and BB-MANUAL-01/02/03 physical observations; all automatable work is complete.
+Notes: V.4 live installation, service readiness and initial history passed. Next V.5 warnings/prudent fallback; V.6 continuous sleep and earlier platform checks pending. P6–P10 automated work complete (344 native tests).
 
 ## Phases
 
@@ -52,9 +52,12 @@ Notes: P6–P10 complete: 344 native tests and both compatibility suites pass; p
 | P5.2 | P5 | done | Regenerate README and manual |
 | P5.3 | P5 | done | Validate delivery and installer handoff |
 | P5.4 | P5 | done | Publish evidence and handoff |
-| V.1 | V | active | Collect manual observations |
+| V.1 | V | pending | Collect remaining platform observations |
 | V.2 | V | pending | Repair and verify reported defects |
 | V.3 | V | pending | Close requests and publish closure |
+| V.4 | V | done | Verify installed collector and initial history |
+| V.5 | V | active | Verify warnings and foreground fallback |
+| V.6 | V | pending | Verify continuous service sleep coverage |
 
 | P6.1 | P6 | done | Specify approved behavior |
 | P6.2 | P6 | done | Implement SQLite and bounded writer |

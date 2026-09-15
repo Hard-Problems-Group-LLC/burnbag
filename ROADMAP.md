@@ -13,9 +13,10 @@ verification are complete and delivered by phase ACP. All 344 native tests pass;
 Python 3.9.21 and 3.14.7 each pass 325 compatibility tests with two expected
 native-GI skips. Isolated background/shared foreground collectors recorded real
 ARM measurements; a complete CLI/SQLite/GLib test verified Ctrl-C reporting.
-Installed systemd activation and physical sleep await operator observations in
-BB-MANUAL-03, alongside earlier P2/V checks. The operator's installation command
-is `./install.sh --mode dev --dev-command local`. The
+The operator confirmed development installation, active/enabled system service,
+collector readiness and the first historical graph on 2026-09-15: seven valid
+readings over 30 seconds. Warning/fallback checks and physical sleep remain in
+BB-MANUAL-03, alongside earlier P2/V checks. The
 [phase stack](project-management/state/phase-slice-stack.md) retains detailed
 state and generates Ubersight, now awaiting BB-MANUAL-01/02/03 observations.
 
@@ -165,6 +166,20 @@ Collect the requested physical observations, address any defects they expose,
 rerun affected automated checks, close linked human requests and deferred
 phases, and ACP the resulting closure. Until then the overall delivery remains
 awaiting manual validation, even when every automated slice is complete.
+
+Continuous-service acceptance is tracked separately within V:
+
+- **V.4 — Installed collector and initial history:** passed 2026-09-15. The
+  operator installed dev mode, verified the system service active/enabled and
+  collector ready, and displayed system history with seven valid observations.
+- **V.5 — Warning envelope and foreground fallback:** next operator check;
+  stop the service, verify help warnings and a prudent foreground run, query
+  merged history, then restart and verify readiness.
+- **V.6 — Continuous service sleep coverage:** pending supervised desktop
+  suspend/wake with the background collector running and no foreground run.
+
+These checks do not replace the earlier profile/backlight and physical ARM
+sleep observations in BB-MANUAL-01/02.
 
 ### Operator follow-up during V
 

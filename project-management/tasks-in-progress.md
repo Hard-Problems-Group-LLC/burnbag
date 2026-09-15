@@ -22,6 +22,8 @@
   - On results, reactivate affected slices, repair reported defects,
     rerun affected checks, close requests, and ACP without another review gate.
   - Continuous history P6–P10 is now delivered: 344 native tests and both
-    compatibility suites pass. BB-MANUAL-03 adds operator dev installation,
-    service readiness, warnings/fallback, historical queries and a supervised
-    service-only sleep interval check. All automatable work is complete.
+    compatibility suites pass. Operator dev installation, service readiness
+    and initial historical query passed on 2026-09-15 (V.4): seven system
+    readings over 30 seconds, active/enabled service and ready collector.
+    BB-MANUAL-03 now awaits warning/fallback/merged-history checks (V.5) and
+    a supervised service-only sleep interval (V.6). All automatable work is complete.

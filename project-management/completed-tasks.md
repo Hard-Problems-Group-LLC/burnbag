@@ -1,5 +1,22 @@
 # Completed Tasks
 
+- `BB-2026-09-15-V4` — Installed collector and initial history acceptance.
+  Completed 2026-09-15; observations: operator; verification: Codex.
+  - The corrected development installation succeeded, the managed CLI selected
+    the checkout, and the system service reported active/enabled with collector
+    ready. The user service was absent. The initial system history graph and
+    summary contained seven valid observations over 30 seconds at 80%.
+    Repeated extrema labels and unavailable short/flat-run statistics behaved
+    as specified. New data occupied the right edge of the default 24-hour view.
+  - Read-only corroboration: all four installed runtime files match the
+    checkout; recording health reports no error or dropped records. Nineteen
+    recent durable samples have median cadence 5.043 seconds, with no sensor
+    errors or observer-coverage warnings. No service control or host mutation
+    was performed during corroboration.
+  - Validation for these record changes: Ubersight producer and whitespace
+    checks pass. BB-MANUAL-03 remains open for V.5 warning/fallback/merged-history
+    and V.6 physical sleep observations; earlier platform requests remain open.
+
 - `BB-2026-09-15-01` — Continuous history and optional systemd services.
   Started and completed 2026-09-15; owner: Codex; authorized by the operator's
   instruction to fully implement. Roadmap P6–P10 is implemented and ACP'd.
