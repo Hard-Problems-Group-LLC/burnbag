@@ -8,14 +8,16 @@ The operator approved the batching policy and optional SQLite-backed systemd
 collector, then instructed full implementation. The canonical contract is
 [continuous history](docs/specifications/continuous-history.md).
 
-Current delivery status (2026-09-15): P6 durable history, P7 collector
-services, P8 CLI/history and P9 installation/documentation are complete. P10
-final native integration and handoff are in progress; both Python 3.9 and 3.14
-compatibility suites pass. Native isolated background and shared foreground collectors have
-recorded real ARM sensor data and completed durable flushes. Installed systemd
-activation and physical sleep remain operator checks in BB-MANUAL-03, alongside
-the earlier P2/V checks. The [phase stack](project-management/state/phase-slice-stack.md)
-is the detailed execution record and source for the regenerated Ubersight view.
+Current delivery status (2026-09-15): P6–P10 implementation and automated
+verification are complete and delivered by phase ACP. All 344 native tests pass;
+Python 3.9.21 and 3.14.7 each pass 325 compatibility tests with two expected
+native-GI skips. Isolated background/shared foreground collectors recorded real
+ARM measurements; a complete CLI/SQLite/GLib test verified Ctrl-C reporting.
+Installed systemd activation and physical sleep await operator observations in
+BB-MANUAL-03, alongside earlier P2/V checks. The operator's installation command
+is `./install.sh --mode dev --dev-command local`. The
+[phase stack](project-management/state/phase-slice-stack.md) retains detailed
+state and generates Ubersight, now awaiting BB-MANUAL-01/02/03 observations.
 
 - **P6 — Durable telemetry:** P6.1 specify approved behavior; P6.2 implement
   SQLite schema, safe paths and bounded batched writer; P6.3 implement sensor

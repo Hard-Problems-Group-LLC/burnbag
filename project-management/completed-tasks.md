@@ -1,5 +1,44 @@
 # Completed Tasks
 
+- `BB-2026-09-15-01` — Continuous history and optional systemd services.
+  Started and completed 2026-09-15; owner: Codex; authorized by the operator's
+  instruction to fully implement. Roadmap P6–P10 is implemented and ACP'd.
+  - Delivered five-second collection, batched SQLite history, prudent writes,
+    singleton system/user services, shared foreground fallback, merged arbitrary
+    history graphs, warning envelopes, management, installation and removal.
+    Durable behavior is in the continuous-history and installation contracts.
+  - Final acceptance: 344 native tests pass on Ubuntu/aarch64 Python 3.13.7.
+    Python 3.9.21 (SQLite 3.47.1) and 3.14.7 (SQLite 3.53.1) each pass 325
+    compatibility tests with two expected native-GI skips and resource warnings
+    treated as errors. Installed subprocess launchers intentionally use the
+    distribution interpreter; shared modules/helpers also run directly under
+    each compatibility interpreter.
+  - Native read-only background and shared foreground smoke runs record real
+    five-second sensor observations and durable prudent barriers, with orderly
+    cleanup. An actual main/SQLite/GLib/SIGINT test verifies 25 graph rows,
+    summary, final durable records, no periodic JSONL duplication, restored
+    signal handlers and closed inhibitor descriptors. Host power endpoints in
+    this test are simulated; real smoke collection performs no power action.
+  - Staged install/help/history/uninstall, 46 installer tests, shellcheck,
+    shell syntax, read-only prerequisite/install checks, generated-document
+    consistency, warning-free man rendering and ten manual-guide shell blocks
+    pass. Owned temporary runtimes and native-smoke fixtures were removed.
+  - Delivery: ROADMAP, specifications, README/man and Ubersight are current.
+    The operator retains actual installation with
+    `./install.sh --mode dev --dev-command local`. Live service installation,
+    activation and physical sleep are not claimed; BB-MANUAL-03 and earlier
+    BB-MANUAL-01/02 remain under V for observations and any subsequent fixes.
+
+- `BB-2026-09-15-P10` — Integration verification and operator handoff.
+  Completed 2026-09-15; owner: Codex; operator-authorized roadmap P10.
+  - Full native/compatibility/static and isolated native/staged artifact
+    validation passed as recorded above. The new end-to-end recorder test
+    replaces only external hardware endpoints, retaining the real CLI, event
+    loop, writer and signal path.
+  - Automatable work is complete. Remaining manual scope is explicitly deferred
+    to V and BB-MANUAL-01/02/03, with exact commands in docs/testing.md; this
+    phase is ACP'd without another review gate as authorized.
+
 - `BB-2026-09-15-P9` — Service installation, scoped removal and documentation.
   Completed 2026-09-15; owner: Codex; operator-authorized roadmap P9.
   - Default system installation creates the non-login service account, managed

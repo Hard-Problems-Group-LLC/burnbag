@@ -6,6 +6,8 @@ import io
 import json
 import os
 from pathlib import Path
+import re
+import signal
 import sqlite3
 import tempfile
 import threading
@@ -18,6 +20,9 @@ import uuid
 import burnbag
 import burnbag_history
 import burnbag_service
+
+
+REAL_POWER_SAMPLER = burnbag_history.PowerSampler
 
 
 class MemoryLog:
@@ -187,6 +192,111 @@ class RecorderIntegrationTests(unittest.TestCase):
             self.assertEqual(synchronized_on, [threading.get_ident()])
         finally:
             log.close()
+
+    def test_native_main_sigint_uses_real_recorder_database_and_shutdown_reports(self):
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            gi.require_version("GLib", "2.0")
+            from gi.repository import Gio, GLib
+        except (ImportError, ValueError):
+            self.skipTest("native PyGObject is unavailable")
+        root = Path(self.temporary.name)
+        sys_root, proc_root = root / "sys", root / "proc"
+        battery = sys_root / "class" / "power_supply" / "BAT0"
+        battery.mkdir(parents=True)
+        proc_root.mkdir()
+        for name, value in {"type": "Battery", "capacity": "85", "present": "1",
+                            "status": "Discharging", "energy_now": "42500000", "energy_full": "50000000"}.items():
+            (battery / name).write_text(value + "\n", encoding="ascii")
+        (proc_root / "stat").write_text("cpu 1 0 1 100 0 0 0 0 0 0\n", encoding="ascii")
+        descriptors = []
+
+        class DescriptorList:
+            def get(self, _index):
+                descriptor = os.open(os.devnull, os.O_RDONLY)
+                descriptors.append(descriptor)
+                return descriptor
+
+        class Connection:
+            next_subscription = 0
+
+            def signal_subscribe(self, *_args):
+                self.next_subscription += 1
+                return self.next_subscription
+
+            def signal_unsubscribe(self, _subscription):
+                pass
+
+            def call_sync(self, _destination, _path, _interface, method, parameters, *_args):
+                if method != "GetAll":
+                    raise AssertionError("Unexpected connection method: " + method)
+                if parameters.unpack()[0] == burnbag.UPOWER_IFACE:
+                    values = {"LidIsClosed": GLib.Variant("b", False), "OnBattery": GLib.Variant("b", True)}
+                else:
+                    values = {"ActiveProfile": GLib.Variant("s", "balanced")}
+                return GLib.Variant("(a{sv})", (values,))
+
+        class Proxy:
+            def call_sync(self, method, parameters, *_args):
+                if method not in ("Get", "org.freedesktop.DBus.Properties.Get"):
+                    raise AssertionError("No host mutation is permitted: " + method)
+                _interface, name = parameters.unpack()
+                value = {"LidIsClosed": False, "LidIsPresent": True, "ActiveProfile": "balanced"}[name]
+                return GLib.Variant("(v)", (GLib.Variant("b" if isinstance(value, bool) else "s", value),))
+
+            def call_with_unix_fd_list_sync(self, method, *_args):
+                if method != "Inhibit":
+                    raise AssertionError("Unexpected descriptor method: " + method)
+                return GLib.Variant("(h)", (0,)), DescriptorList()
+
+            def connect(self, _signal, _callback):
+                return 1
+
+        connection = Connection()
+        interrupt_sent = threading.Event()
+        original_handlers = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        original_gio, original_glib = burnbag.Gio, burnbag.GLib
+
+        def interrupt():
+            interrupt_sent.set()
+            os.kill(os.getpid(), signal.SIGINT)
+            return False
+
+        interrupt_source = GLib.timeout_add(5300, interrupt)
+        output, errors = io.StringIO(), io.StringIO()
+        try:
+            with mock.patch.object(burnbag, "BATTERY_SYSFS_ROOT", battery.parent), \
+                    mock.patch.object(burnbag_history, "PowerSampler", side_effect=lambda: REAL_POWER_SAMPLER(sys_root, proc_root)), \
+                    mock.patch.object(Gio, "bus_get_sync", return_value=connection), \
+                    mock.patch.object(Gio.DBusProxy, "new_sync", side_effect=lambda *_args: Proxy()), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                status = burnbag.main(["run", "--ignore-lid", "--do-not-touch-backlight", "--no-color",
+                                       "--log-file", str(root / "native.log")])
+        finally:
+            if not interrupt_sent.is_set():
+                GLib.source_remove(interrupt_source)
+            burnbag.Gio, burnbag.GLib = original_gio, original_glib
+        self.assertEqual(status, 0, output.getvalue() + errors.getvalue())
+        self.assertTrue(interrupt_sent.is_set())
+        self.assertIn("SIGINT", output.getvalue())
+        self.assertIn("SHUTDOWN & TEARDOWN", output.getvalue())
+        self.assertIn("85%", output.getvalue())
+        self.assertIn("avg reported-gauge", output.getvalue())
+        self.assertEqual(sum(bool(re.match(r"^(?: *\d+%| +) \|", line))
+                             for line in output.getvalue().splitlines()), 25)
+        with contextlib.closing(sqlite3.connect(self.path)) as database:
+            self.assertGreaterEqual(database.execute("SELECT count(*) FROM records WHERE kind='sample'").fetchone()[0], 2)
+            self.assertGreaterEqual(database.execute("SELECT count(*) FROM records WHERE kind='observer_state'").fetchone()[0], 1)
+        records = [json.loads(line) for line in (root / "native.log").read_text().splitlines()]
+        self.assertNotIn("battery_sample", [record["event"] for record in records])
+        self.assertIn("signal_received", [record["event"] for record in records])
+        self.assertEqual(records[-1]["event"], "session_end")
+        for number, handler in original_handlers.items():
+            self.assertEqual(signal.getsignal(number), handler)
+        for descriptor in descriptors:
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
 
 
 if __name__ == "__main__":

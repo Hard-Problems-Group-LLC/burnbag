@@ -7,9 +7,9 @@ records; this file provides the recovery anchor for the current plan.
 
 ## Publication
 
-Delivery: active
+Delivery: blocked
 
-Notes: P6–P9 complete and published by phase; final native integration and delivery handoff active. Python 3.9/3.14 compatibility passes; operator installation and physical checks remain pending.
+Notes: P6–P10 complete: 344 native tests and both compatibility suites pass; phase ACP delivered. Awaiting operator dev installation and BB-MANUAL-01/02/03 physical observations; all automatable work is complete.
 
 ## Phases
 
@@ -20,13 +20,13 @@ Notes: P6–P9 complete and published by phase; final native integration and del
 | P3 | done | Shutdown graph and summary |
 | P4 | done | Error and exception hardening |
 | P5 | done | Documentation and installation |
-| V | blocked | Manual validation and final closure |
+| V | active | Manual validation and final closure |
 
 | P6 | done | Durable telemetry |
 | P7 | done | Collector services |
 | P8 | done | CLI and history graphs |
 | P9 | done | Installation and documentation |
-| P10 | active | Integration and handoff |
+| P10 | done | Integration and handoff |
 
 ## Slices
 
@@ -52,7 +52,7 @@ Notes: P6–P9 complete and published by phase; final native integration and del
 | P5.2 | P5 | done | Regenerate README and manual |
 | P5.3 | P5 | done | Validate delivery and installer handoff |
 | P5.4 | P5 | done | Publish evidence and handoff |
-| V.1 | V | blocked | Collect manual observations |
+| V.1 | V | active | Collect manual observations |
 | V.2 | V | pending | Repair and verify reported defects |
 | V.3 | V | pending | Close requests and publish closure |
 
@@ -72,9 +72,9 @@ Notes: P6–P9 complete and published by phase; final native integration and del
 | P9.2 | P9 | done | Add scoped uninstaller |
 | P9.3 | P9 | done | Synchronize contracts and generated docs |
 | P9.4 | P9 | done | Verify installation and recovery |
-| P10.1 | P10 | active | Run complete automated checks |
+| P10.1 | P10 | done | Run complete automated checks |
 | P10.2 | P10 | done | Smoke-test sampling and isolated daemon |
-| P10.3 | P10 | pending | Publish evidence and manual handoff |
+| P10.3 | P10 | done | Publish evidence and manual handoff |
 
 ## Regenerate local tracking
 
