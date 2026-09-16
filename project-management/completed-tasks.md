@@ -1,5 +1,27 @@
 # Completed Tasks
 
+- `BB-2026-09-16-01` — Repair system dev collector startup.
+  Created and started: 2026-09-16T00:41:12-07:00. Completed:
+  2026-09-16T01:17:50-07:00. Owner: Codex; installed acceptance: operator.
+  - Phase 3100, slice 5000: separately quote systemd bind-mount endpoints so
+    the private checkout is available to the collector. The real parser test
+    fails before the repair and passes afterward for ordinary paths and paths
+    containing spaces, dollar signs, percent signs, quotes and backslashes.
+  - All 57 initial installer tests passed; after preserving remote phases
+    5000–7000, all 65 installer tests and 17 tracking tests passed, along with
+    shell syntax and whitespace checks. Fix e7be32e was published through
+    merge f1b1f8f. No service isolation was relaxed.
+  - Operator dev reinstallation and restart succeeded. Status reported the
+    system service loaded/active/enabled and collector ready; user service
+    was absent. The two-minute graph ending at 01:17:50 PDT showed seven valid
+    readings over 30 seconds at 80% (`data 7/8`), with one explicit gap and
+    no sleep regions. This confirms fresh system recording after the repair.
+  - Closed BB-MANUAL-06 and
+    [BB-BUG-2026-09-16-01](bugs/closed/BB-BUG-2026-09-16-01-system-dev-bind-path.md).
+    Phase 3100 is complete again. GNOME, physical power/sleep and the separate
+    capture-binding follow-up retain their existing status. The operator
+    performed all installation and service-control commands.
+
 - `BB-2026-09-16-7000` — Graph selection and synchronized navigation.
   Started and completed 2026-09-16; owner: Codex; direct side-conversation request.
   - All six [phase 7000](../ROADMAP.md#phase-7000--graph-selection-and-synchronized-navigation)

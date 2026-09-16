@@ -5,25 +5,6 @@ results are in [the testing guide](../docs/testing.md).
 
 ## Pending Requests
 
-- `BB-MANUAL-06` — Reinstall and verify the repaired system dev collector.
-  - Created: 2026-09-16T00:41:12-07:00. Owner: operator. Requestor: Codex.
-  - Scope: roadmap phase 3100, slice 5000 and BB-BUG-2026-09-16-01.
-    The reported collector start fails at its private checkout mount; existing
-    syntax-only verification missed the incorrectly parsed bind endpoints.
-  - Automated repair verification passed all 57 initial installer tests and
-    all 65 tests after integrating delivered phases 5000–7000, including the
-    real parser regression that fails before the repair. Run
-    `./install.sh --mode dev` from the current checkout and restart the system
-    collector. If it is still retrying, stop it before reinstalling. The operator
-    performs all sudo commands and service mutations; agents do not.
-  - After restart, wait at least five seconds. Acceptance:
-    `burnbag --status-service` reports an active system service and
-    ready collector; recent journal entries have no recurring missing-entry-point
-    error; `burnbag --graph --last '2m'` contains new system observations.
-    Report the status and graph result so the defect can be closed.
-  - Pending: no successful installed-service restart or new continuous
-    observations are claimed yet. Earlier acceptance requests remain open.
-
 - `BB-MANUAL-04` — GTK 4 viewer GNOME interaction and automation check.
   - Created 2026-09-15. Owner: operator. Requestor: Codex.
   - Scope: roadmap phase 3000, slice 6000. Automated work covers the desktop
@@ -136,6 +117,22 @@ results are in [the testing guide](../docs/testing.md).
     operator check.
 
 ## Completed Requests
+
+- `BB-MANUAL-06` — Repaired system dev collector confirmed.
+  - Created: 2026-09-16T00:41:12-07:00. Completed:
+    2026-09-16T01:17:50-07:00. Owner and evidence source: operator.
+  - Scope: phase 3100, slice 5000 and BB-BUG-2026-09-16-01. The operator ran
+    `./install.sh --mode dev` from the relocated checkout, then successfully
+    restarted the service after correcting the harmless `restatr` typo.
+  - After five seconds, status reported the system service loaded, active and
+    enabled, with the collector ready in system scope and no user service.
+    `burnbag --graph --last '2m'` showed fresh system data: seven valid readings
+    over 30 seconds at 80% (`data 7/8`), one explicit gap and no sleep regions.
+    Read-only journal and database checks associate that gap with the deliberate
+    collector restart and confirm continued successful observations afterward.
+  - Startup and recording acceptance passed. Short, flat measurements do not
+    establish depletion trends; GNOME, warning/fallback and physical sleep
+    checks remain separate. The operator performed all privileged actions.
 
 - `BB-MANUAL-05` — Repaired standard sudo installation confirmed.
   - Created and activated: 2026-09-15. Completed: 2026-09-15T22:57:52-07:00.

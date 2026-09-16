@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL-06). Phase 3100, slice 5000 repair passes 65 installer and 17 tracking tests. Delivered phases 5000, 6000 and 7000 are preserved; earlier GNOME, hardware and capture-binding follow-ups remain separate.
+Notes: Awaiting existing GNOME and hardware observations. Collector recovery passed operator installation, restart, readiness and fresh-history checks; BB-MANUAL-06 and phase 3100 are complete. Delivered phases 5000, 6000 and 7000 remain complete; capture-binding follow-up is separate.
 
 ## Phases
 
@@ -26,8 +26,8 @@ Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
 | 1000 | done | Relative history durations |
-| 3000 | blocked | GTK 4 history viewer |
-| 3100 | active | Viewer data and time ranges |
+| 3000 | active | GTK 4 history viewer |
+| 3100 | done | Viewer data and time ranges |
 | 4000 | done | Persistent viewer fields |
 | 5000 | done | Standard installer recovery |
 | 6000 | done | Shared viewer plot and unit axes |
@@ -92,12 +92,12 @@ Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL
 | 3000 | 3000 | done | Show complete history by default |
 | 4000 | 3000 | done | Add socket automation and controller |
 | 5000 | 3000 | done | Integrate install and documentation |
-| 6000 | 3000 | blocked | Verify and hand off GNOME checks |
+| 6000 | 3000 | active | Verify and hand off GNOME checks |
 | 1000 | 3100 | done | Trace installed commands and sources |
 | 2000 | 3100 | done | Repair complete history delivery |
 | 3000 | 3100 | done | Add initial and locked time ranges |
 | 4000 | 3100 | done | Verify documentation and publish |
-| 5000 | 3100 | active | Await collector reinstall and restart |
+| 5000 | 3100 | done | Verify command modes and collector recovery |
 | 1000 | 4000 | done | Build dialog and saved selections |
 | 2000 | 4000 | done | Automate and verify field changes |
 | 3000 | 4000 | done | Document and publish |

@@ -1,7 +1,8 @@
 # Bug: System dev collector cannot open its checkout entry point
 
 - ID: `BB-BUG-2026-09-16-01`
-- Status: in-progress
+- Status: closed
+- Closed: 2026-09-16T01:17:50-07:00
 - Priority: High
 - Reported: 2026-09-16T00:36:51-07:00
 - Reporter: Operator
@@ -45,7 +46,7 @@ acceptance without asserting the parsed mount endpoints.
 Implemented: quote the source and destination separately with an unquoted
 colon between them; retain service isolation. Regressions inspect the real
 systemd parser's resolved mount for ordinary and special-character checkout
-paths. Installed-service acceptance remains pending.
+paths. Operator installation and runtime acceptance passed in BB-MANUAL-06.
 
 ## Validation
 
@@ -61,9 +62,22 @@ pass, including the added standard sudo-installation cases. Remote features
 and completion evidence are preserved. All 17 tracking tests, final shell
 syntax and whitespace checks pass on the integrated result.
 
-Installed-service recovery is pending operator reinstallation, restart, ready
-status and advancing history observations in BB-MANUAL-06. Agents must not
-execute sudo commands. No successful host repair is claimed.
+Operator acceptance passed on 2026-09-16: development reinstallation completed,
+the corrected restart command succeeded, and status reported the system service
+loaded, active and enabled with the collector ready in system scope. The user
+service was absent. The two-minute graph ending at 01:17:50 PDT contained fresh
+system observations: seven valid readings over 30 seconds at 80%, with the
+summary reporting `data 7/8`, one gap and no sleep regions. This establishes recovery
+of collector startup and recording; the short, flat interval does not establish
+battery depletion trends or physical sleep behavior. The operator performed
+installation and service control; agents did not execute sudo commands.
+
+A read-only journal/database check confirms clean starts at 01:17:18 and
+01:17:33 PDT, with the operator's orderly restart between them. The first
+collector's valid sample interval ends at 01:17:28; the replacement begins
+sampling at 01:17:34. The graph gap matches this coverage boundary. Subsequent
+persisted samples continue through 01:18:49 with no recorded sample errors or
+recurring missing-entry-point failure.
 
 ## History
 
@@ -76,3 +90,5 @@ execute sudo commands. No successful host repair is claimed.
 - 2026-09-16: integrated newer delivery work and passed all 65 installer cases.
   Collector acceptance uses BB-MANUAL-06; existing closed BB-MANUAL-05 remains
   the independent standard sudo-installation acceptance record.
+- 2026-09-16T01:17:50-07:00: operator confirmed successful installation,
+  restart, readiness and fresh system history. Closed the bug and BB-MANUAL-06.

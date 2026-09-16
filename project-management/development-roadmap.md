@@ -31,8 +31,9 @@ phase 3100, slice 5000 was reactivated for the system dev service bind-path
 quoting defect (BB-BUG-2026-09-16-01). The repair passes all 57 affected installer
 tests, including a real parser regression that fails before the fix. After
 integration with delivered phases 5000–7000, all 65 installer tests pass;
-operator reinstallation and restart verification are pending in
-BB-MANUAL-06. Agents do not run sudo commands.
+operator reinstallation, restart, collector readiness and fresh system history
+passed at 2026-09-16T01:17:50-07:00. BB-MANUAL-06 and the startup bug are closed;
+phase 3100 is complete again. Agents do not run sudo commands.
 Phase 4000 is complete: persistent graph/table field selection through a modal
 Fields dialog, automation, real GTK verification and synchronized documentation.
 Phase 5000 is complete: standard sudo installation no longer assumes root's
