@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Automated GTK viewer, installer, and documentation checks pass. Awaiting GNOME title-bar control check in BB-MANUAL-04; phase 9000 retains earlier manual checks.
+Notes: All-history correction and automated checks pass. Awaiting GNOME title-bar control check in BB-MANUAL-04; phase 9000 retains earlier manual checks.
 
 ## Phases
 
@@ -84,7 +84,7 @@ Notes: Automated GTK viewer, installer, and documentation checks pass. Awaiting 
 | 6000 | 9000 | pending | Verify service sleep coverage |
 | 1000 | 3000 | done | Define viewer data and automation contracts |
 | 2000 | 3000 | done | Build GTK shell and native window behavior |
-| 3000 | 3000 | done | Implement graph, table, and navigation |
+| 3000 | 3000 | done | Show complete history by default |
 | 4000 | 3000 | done | Add socket automation and controller |
 | 5000 | 3000 | done | Integrate install and documentation |
 | 6000 | 3000 | active | Verify and hand off GNOME checks |

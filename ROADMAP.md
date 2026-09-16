@@ -268,8 +268,9 @@ The accepted interface and data contract is
 - **2000 — Native application shell:** build GTK 4 startup, GNOME decorations,
   minimize/restore/maximize/close behavior, explicit F11 graph fullscreen, and
   the two-tab notebook foundation.
-- **3000 — Graph and table experience:** render history with zoom, pan and
-  search; page table rows on demand; implement bidirectional row/range navigation.
+- **3000 — Graph and table experience:** render full available history by
+  default with a bounded, extrema-preserving overview and a global measurement
+  catalog; page table rows on demand; implement bidirectional navigation.
 - **4000 — Automation and controller:** add opt-in Unix socket requests, a
   matching controller command, keyboard/mouse operations, state inspection and
   client-area PNG capture through the same action handlers as human input.
@@ -280,11 +281,11 @@ The accepted interface and data contract is
   large-history checks, then ACP completed work and request the pending GNOME checks in
   BB-MANUAL-04 (project-management/ai-human-requests.md).
 
-Slices 1000–5000 are complete. The graph, dynamically paged table, search,
-bidirectional navigation, secure opt-in socket automation, controller,
-installation, and manual are implemented. The 407-test suite, installer checks,
-generated documentation, and viewer manual validation pass; a live X11 smoke
-check exercised capture, fullscreen, tabs, search, selection, and window
-operations. Phase 3000, slice 6000 is active for visible GNOME title-bar checks
-tracked by BB-MANUAL-04. ACP this completed implementation while those manual
-checks remain deferred.
+Slices 1000–5000 are complete. The graph summarizes all available history,
+measurement fields are discovered across all records, and the table remains
+continuously paged with a total-row status. User feedback caught the initial
+first-page-only graph/catalog; the correction is verified by 408 tests and a
+live X11 check of 5,553 system rows. Installer checks, generated documentation,
+and viewer manual validation pass. Phase 3000, slice 6000 is active for visible
+GNOME title-bar checks tracked by BB-MANUAL-04. ACP this corrected work while
+those manual checks remain deferred.

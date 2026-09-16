@@ -13,11 +13,18 @@ viewer is a separate helper application and does not change collector behavior.
   the client area and all viewer controls, tabs, and table content are hidden.
 - The table presents local date and time as its first two columns; remaining
   columns represent telemetry measurements and record attributes. Heterogeneous
-  JSON fields may appear blank for records that do not contain them.
+  JSON fields may appear blank for records that do not contain them. Discover
+  measurement columns across the complete available history, not just the
+  currently loaded table page.
 - Support graph zoom, pan, and search. A row double-click focuses the graph at
   that record. A table range plus View fits that interval in the graph. A graph
   double-click selects and reveals the nearest corresponding table record.
   These commands switch to the destination tab.
+- With no range parameters, cover all available history in both the graph and
+  table. Build a bounded overview of all numeric samples for the graph while
+  preserving the table's responsive keyset paging; show the total row count and
+  continue loading older/newer rows as the user scrolls. Keep downsampled graph
+  extrema so short-lived peaks remain visible, and let zoom reveal detail.
 - Read both system and user SQLite databases when readable. Treat absent or
   unreadable sources as a visible per-source condition; never create a database
   or modify collector data. Stream rows in stable timestamp/record-ID order and

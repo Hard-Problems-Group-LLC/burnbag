@@ -88,6 +88,71 @@ class HistorySources:
                 fetched.extend(self._source_page(scope, connection, after, limit, text))
         return self._merge(fetched, limit)
 
+    def overview(self, max_buckets: int = 2400) -> Dict[str, Any]:
+        """Summarize the full merged history without retaining every row.
+
+        The table remains keyset-paged, while this bounded-size overview makes
+        the initial graph and field catalog cover the complete available
+        history. Each time bucket retains both extrema for every numeric field.
+        """
+        if not 10 <= max_buckets <= 20000:
+            raise ValueError("overview bucket count must be between 10 and 20000")
+        bounds = []
+        with self.lock:
+            for connection in self.connections.values():
+                row = connection.execute(
+                    "SELECT min(captured_at),max(captured_at) FROM records"
+                ).fetchone()
+                if row and row[0] is not None:
+                    bounds.extend((float(row[0]), float(row[1])))
+        if not bounds:
+            return {"count": 0, "range": None, "columns": [], "series": {}}
+        low, high = min(bounds), max(bounds)
+        span = max(1.0, high - low)
+        buckets: Dict[str, Dict[int, Tuple[Tuple[float, float, str],
+                                           Tuple[float, float, str]]]] = {}
+        columns = set()
+        count = 0
+        after = None
+        while True:
+            page = self.page(after, 500)
+            if not page:
+                break
+            for record in page:
+                count += 1
+                flat = flatten_data(record["data"])
+                columns.update(flat)
+                bucket = min(max_buckets - 1, int((record["captured_at"] - low) /
+                                                   span * max_buckets))
+                if record["kind"] not in SAMPLE_KINDS:
+                    continue
+                for field, value in flat.items():
+                    if not isinstance(value, (int, float)) or isinstance(value, bool):
+                        continue
+                    sample = (float(record["captured_at"]), float(value), record["id"])
+                    field_buckets = buckets.setdefault(field, {})
+                    prior = field_buckets.get(bucket)
+                    if prior is None:
+                        field_buckets[bucket] = (sample, sample)
+                    else:
+                        field_buckets[bucket] = (
+                            sample if sample[1] < prior[0][1] else prior[0],
+                            sample if sample[1] > prior[1][1] else prior[1],
+                        )
+            after = (page[-1]["captured_at"], page[-1]["id"])
+            if len(page) < 500:
+                break
+        series = {}
+        for field, field_buckets in buckets.items():
+            points = []
+            for low_point, high_point in field_buckets.values():
+                points.append(low_point)
+                if high_point != low_point:
+                    points.append(high_point)
+            series[field] = sorted(points)
+        return {"count": count, "range": [low, high],
+                "columns": sorted(columns), "series": series}
+
     def _source_page(self, scope: str, connection: sqlite3.Connection,
                      after: Optional[Tuple[float, str]], limit: int,
                      search: Optional[str] = None) -> List[Tuple[str, Dict[str, Any]]]:

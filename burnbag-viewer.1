@@ -10,16 +10,19 @@ burnbag-viewer \- browse burnbag power history in a GTK 4 desktop application
 .SH DESCRIPTION
 .B burnbag-viewer
 is a read-only GTK 4 application for burnbag's system and per-user telemetry
-history. It presents graph and measurement-table tabs in a normal GNOME window.
-The table loads ordered history in pages and exposes local date and time first,
-followed by record attributes and the dynamically discovered measurement
-columns. Search scans both available history databases without blocking the UI.
+history. With no range options, it covers all history available in both the
+system and user databases. The graph summarizes all numeric samples in a
+bounded, extrema-preserving overview. The measurement table loads ordered
+history in pages and exposes local date and time first, followed by record
+attributes and measurement columns discovered across the complete history.
+Search scans both available history databases without blocking the UI.
 .PP
 The graph plots a selected numeric measurement. Use its measurement selector,
 mouse wheel or zoom controls to change scale, and drag or the arrow buttons to
 pan. A table row double-click opens the graph around that record. Select a table
 range and choose View selection to fit it. A graph double-click selects and
-scrolls to the nearest loaded table row. These actions switch to the destination
+scrolls to the corresponding table row, loading that record even when it is
+outside the currently visible page. These actions switch to the destination
 tab. F11 toggles fullscreen; in graph fullscreen, only the graph is shown and it
 fills the application window. Native GNOME window controls remain available in
 normal mode.
@@ -29,6 +32,11 @@ records are merged by timestamp and ID; system records take precedence on ID
 collisions and system coverage suppresses overlapping user measurements.
 Absent or unreadable sources are reported in the window. No database is created
 or modified.
+.PP
+The full-history graph is downsampled by time bucket while retaining each
+bucket's minimum and maximum for each numeric measurement. The table itself
+remains paged; the window reports the total merged row count and loads further
+rows as the user scrolls.
 .SH OPTIONS
 .TP
 .BI \-\-automation " SOCKET_PATH"

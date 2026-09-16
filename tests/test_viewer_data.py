@@ -131,6 +131,25 @@ class HistorySourcesTests(unittest.TestCase):
         finally:
             reader.close()
 
+    def test_full_history_overview_includes_late_fields_and_downsamples_boundedly(self):
+        for index in range(503):
+            payload = {"battery": {"percentage": 80 - index % 10}}
+            if index == 502:
+                payload["late_sensor"] = {"temperature_c": 31}
+            self._insert(self.system, "row-%04d" % index, index + 1, payload)
+        reader = HistorySources([("system", self.system)])
+        try:
+            overview = reader.overview(max_buckets=50)
+            self.assertEqual(503, overview["count"])
+            self.assertEqual([1.0, 503.0], overview["range"])
+            self.assertIn("late_sensor.temperature_c", overview["columns"])
+            points = overview["series"]["late_sensor.temperature_c"]
+            self.assertTrue(points)
+            self.assertEqual(31.0, points[-1][1])
+            self.assertLessEqual(len(overview["series"]["battery.percentage"]), 100)
+        finally:
+            reader.close()
+
 
 if __name__ == "__main__":
     unittest.main()

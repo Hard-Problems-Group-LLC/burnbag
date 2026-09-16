@@ -69,10 +69,12 @@ class Viewer:
         self.sources: Optional[Any] = None
         self.columns: set[str] = set()
         self.loaded: list[dict[str, Any]] = []
+        self.overview: Optional[dict[str, Any]] = None
         self.after: Optional[tuple[float, str]] = None
         self.loading = False
         self.load_generation = 0
         self.search_timeout = 0
+        self.pending_record_id: Optional[str] = None
         self.has_more = True
         self.search_text = ""
         self.view_range: Optional[tuple[float, float]] = None
@@ -213,6 +215,7 @@ class Viewer:
         for field in ("kind", "source"):
             self._add_column(field.title(), field, flatten_data)
         self._load_next_page()
+        self._load_overview()
         window.present()
 
     def _add_column(self, title: str, field: str, flatten_data: Any) -> None:
@@ -264,6 +267,46 @@ class Viewer:
         threading.Thread(target=read_page, name="burnbag-viewer-history-read",
                           daemon=True).start()
 
+    def _load_overview(self) -> None:
+        if self.sources is None:
+            return
+
+        def read_overview() -> None:
+            try:
+                overview = self.sources.overview()
+                error = None
+            except Exception as exc:
+                overview, error = None, str(exc)
+            self.GLib.idle_add(self._finish_overview, overview, error)
+
+        threading.Thread(target=read_overview, name="burnbag-viewer-history-overview",
+                          daemon=True).start()
+
+    def _finish_overview(self, overview: Optional[dict[str, Any]],
+                         error: Optional[str]) -> bool:
+        if error:
+            if self.status is not None:
+                self.status.set_text("Full-history overview failed: " + error)
+            return False
+        self.overview = overview or {"count": 0, "range": None, "columns": [], "series": {}}
+        from burnbag_viewer_data import flatten_data
+        for field in self.overview["columns"]:
+            self._add_column(field, field, flatten_data)
+        self._update_series_options()
+        if self.graph_area is not None:
+            self.graph_area.queue_draw()
+        if self.status is not None and not self.search_text:
+            message = "%d total history rows; %d loaded in table; scroll for all records" % (
+                self.overview["count"], len(self.loaded))
+            source_status = []
+            for scope, source_error in (self.sources.errors.items() if self.sources else []):
+                source_status.append("%s history unavailable: %s" % (scope, source_error))
+            source_status.extend(self.sources.warnings if self.sources else [])
+            if source_status:
+                message += " — " + "; ".join(source_status)
+            self.status.set_text(message)
+        return False
+
     def _finish_page(self, generation: int, term: str,
                      page: list[dict[str, Any]], error: Optional[str]) -> bool:
         if generation != self.load_generation or term != self.search_text:
@@ -288,15 +331,28 @@ class Viewer:
                 last = page[-1]
                 self.after = (last["captured_at"], last["id"])
             self.has_more = len(page) == 500
+            if self.pending_record_id:
+                for position, record in enumerate(self.loaded):
+                    if record.get("id") == self.pending_record_id:
+                        self._select_table_position(position)
+                        self.pending_record_id = None
+                        break
             if self.status is not None:
                 source_status = []
                 for scope, error in (self.sources.errors.items() if self.sources else []):
                     source_status.append("%s history unavailable: %s" % (scope, error))
                 source_status.extend(self.sources.warnings if self.sources else [])
                 if term:
-                    message = "%d matching history rows loaded; scroll for more matches" % len(self.loaded)
+                    message = ("%d matching history rows loaded%s" % (
+                        len(self.loaded), "; scroll for more matches" if self.has_more else ""))
+                elif self.overview is not None:
+                    if self.has_more:
+                        message = "%d total history rows; %d loaded in table; scroll for all records" % (
+                            self.overview["count"], len(self.loaded))
+                    else:
+                        message = "All %d history rows loaded in table" % len(self.loaded)
                 else:
-                    message = "%d history rows loaded; scroll for newer data" % len(self.loaded)
+                    message = "%d history rows loaded; scanning all available history" % len(self.loaded)
                 if source_status:
                     message += " — " + "; ".join(source_status)
                 self.status.set_text(message)
@@ -320,8 +376,11 @@ class Viewer:
     def _update_series_options(self) -> None:
         if self.series_picker is None:
             return
-        fields = sorted({key for row in self.loaded for key, value in row.get("_flat", {}).items()
-                         if isinstance(value, (int, float)) and not isinstance(value, bool)})
+        if self.overview is not None:
+            fields = sorted(self.overview.get("series", {}))
+        else:
+            fields = sorted({key for row in self.loaded for key, value in row.get("_flat", {}).items()
+                             if isinstance(value, (int, float)) and not isinstance(value, bool)})
         fields.sort(key=lambda key: (not key.endswith("percentage"), key))
         self.series_options = fields
         if self.series_field not in fields:
@@ -429,13 +488,17 @@ class Viewer:
         cr.stroke()
         samples = []
         selected_field = self.series_field
-        for record in self.loaded:
-            if record.get("kind") not in ("sample", "snapshot", "telemetry"):
-                continue
-            value = record.get("_flat", {}).get(selected_field) if selected_field else None
-            samples.append((record["captured_at"],
-                            float(value) if isinstance(value, (int, float)) and not isinstance(value, bool)
-                            else None))
+        overview_points = (self.overview or {}).get("series", {}).get(selected_field, [])
+        if overview_points:
+            samples = [(stamp, value) for stamp, value, _identity in overview_points]
+        else:
+            for record in self.loaded:
+                if record.get("kind") not in ("sample", "snapshot", "telemetry"):
+                    continue
+                value = record.get("_flat", {}).get(selected_field) if selected_field else None
+                samples.append((record["captured_at"],
+                                float(value) if isinstance(value, (int, float)) and not isinstance(value, bool)
+                                else None))
         numeric = [(stamp, value) for stamp, value in samples if value is not None]
         if not numeric:
             cr.set_source_rgb(0.25, 0.27, 0.3)
@@ -556,7 +619,12 @@ class Viewer:
         if maximum <= minimum:
             maximum = minimum + 1
         stamp = minimum + max(0, min(1, (x - left) / max(1, right - left))) * (maximum - minimum)
-        record = min(self.loaded, key=lambda row: abs(row["captured_at"] - stamp))
+        overview_points = (self.overview or {}).get("series", {}).get(self.series_field, [])
+        if overview_points:
+            nearest = min(overview_points, key=lambda row: abs(row[0] - stamp))
+            record = {"captured_at": nearest[0], "id": nearest[2]}
+        else:
+            record = min(self.loaded, key=lambda row: abs(row["captured_at"] - stamp))
         if count >= 2:
             self._focus_record(record)
             self._show_table_record(record)
@@ -582,6 +650,27 @@ class Viewer:
                 except (AttributeError, TypeError):
                     pass
                 return
+        identity = record.get("id")
+        if identity and self.search_entry is not None:
+            term = str(identity)
+            self.pending_record_id = term
+            saved_range, saved_focus = self.view_range, self.focused
+            old_entry = self.search_entry.get_text().strip()
+            if old_entry != term:
+                self.search_entry.set_text(term)
+            if self.search_text != term or old_entry == term:
+                self._search_changed(self.search_entry)
+            self.view_range, self.focused = saved_range, saved_focus
+
+    def _select_table_position(self, position: int) -> None:
+        if self.selection is None or self.column_view is None:
+            return
+        self.selection.unselect_all()
+        self.selection.select_item(position, True)
+        try:
+            self.column_view.scroll_to(position, None, self.Gtk.ListScrollFlags.FOCUS, None)
+        except (AttributeError, TypeError):
+            pass
 
     def _graph_scrolled(self, controller: Any, dx: float, dy: float) -> bool:
         if dy:
@@ -623,13 +712,17 @@ class Viewer:
     def _range(self) -> tuple[float, float]:
         if self.view_range is not None:
             return self.view_range
+        if self.overview is not None and self.overview.get("range"):
+            low, high = self.overview["range"]
+            if high <= low:
+                high = low + 3600
+            return low, high
         if self.loaded:
             stamps = [row["captured_at"] for row in self.loaded]
             low, high = min(stamps), max(stamps)
             if high <= low:
                 high = low + 3600
-            self.view_range = (low, high)
-            return self.view_range
+            return low, high
         now = __import__("time").time()
         self.view_range = (now - 86400, now)
         return self.view_range
@@ -642,6 +735,8 @@ class Viewer:
             "tab": ("graph" if self.notebook and self.notebook.get_current_page() == 0
                     else "table"),
             "loaded_rows": len(self.loaded),
+            "available_rows": (self.overview.get("count") if self.overview is not None else None),
+            "overview_ready": self.overview is not None,
             "graph_series": self.series_field,
             "series_options": list(self.series_options),
             "range": list(self._range()),

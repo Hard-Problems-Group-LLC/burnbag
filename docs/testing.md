@@ -271,7 +271,12 @@ restore, maximize, and close controls. F11 must enter and leave fullscreen; on
 the graph tab the graph should fill the screen without the toolbar, status, or
 tab strip.
 
-Check both tabs. Search a value visible in telemetry (for example a battery
+With no range arguments, verify the viewer reports the total merged history
+row count, the graph spans the oldest through newest available measurements,
+and the measurement selector/table columns include fields that appear only in
+older or newer records. The graph overview should retain full-history extrema;
+the table may load rows in pages as you scroll, but must not stop at the first
+page. Check both tabs. Search a value visible in telemetry (for example a battery
 name), scroll through additional table pages, select a row range and choose
 View selection, then double-click a row and a graph point. Each navigation must
 switch tabs and preserve a useful graph range or matching table selection.

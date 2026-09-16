@@ -37,17 +37,23 @@
 - `BB-2026-09-15-3000` — GTK 4 history viewer; started 2026-09-15.
   Owner: Codex; operator supplies final GNOME-session observations.
   - Scope: [roadmap phase 3000](../ROADMAP.md#phase-3000--gtk-4-history-viewer).
-  - Slices 1000–5000 complete: GTK graph/table navigation, paged cross-database
-    search, opt-in Unix socket automation/controller, installation, and manual
-    are implemented. Live X11 smoke checks captured the client frame and
-    exercised fullscreen, tabs, selection, search, and window operations.
-  - Automated verification passed: 407 unit tests, installer syntax and
-    read-only check, generated-doc check, groff validation, and `git diff
-    --check`. No privileged/system installation was performed.
-  - Slice 6000 awaits GNOME title-bar minimize, maximize/restore, and close
-    checks. F11 graph-only fullscreen is automated; request BB-MANUAL-04 for
-    visible GNOME window-manager controls. Phase 9000's earlier manual checks
-    remain independently deferred.
+  - Operator feedback found that the initial implementation exposed only the
+    first 500 table rows and based its graph and field list on those loaded
+    rows. Slice 3000 was reactivated to make no-argument startup cover the full
+    history while preserving paged table loading; the correction below closes
+    the slice.
+  - Fix implemented: full-history scan builds a bounded, extrema-preserving
+    graph overview and global measurement catalog; the table reports total rows
+    and continues through all pages. Graph double-click now locates records
+    outside the first table page. Live X11 check found 5,553 available system
+    rows and an all-history overview with fields from beyond the first page.
+    User history is unavailable in this environment and reported as such.
+  - Automated verification passed: 408 unit tests, installer syntax/read-only
+    check, generated-doc check, groff validation, and `git diff --check`. No
+    privileged/system installation was performed.
+  - Slice 6000 awaits GNOME title-bar
+    minimize/maximize/restore/close checks in BB-MANUAL-04. Phase 9000's
+    earlier manual checks remain independently deferred.
 
 - `BB-MANUAL-04` — GTK 4 history viewer GNOME window controls.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
