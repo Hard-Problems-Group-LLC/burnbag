@@ -1,5 +1,45 @@
 # Completed Tasks
 
+- `BB-2026-09-15-6000` — Shared-rectangle viewer traces and unit axes.
+  Started and completed 2026-09-15; owner: Codex; direct operator request.
+  - All six phase 6000 slices are complete. Every trace uses the exact same
+    plot rectangle; selected fields with matching units contribute to one
+    collective autorange. Different units retain independent transforms.
+    Semantic units separate state values, device-specific brightness counts
+    and unknown numeric fields instead of mixing arbitrary unitless data.
+  - Axis strips alternate outside-in, with centered counter-clockwise unit
+    titles. Nice ticks aim for ten divisions and respect 1.5-label-height
+    spacing. Flat, empty, negative, tiny, very large and subnormal values have
+    bounded readable ranges. Small canvases explicitly request more space.
+  - Each trace has a matching colored label in the lower-center in-plot key;
+    its background is 50% alpha. Drawing, dragging, closest-point selection,
+    focus and automation use one geometry model. Snapshot reads, source merging,
+    range locks, saved field choices and gaps remain intact.
+  - Verification: native Python 3.12.13 discovery ran 464 tests, with only nine
+    expected opt-in GUI skips. Python 3.9.21 and 3.14.6 each ran 445 tests with
+    13 expected GI/Cairo/GUI skips. All non-skipped tests passed, with
+    ResourceWarning treated as an error. This includes staged installer modes.
+    An additional deterministic 10,000-case numeric check retained all finite
+    observations and distinct tick labels across extreme magnitudes.
+  - All nine actual GTK/socket/frame tests passed on private headless Weston
+    using isolated Python 3.12.12/PyGObject 3.50.0/Cairo 1.29.1 bindings and the
+    Cairo renderer. Inspected the captured five-trace/four-unit frame: common
+    rectangle, shared BAT0/BAT1 percentages, alternating strips and translucent
+    colored key are visible. F11 resizing, cross-navigation, preferences and
+    exclusion of later database appends passed. Direct native Cairo tests also
+    verify rotated glyphs, trace/key colors and actual half-alpha blending.
+  - The host's PyGObject 3.46 cannot return GTK render nodes even for an
+    independent solid-rectangle snapshot. The pre-existing automation capture
+    failure is recorded as [BB-BUG-2026-09-15-03](bugs/open/BB-BUG-2026-09-15-03-gtk-capture-bindings.md).
+    Isolated-binding success does not claim native capture compatibility.
+    No system dependencies, services, installed commands or preferences changed.
+  - Bash syntax, shellcheck, generated-doc consistency, both manuals and
+    whitespace checks pass. AGENTS.md, ROADMAP, specifications, manuals,
+    generated README, tests and Ubersight are synchronized. Live viewer updates
+    are backlog-only; approved terminal graph-only remains unimplemented.
+    Refresh the intended installation to use the new graph. Existing GNOME
+    controls and hardware acceptance stay open under phases 3000/9000.
+
 - `BB-2026-09-15-5000` — Standard installer recovery under sudo.
   Started and completed 2026-09-15; owner: Codex; direct operator request.
   - All four phase 5000 slices are complete. Reproduced the missing

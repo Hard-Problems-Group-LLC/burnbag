@@ -54,6 +54,12 @@
   - Slice 6000 awaits GNOME title-bar
     minimize/maximize/restore/close checks in BB-MANUAL-04. Phase 9000's
     earlier manual checks remain independently deferred.
+  - Phase 6000 is now complete: all traces share one rectangle, unit-grouped
+    scales and alternating label strips, with a lower-center 50%-alpha color
+    key. Actual GTK frames and interactions pass; the same GNOME check can
+    include the updated graph after refreshing the intended installation.
+    Native PyGObject 3.46 capture has a separately recorded pre-existing binding
+    limitation; see [completed phase evidence](completed-tasks.md).
   - Follow-up phase 3100 is complete; its investigation, fixes and current
     426-test verification are in [completed tasks](completed-tasks.md).
     The earlier isolated assistant environment is not the operator's data

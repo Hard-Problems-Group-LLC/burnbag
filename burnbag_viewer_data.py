@@ -1,12 +1,14 @@
 """Read-only, incrementally merged access to burnbag history databases."""
 from __future__ import annotations
 
+import colorsys
 import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
 import threading
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote
 
 from burnbag_history import HistoryError, SAMPLE_KINDS, SYSTEM_DATABASE, _streams, user_database_path
@@ -356,6 +358,190 @@ def _numeric(value: Any) -> bool:
         return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
     except OverflowError:
         return False
+
+
+def measurement_unit(field: str) -> Tuple[str, str]:
+    """Return a semantic grouping key and display unit, never generic unitless.
+
+    Brightness counts depend on the device's hardware scale. Unknown fields
+    are intentionally isolated until their units have an explicit contract.
+    """
+    suffix = field.rsplit('.', 1)[-1]
+    units = {
+        'percentage': ('percent', '%'), 'busy_percent': ('percent', '%'),
+        'power_w': ('watts', 'W'), 'energy_wh': ('watt_hours', 'Wh'),
+        'full_wh': ('watt_hours', 'Wh'), 'voltage_v': ('volts', 'V'),
+        'current_a': ('amps', 'A'), 'charge_ah': ('amp_hours', 'Ah'),
+        'full_ah': ('amp_hours', 'Ah'), 'temperature_c': ('celsius', '°C'),
+        'cycle_count': ('cycles', 'Cycles'),
+    }
+    if field.startswith('thermal_c.'):
+        return 'celsius', '°C'
+    if field.startswith('cpu.frequency_mhz.'):
+        return 'megahertz', 'MHz'
+    if field.startswith(('batteries.', 'supplies.', 'cpu.')) and suffix in units:
+        return units[suffix]
+    if field.startswith('supplies.') and suffix == 'online':
+        return 'online_state', 'Online state'
+    if field.startswith('backlight.'):
+        if suffix == 'bl_power':
+            return 'backlight_power_state', 'Backlight power state'
+        if suffix in ('brightness', 'actual_brightness'):
+            device = field.rsplit('.', 1)[0]
+            return device + '.counts', 'Brightness counts: ' + device.split('.', 1)[1]
+    return 'field:' + field, 'Value: ' + field
+
+
+def axis_scale(values: Sequence[float], divisions: int, unit: str) -> Dict[str, Any]:
+    """Finite shared bounds and at most the requested number of divisions.
+
+    Compute nice steps in a scaled domain to avoid overflowing a large signed
+    range or losing tiny measurements. Endpoints always contain observations.
+    """
+    divisions = max(1, min(10, divisions))
+    if not values:
+        values = [0.0, 100.0 if unit == 'percent' else 1.0]
+    observed_low, observed_high = min(values), max(values)
+    magnitude = max(abs(observed_low), abs(observed_high))
+    scale = 10.0 ** max(-300, min(300, math.floor(math.log10(magnitude)))) if magnitude else 1.0
+    low, high = observed_low / scale, observed_high / scale
+    pad = (high - low) * .08 if high > low else (abs(low) * .05 if low else 1.0)
+    limit = sys.float_info.max / scale if scale >= 1 else sys.float_info.max
+    low, high = max(-limit, low - pad), min(limit, high + pad)
+    percent = unit == 'percent' and 0 <= observed_low <= observed_high <= 100
+    if percent:
+        low, high = max(0, low), min(100 / scale, high)
+    # Choose a readable step, increasing it if rounded endpoints add a division.
+    raw_step = (high - low) / divisions
+    power = 10.0 ** math.floor(math.log10(raw_step))
+    step = next(multiplier * power for multiplier in (1, 2, 2.5, 5, 10)
+                if multiplier * power >= raw_step * (1 - 1e-12))
+    for _attempt in range(20):
+        lower, upper = max(-limit, math.floor(low / step) * step), min(limit, math.ceil(high / step) * step)
+        if percent:
+            lower, upper = max(0, lower), min(100 / scale, upper)
+        count = max(1, math.ceil((upper - lower) / step - 1e-10))
+        if count <= divisions:
+            break
+        step *= 2
+    # Equal spacing also handles a finite endpoint clamped near float limits.
+    low, high = min(observed_low, lower * scale), max(observed_high, upper * scale)
+    if high <= low:
+        low, high = math.nextafter(low, -math.inf), math.nextafter(high, math.inf)
+    while True:
+        ticks = [low * (1 - index / count) + high * (index / count) for index in range(count + 1)]
+        if len(set(ticks)) == len(ticks) or count == 1:
+            break
+        count -= 1
+    for precision in (5, 8, 12, 17):
+        labels = [format(0.0 if value == 0 else value, '.%dg' % precision) for value in ticks]
+        if len(set(labels)) == len(labels):
+            break
+    return {'range': [low, high], 'ticks': [{'value': value, 'label': label}
+                                          for value, label in zip(ticks, labels)]}
+
+
+def trace_color(index: int) -> Tuple[float, float, float]:
+    """Distinct reproducible colors in selected-field order, extended as needed."""
+    palette = ((.12, .35, .72), (.82, .27, .05), (.12, .53, .25), (.58, .23, .68),
+               (.05, .53, .60), (.76, .12, .30), (.51, .40, .05), (.35, .37, .43))
+    return palette[index] if index < len(palette) else colorsys.hsv_to_rgb((index * .618034) % 1, .72, .65)
+
+
+def fit_graph_text(text: str, width: float, measure: Callable[[str], float]) -> str:
+    """Keep text inside its allocation, with the full name retained in state."""
+    if measure(text) <= width:
+        return text
+    # Middle elision retains both device identity and measurement suffix.
+    for count in range(len(text) - 1, 0, -1):
+        candidate = text[:(count + 1) // 2] + '…' + (text[-(count // 2):] if count // 2 else '')
+        if measure(candidate) <= width:
+            return candidate
+    return '…' if measure('…') <= width else ''
+
+
+def graph_layout(fields: Sequence[str], series: Dict[str, Any], bounds: Sequence[float],
+                 width: float, height: float, measure: Callable[[str], float],
+                 label_height: float) -> Dict[str, Any]:
+    """One geometry model used by Cairo drawing, hit testing and automation."""
+    top, bottom = 20.0, height - 48.0
+    plot_height = bottom - top
+    divisions = max(1, min(10, int(plot_height / (1.5 * label_height))))
+    axes, traces, groups = [], [], {}
+    for index, field in enumerate(fields):
+        key, title = measurement_unit(field)
+        data = series.get(field, {})
+        points = [p for p in data.get('points', []) if _numeric(p[0]) and _numeric(p[1])
+                  and bounds[0] <= p[0] <= bounds[1]] if data.get('range') == list(bounds) else []
+        if key not in groups:
+            groups[key] = {'unit': key, 'label': title, 'fields': [], 'values': []}
+            axes.append(groups[key])
+        groups[key]['fields'].append(field)
+        groups[key]['values'].extend(p[1] for p in points)
+        traces.append({'field': field, 'unit': key, 'color': trace_color(index), 'points': points})
+    left, right = 8.0, width - 8.0
+    for index, axis in enumerate(axes):
+        axis.update(axis_scale(axis.pop('values'), divisions, axis['unit']))
+        strip_width = max(measure(tick['label']) for tick in axis['ticks']) + label_height + 24
+        axis['side'] = 'left' if index % 2 == 0 else 'right'
+        origin = left if index % 2 == 0 else right - strip_width
+        axis['strip'] = [origin, top, strip_width, plot_height]
+        axis['axis_x'] = origin + strip_width - 1 if index % 2 == 0 else origin + 1
+        title_x = origin + 4 + label_height / 2 if index % 2 == 0 else origin + strip_width - 4 - label_height / 2
+        axis['label_center'] = [title_x, (top + bottom) / 2]
+        axis['label_rotation'] = -90
+        axis['display_label'] = fit_graph_text(axis['label'], max(0, plot_height - 12), measure)
+        for position, tick in enumerate(axis['ticks']):
+            tick['y'] = bottom - plot_height * position / (len(axis['ticks']) - 1)
+        if index % 2 == 0:
+            left += strip_width
+        else:
+            right -= strip_width
+    result = {'plot': None, 'axes': axes, 'traces': traces, 'legend': None,
+              'range': list(bounds), 'size': [width, height], 'label_height': label_height,
+              'message': None}
+    if not fields:
+        result['message'] = 'No graph fields selected. Use Fields... to choose measurements.'
+        return result
+    if right - left < 160 or plot_height < 3 * label_height:
+        result['message'] = 'Enlarge the window or select fewer unit types to show the graph.'
+        return result
+    result['plot'] = [left, top, right - left, plot_height]
+    for trace in traces:
+        trace['range'] = groups[trace['unit']]['range']
+        trace['plot'] = list(result['plot'])
+    # Lower-center key. Text is opaque in trace colors; only the box is 50% alpha.
+    available = right - left - 24
+    entries, cursor_x, cursor_y, row_width = [], 10.0, 10.0, 0.0
+    row_height = label_height * 1.5
+    for trace in traces:
+        label = trace['field'] + ' [' + groups[trace['unit']]['label'] + ']'
+        shown = fit_graph_text(label, available - 20, measure)
+        item_width = measure(shown) + 20
+        if cursor_x > 10 and cursor_x + item_width > available:
+            cursor_x, cursor_y = 10.0, cursor_y + row_height
+        entries.append({'field': trace['field'], 'label': label, 'display_label': shown,
+                        'color': trace['color'], 'position': [cursor_x, cursor_y + label_height]})
+        cursor_x += item_width
+        row_width = max(row_width, cursor_x)
+    key_width, key_height = min(available, row_width), cursor_y + row_height + 6
+    if key_height > plot_height - 16:
+        result['plot'] = None
+        result['message'] = 'Enlarge the window or select fewer fields to fit the color key.'
+        return result
+    result['legend'] = {'box': [(left + right - key_width) / 2, bottom - key_height - 8,
+                                key_width, key_height], 'alpha': .5, 'entries': entries}
+    return result
+
+
+def graph_point(plot: Sequence[float], bounds: Sequence[float], value_range: Sequence[float],
+                stamp: float, value: float) -> Tuple[float, float]:
+    """Transform one observation with the same exact rectangle for every unit."""
+    low, high = value_range
+    scale = max(abs(low), abs(high), sys.float_info.min)
+    fraction = (value / scale - low / scale) / (high / scale - low / scale)
+    return (plot[0] + plot[2] * (stamp - bounds[0]) / (bounds[1] - bounds[0]),
+            plot[1] + plot[3] * (1 - fraction))
 
 
 class SeriesBuilder:

@@ -46,7 +46,8 @@ FieldManual footer.
   request identifiers remain unchanged. Existing published `P1`–`P10` IDs
   remain legacy references. Phase `4000` covers persistent viewer field
   selection. Phase `5000` covers standard installer recovery under sudo.
-  Allocate the next new phase as `6000`.
+  Phase `6000` covers shared-rectangle viewer traces and unit-based axes.
+  Allocate the next new phase as `7000`.
 
 ## Ubersight maintenance
 

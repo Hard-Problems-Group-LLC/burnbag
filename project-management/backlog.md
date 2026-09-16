@@ -8,6 +8,16 @@ specifications, and ISO 8601 timestamps.
 
 ## Current Queue
 
+- `BB-2026-09-15-VIEWER-LIVE` — Add live data updates to the graphical viewer.
+  - Created: 2026-09-15T23:24:51-07:00. Requestor: operator. Owner: unassigned.
+  - Status: backlog only, explicitly excluded from today's phase 6000 work.
+  - Future scope: refresh from ongoing collection without reopening; update
+    grouped unit ranges from every value currently shown while preserving
+    navigation, field choices, gaps and read-only access. Define follow-tail
+    versus user-pinned viewport behavior and refresh cadence before execution.
+  - Phase allocation and implementation are deferred; do not add timers,
+    database tailing, collector changes or automatic refresh in phase 6000.
+
 - `BB-2026-09-15-GRAPH-ONLY` — Add the approved passive live terminal battery graph.
   - Created: 2026-09-15T22:13:07-07:00. Requestor: Operator. Implementation
     owner: unassigned until scheduled.

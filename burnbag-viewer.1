@@ -24,10 +24,23 @@ checkboxes. Choose graph measurements and table columns independently.
 OK saves and applies both selections; Cancel, Escape and closing the dialog
 discard all changes. Enter activates OK. Neither view changes while editing.
 Date and Time always remain the first table columns. Empty selections are valid.
-Multiple graph fields have separate labeled plots and scales sharing the same
-time interval; up to three plots stack vertically, with larger selections tiled.
+All selected traces overlay the exact same plot rectangle. Measurements with the
+same units share one Y range containing every displayed value for that unit;
+different units autorange independently. Axis strips alternate from the outside
+inward: first unit left, second right, third inward on the left, and so on.
+Unit titles are centered along their strips and rotated 90 degrees counter-clockwise.
+Numeric ticks aim for ten divisions, reduced to keep at least 1.5 label heights
+between labels. Unknown numeric fields receive individual named units; device
+brightness counts share a scale only within the same device.
+.PP
+The color key sits inside the lower center of the plot, with a 50%-alpha background
+box and opaque labels colored to match their traces. Labels wrap inside the box;
+enlarge the window or select fewer fields if axes or the key cannot fit.
+.PP
 Use the mouse wheel or zoom controls to change scale, and drag or the arrow buttons to
-pan. A table row double-click opens the graph around that record. Select a table
+pan. Drag distance uses the shared plot width. Clicks in axis strips do not
+select observations; clicks inside the plot choose the nearest displayed point
+across all traces in pixel space. A table row double-click opens the graph around that record. Select a table
 range and choose View selection to fit it. A graph double-click selects and
 scrolls to the corresponding table row, loading that record even when it is
 outside the currently visible page. These actions switch to the destination
@@ -123,6 +136,8 @@ manager. Keep the socket inside a private per-user runtime directory such as
 Use fields open, fields set --view graph|table --name FIELD --checked yes|no,
 fields tab --view graph|table, fields ok, and fields cancel to operate the dialog.
 Status includes applied choices, available fields and draft selections/errors.
+The graph_layout state includes the shared plot rectangle, ordered unit axes,
+their ranges, ticks and strips, trace colors and the half-alpha legend geometry.
 Capture returns the dialog client frame while it is open. Return, Escape and
 window close act on the dialog; background navigation is blocked.
 The legacy series NAME command selects a single field for this run; Fields OK
@@ -153,6 +168,7 @@ user's read permissions. The status line shows per-source counts or missing/erro
 states; its tooltip gives the actual database paths and errors. Each launch
 reads a bounded snapshot of the stores so a running collector cannot make a
 query grow indefinitely; reopen to see subsequently recorded observations.
+Live data refresh is backlog-only, not implemented in this version.
 The older burnbag.log operational JSON-lines file is separate and is not a
 SQLite telemetry source.
 .SH REQUIREMENTS
@@ -161,5 +177,10 @@ and a running graphical session are
 required. The viewer is separate from the terminal-only
 .B burnbag
 command.
+.PP
+The current automation PNG capture implementation additionally needs
+PyGObject 3.48 or later for GTK render-node support. Older bindings can display
+the viewer but return a capture error; installation does not currently check
+this optional capability.
 .SH SEE ALSO
 .BR burnbag (1)

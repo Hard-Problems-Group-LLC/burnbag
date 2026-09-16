@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -78,9 +79,10 @@ class ViewerGuiTests(unittest.TestCase):
         self.temp.cleanup()
 
     def launch(self, *options):
-        env = dict(os.environ, PYTHONPATH=str(ROOT), GDK_BACKEND='x11',
+        env = dict(os.environ, PYTHONPATH=str(ROOT),
+                   GDK_BACKEND=os.environ.get('BURNBAG_TEST_GDK_BACKEND', 'x11'),
                    XDG_CONFIG_HOME=str(self.root / 'config'))
-        self.process = subprocess.Popen(['/usr/bin/python3', '-B', '-c', RUNNER,
+        self.process = subprocess.Popen([sys.executable, '-B', '-c', RUNNER,
             *(str(p) for p in self.paths), str(BASE+7200), '--automation', self.sock, *options],
             cwd=ROOT, env=env, stdout=self.log, stderr=self.log)
         return self.wait(lambda state: state['overview_ready'] and not state['graph_loading'])
@@ -126,7 +128,9 @@ class ViewerGuiTests(unittest.TestCase):
         pixels = bytes(surface.get_data())
         blue = sum(pixels[i] > 150 and pixels[i+2] < 100 and pixels[i+1] < 150 for i in range(0, len(pixels), 4))
         self.assertGreater(blue, 1000, 'data curve should be visible in the actual PNG')
-        self.call('pointer', target='graph', x=.98, y=.5, clicks=2)
+        plot = state['graph_layout']['plot']
+        self.call('pointer', target='graph', x=(plot[0] + plot[2] * .98) / state['graph_layout']['size'][0],
+                  y=.5, clicks=2)
         state = self.wait(lambda x: x['tab'] == 'table' and x['table_sources'] == ['user'] and x['selection_count'] == 1)
         self.assertGreater(state['table_range'][0], BASE+6000)
         self.assertEqual(state['search'], '')
@@ -196,7 +200,7 @@ class ViewerGuiTests(unittest.TestCase):
             self.assertEqual(state['range'], before['range'])
             self.assertFalse(path.exists())
 
-    def test_fields_ok_saves_multiple_graphs_and_table_columns_across_launches(self):
+    def test_fields_ok_saves_overlaid_traces_and_table_columns_across_launches(self):
         before = self.launch('--last', '1h', '--only')
         self.call('select', first=0, last=2)
         result = subprocess.run(['/usr/bin/python3', '-B', str(ROOT / 'burnbag_viewerctl.py'),
@@ -221,11 +225,13 @@ class ViewerGuiTests(unittest.TestCase):
         time.sleep(.15)
         import cairo
         surface = cairo.ImageSurface.create_from_png(io.BytesIO(base64.b64decode(self.call('capture')['base64'])))
-        pixels, stride = bytes(surface.get_data()), surface.get_stride()
-        for lower, upper in ((0, surface.get_height() // 2), (surface.get_height() // 2, surface.get_height())):
-            blue = sum(pixels[i] > 150 and pixels[i+2] < 100 and pixels[i+1] < 150
-                       for i in range(lower * stride, upper * stride, 4))
-            self.assertGreater(blue, 400, 'both independent plots must contain rendered data')
+        pixels = bytes(surface.get_data())
+        for trace in state['graph_layout']['traces']:
+            target = [round(v * 255) for v in reversed(trace['color'])]
+            count = sum(all(abs(pixels[i+j] - target[j]) < 18 for j in range(3))
+                        for i in range(0, len(pixels), 4))
+            self.assertGreater(count, 400, 'both colored traces must be rendered')
+            self.assertEqual(trace['plot'], state['graph_layout']['plot'])
         path = Path(state['preferences_path'])
         saved = path.read_bytes()
         self.call('fields', action='open')
@@ -235,8 +241,11 @@ class ViewerGuiTests(unittest.TestCase):
         restarted = self.restart()
         self.assertEqual(restarted['graph_fields'], state['graph_fields'])
         self.assertEqual(restarted['table_fields'], state['table_fields'])
-        # Hit testing the lower plot must navigate using that panel's time scale.
-        self.call('pointer', target='graph', x=.98, y=.85, clicks=2)
+        # Hit testing uses the shared rectangle, not an obsolete lower panel.
+        restarted = self.wait(lambda x: not x['graph_loading'])
+        plot, size = restarted['graph_layout']['plot'], restarted['graph_layout']['size']
+        self.call('pointer', target='graph', x=(plot[0] + plot[2] * .98) / size[0],
+                  y=(plot[1] + plot[3] * .5) / size[1], clicks=2)
         self.wait(lambda x: x['tab'] == 'table' and x['table_sources'] == ['user'])
 
     def test_empty_selections_and_save_failure_keep_view_transactional(self):
@@ -291,3 +300,63 @@ class ViewerGuiTests(unittest.TestCase):
         state = self.call('fields', action='ok')
         self.assertIsNone(state['preference_warning'])
         self.assertEqual(json.loads(path.read_text())['version'], 1)
+
+    def test_shared_units_four_strips_key_fullscreen_and_snapshot_stability(self):
+        for path in self.paths:
+            with sqlite3.connect(path) as connection:
+                rows = connection.execute('SELECT id, data FROM records').fetchall()
+                for identity, payload in rows:
+                    data = json.loads(payload)
+                    index = int(identity[1:])
+                    data['batteries']['BAT0']['percentage'] = 10 + index % 10
+                    data['batteries']['BAT0']['power_w'] = 2 + index % 4
+                    data['batteries']['BAT1'] = {'percentage': 85 + index % 10}
+                    data['thermal_c'] = {'zone0': 30 + index % 20}
+                    connection.execute('UPDATE records SET data=? WHERE id=?', (json.dumps(data), identity))
+        state = self.launch()
+        self.call('fields', action='open')
+        for field in ('batteries.BAT1.percentage', 'batteries.BAT0.energy_wh',
+                      'batteries.BAT0.power_w', 'thermal_c.zone0'):
+            self.set_field('graph', field, True)
+        self.call('fields', action='ok')
+        state = self.wait(lambda state: not state['graph_loading'] and len(state['graph_fields']) == 5)
+        layout = state['graph_layout']
+        self.assertIsNotNone(layout['plot'])
+        self.assertEqual([axis['label'] for axis in layout['axes']], ['%', 'Wh', 'W', '°C'])
+        self.assertEqual([axis['side'] for axis in layout['axes']], ['left', 'right', 'left', 'right'])
+        self.assertEqual(layout['axes'][0]['fields'], ['batteries.BAT0.percentage', 'batteries.BAT1.percentage'])
+        self.assertLessEqual(layout['axes'][0]['range'][0], 10)
+        self.assertGreaterEqual(layout['axes'][0]['range'][1], 94)
+        self.assertEqual(layout['legend']['alpha'], .5)
+        self.assertEqual(len(layout['legend']['entries']), 5)
+        for axis in layout['axes']:
+            self.assertEqual(axis['label_rotation'], -90)
+            self.assertLessEqual(len(axis['ticks']), 11)
+            self.assertTrue(all(a['y'] - b['y'] >= 1.5 * layout['label_height']
+                                for a, b in zip(axis['ticks'], axis['ticks'][1:])))
+        for trace in layout['traces']:
+            self.assertEqual(trace['plot'], layout['plot'])
+        time.sleep(.15)
+        frame = self.call('capture')
+        self.assertGreater(len(base64.b64decode(frame['base64'])), 10000)
+        # Optional review artifacts belong only to the caller's private test tree.
+        capture_dir = os.environ.get('BURNBAG_TEST_CAPTURE_DIR')
+        if capture_dir:
+            Path(capture_dir, 'shared-unit-viewer.png').write_bytes(base64.b64decode(frame['base64']))
+        self.call('key', key='F11')
+        fullscreen = self.wait(lambda state: state['fullscreen'] and
+                               state['graph_layout']['size'] != layout['size'])
+        self.assertEqual([axis['range'] for axis in fullscreen['graph_layout']['axes']],
+                         [axis['range'] for axis in layout['axes']])
+        self.call('key', key='F11')
+        self.wait(lambda state: not state['fullscreen'])
+        # A newly committed row stays out of this launch's fixed snapshot.
+        test_viewer_data.HistorySourcesTests._insert(self.paths[0], 'after-open', BASE+7300,
+                                                    {'batteries': {'BAT0': {'percentage': 100}}})
+        self.call('zoom', factor=.5)
+        self.wait(lambda state: not state['graph_loading'])
+        self.call('pointer', target='graph', button=3, x=.5, y=.5)
+        state = self.wait(lambda state: not state['graph_loading'])
+        self.assertEqual(state['available_rows'], 1440)
+        self.assertEqual(state['range'], [BASE, BASE+7195])
+        self.assertEqual(state['graph_details']['batteries.BAT0.percentage']['samples'], 1440)

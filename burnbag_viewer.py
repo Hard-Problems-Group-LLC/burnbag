@@ -634,107 +634,109 @@ class Viewer:
         self.fullscreen = enabled
 
     def _draw_graph(self, area: Any, cr: Any, width: int, height: int) -> None:
+        from burnbag_viewer_data import fit_graph_text, graph_point
         cr.set_source_rgb(0.98, 0.98, 0.98)
         cr.paint()
-        if not self.graph_fields:
+        layout = self._graph_layout(width, height, cr)
+        measure = lambda text: cr.text_extents(text)[2]
+        if layout['plot'] is None:
             cr.set_source_rgb(0.15, 0.15, 0.18)
-            cr.set_font_size(14)
-            cr.move_to(24, 40)
-            cr.show_text("No graph fields selected. Use Fields... to choose measurements." if self.overview
-                         else "Discovering available fields…")
-        for field, x, y, panel_width, panel_height in self._graph_panels(width, height):
-            cr.save()
-            cr.rectangle(x, y, panel_width, panel_height)
-            cr.clip()
-            cr.translate(x, y)
-            self._draw_series_graph(cr, panel_width, panel_height, field)
-            cr.restore()
-
-    def _graph_panels(self, width: int, height: int) -> list[tuple[str, float, float, float, float]]:
-        count = len(self.graph_fields)
-        if not count:
-            return []
-        columns = (1 if count <= 3 else
-                   min(count, max(1, math.ceil(math.sqrt(count * width / max(1, height) * .5)))))
-        rows = math.ceil(count / columns)
-        return [(field, index % columns * width / columns, index // columns * height / rows,
-                 width / columns, height / rows) for index, field in enumerate(self.graph_fields)]
-
-    def _draw_series_graph(self, cr: Any, width: float, height: float, selected_field: str) -> None:
-        left, right, top, bottom = 78.0, max(80.0, width - 18.0), 32.0, max(34.0, height - 48.0)
-        minimum, maximum = self._range()
-        data = (self.graph_data or {}).get("series", {}).get(selected_field, {})
-        points = data.get("points", []) if data.get("field") == selected_field and data.get("range") == [minimum, maximum] else []
-        suffix = "%" if str(selected_field).endswith(("percentage", "percent")) else (
-            " W" if str(selected_field).endswith("power_w") else
-            " Wh" if str(selected_field).endswith(("energy_wh", "full_wh")) else
-            "°C" if str(selected_field).endswith("temperature_c") or str(selected_field).startswith("thermal_c.") else "")
-        if points:
-            low, high = min(p[1] for p in points), max(p[1] for p in points)
-            pad = max(1.0, (high - low) * .08)
-            low, high = low - pad, high + pad
-            if suffix == "%":
-                low, high = max(0.0, low), min(100.0, high)
-        else:
-            low, high = 0.0, 100.0 if suffix == "%" else 1.0
-        if high <= low:
-            high = low + 1
+            cr.move_to(12, min(40, height / 2))
+            message = layout['message'] if self.overview is not None else 'Discovering available fields…'
+            cr.show_text(fit_graph_text(message, max(0, width - 24), measure))
+            return
+        left, top, plot_width, plot_height = layout['plot']
+        right, bottom = left + plot_width, top + plot_height
+        minimum, maximum = layout['range']
         cr.set_line_width(1.0)
-        cr.set_source_rgb(0.78, 0.79, 0.81)
-        for index in range(6):
-            y = top + (bottom - top) * index / 5
-            cr.move_to(left, y)
-            cr.line_to(right, y)
+        cr.set_source_rgb(0.82, 0.83, 0.85)
+        # One grid, from the first unit. Other units have their own labeled ticks.
+        for tick in layout['axes'][0]['ticks']:
+            cr.move_to(left, tick['y'])
+            cr.line_to(right, tick['y'])
         cr.stroke()
         cr.save()
-        cr.rectangle(left - 2, top - 2, right - left + 4, bottom - top + 4)
+        cr.rectangle(*layout['plot'])
         cr.clip()
-        cr.set_source_rgb(0.12, 0.35, 0.72)
-        cr.set_line_width(1.8)
-        pixels, previous_segment = [], None
-        for stamp, value, _identity, segment in points:
-            x = left + (right - left) * (stamp - minimum) / (maximum - minimum)
-            y = bottom - (bottom - top) * (value - low) / (high - low)
-            if segment != previous_segment:
-                cr.move_to(x, y)
-            else:
-                cr.line_to(x, y)
-            pixels.append((x, y))
-            previous_segment = segment
-        cr.stroke()
-        # Dots make individual observations and one-point segments visible.
-        for x, y in pixels:
-            cr.new_sub_path()
-            cr.arc(x, y, 1.5, 0, 2 * math.pi)
-        cr.fill()
-        cr.restore()
-        cr.set_source_rgb(0.15, 0.15, 0.18)
-        cr.select_font_face("Sans")
-        cr.set_font_size(12)
-        cr.move_to(8, top + 4)
-        cr.show_text("%.4g%s" % (high, suffix))
-        cr.move_to(8, bottom)
-        cr.show_text("%.4g%s" % (low, suffix))
-        for stamp, align_right in ((minimum, False), (maximum, True)):
-            for offset, fmt in ((26, "%H:%M:%S"), (10, "%Y-%m-%d")):
-                label = datetime.fromtimestamp(stamp).strftime(fmt)
-                label_width = cr.text_extents(label)[2]
-                cr.move_to(max(left, right - label_width) if align_right else left, height - offset)
-                cr.show_text(label)
-        cr.move_to(left + 6, 18)
-        label = selected_field
-        while len(label) > 1 and cr.text_extents(label)[2] > right - left - 8:
-            label = label[:-2] + "…"
-        cr.show_text(label)
-        if not points:
-            cr.move_to(left + 18, top + 30)
-            cr.show_text("Loading observations…" if self.graph_loading else "No observations in this interval")
+        for trace in layout['traces']:
+            cr.set_source_rgb(*trace['color'])
+            cr.set_line_width(1.8)
+            pixels, previous_segment = [], None
+            for stamp, value, _identity, segment in trace['points']:
+                x, y = graph_point(layout['plot'], layout['range'], trace['range'], stamp, value)
+                if segment != previous_segment:
+                    cr.move_to(x, y)
+                else:
+                    cr.line_to(x, y)
+                pixels.append((x, y))
+                previous_segment = segment
+            cr.stroke()
+            for x, y in pixels:
+                cr.new_sub_path()
+                cr.arc(x, y, 1.5, 0, 2 * math.pi)
+            cr.fill()
         if self.focused is not None and minimum <= self.focused <= maximum:
-            x = left + (right - left) * (self.focused - minimum) / (maximum - minimum)
+            x = left + plot_width * (self.focused - minimum) / (maximum - minimum)
             cr.set_source_rgb(0.85, 0.16, 0.48)
             cr.move_to(x, top)
             cr.line_to(x, bottom)
             cr.stroke()
+        cr.restore()
+        cr.set_line_width(1)
+        cr.set_source_rgb(.35, .36, .39)
+        cr.rectangle(*layout['plot'])
+        cr.stroke()
+        for axis in layout['axes']:
+            cr.set_source_rgb(.15, .15, .18)
+            cr.move_to(axis['axis_x'], top)
+            cr.line_to(axis['axis_x'], bottom)
+            cr.stroke()
+            for tick in axis['ticks']:
+                xb, yb, tw, th, _xa, _ya = cr.text_extents(tick['label'])
+                x = axis['axis_x'] - tw - 7 - xb if axis['side'] == 'left' else axis['axis_x'] + 7 - xb
+                cr.move_to(x, tick['y'] - yb - th / 2)
+                cr.show_text(tick['label'])
+                cr.move_to(axis['axis_x'], tick['y'])
+                cr.line_to(axis['axis_x'] + (-4 if axis['side'] == 'left' else 4), tick['y'])
+                cr.stroke()
+            cr.save()
+            cr.translate(*axis['label_center'])
+            cr.rotate(-math.pi / 2)
+            xb, yb, tw, th, _xa, _ya = cr.text_extents(axis['display_label'])
+            cr.move_to(-xb - tw / 2, -yb - th / 2)
+            cr.show_text(axis['display_label'])
+            cr.restore()
+        for stamp, align_right in ((minimum, False), (maximum, True)):
+            for offset, fmt in ((26, "%H:%M:%S"), (10, "%Y-%m-%d")):
+                label = fit_graph_text(datetime.fromtimestamp(stamp).strftime(fmt), plot_width / 2 - 4, measure)
+                label_width = cr.text_extents(label)[2]
+                cr.move_to(max(left, right - label_width) if align_right else left, height - offset)
+                cr.show_text(label)
+        if not any(trace['points'] for trace in layout['traces']):
+            cr.move_to(left + 18, top + 30)
+            message = 'Loading observations…' if self.graph_loading else 'No observations in this interval'
+            cr.show_text(fit_graph_text(message, plot_width - 36, measure))
+        legend = layout['legend']
+        cr.set_source_rgba(1, 1, 1, legend['alpha'])
+        cr.rectangle(*legend['box'])
+        cr.fill_preserve()
+        cr.set_source_rgba(.35, .36, .39, legend['alpha'])
+        cr.stroke()
+        for entry in legend['entries']:
+            cr.set_source_rgb(*entry['color'])
+            cr.move_to(legend['box'][0] + entry['position'][0], legend['box'][1] + entry['position'][1])
+            cr.show_text(entry['display_label'])
+
+    def _graph_layout(self, width: float, height: float, cr: Any = None) -> dict[str, Any]:
+        from burnbag_viewer_data import graph_layout
+        if cr is None:
+            import cairo
+            cr = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))
+        cr.select_font_face('Sans')
+        cr.set_font_size(12)
+        return graph_layout(self.graph_fields, (self.graph_data or {}).get('series', {}),
+                            self._range(), width, height, lambda text: cr.text_extents(text)[2],
+                            cr.font_extents()[2])
 
     def _row_record(self, position: int) -> Optional[dict[str, Any]]:
         if self.filter_model is None or self.store is None:
@@ -777,22 +779,23 @@ class Viewer:
                 self.graph_area.queue_draw()
 
     def _graph_clicked(self, gesture: Any, count: int, x: float, y: float) -> None:
+        from burnbag_viewer_data import graph_point
         if count < 1 or self.graph_area is None:
             return
-        panel = next((p for p in self._graph_panels(self.graph_area.get_width(), self.graph_area.get_height())
-                      if p[1] <= x < p[1] + p[3] and p[2] <= y < p[2] + p[4]), None)
-        if panel is None:
+        layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height())
+        if layout['plot'] is None:
             return
-        field, origin_x, _origin_y, width, _height = panel
-        points = (self.graph_data or {}).get("series", {}).get(field, {}).get("points", [])
-        if not points:
+        left, top, width, height = layout['plot']
+        if not (left <= x <= left + width and top <= y <= top + height):
             return
-        minimum, maximum = self._range()
-        if (self.graph_data or {}).get("range") != [minimum, maximum]:
+        candidates = []
+        for trace in layout['traces']:
+            for point in trace['points']:
+                px, py = graph_point(layout['plot'], layout['range'], trace['range'], *point[:2])
+                candidates.append(((px - x) ** 2 + (py - y) ** 2, point))
+        if not candidates:
             return
-        left, right = 78.0, max(80.0, width - 18.0)
-        stamp = minimum + max(0, min(1, (x - origin_x - left) / (right - left))) * (maximum - minimum)
-        nearest = min(points, key=lambda row: abs(row[0] - stamp))
+        nearest = min(candidates, key=lambda item: item[0])[1]
         self.focused = nearest[0]
         if count >= 2:
             self._show_table_record({"captured_at": nearest[0], "id": nearest[2]})
@@ -841,10 +844,16 @@ class Viewer:
         return False
 
     def _drag_begin(self, gesture: Any, x: float, y: float) -> None:
+        layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height())
+        self.drag_origin = None
+        if layout['plot'] is None:
+            return
+        left, top, width, height = layout['plot']
+        if not (left <= x <= left + width and top <= y <= top + height):
+            return
         low, high = self._range()
         self.drag_origin = (x, low, high)
-        panels = self._graph_panels(self.graph_area.get_width(), self.graph_area.get_height())
-        self.drag_width = max(1, (panels[0][3] if panels else self.graph_area.get_width()) - 96)
+        self.drag_width = width
 
     def _drag_update(self, gesture: Any, dx: float, dy: float) -> None:
         if self.drag_origin is None or self.graph_area is None:
@@ -940,6 +949,10 @@ class Viewer:
 
     def automation_state(self) -> dict[str, Any]:
         series = (self.graph_data or {}).get("series", {})
+        layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height()) if self.graph_area else None
+        if layout is not None:
+            layout['traces'] = [{key: value for key, value in trace.items() if key != 'points'}
+                                for trace in layout['traces']]
         return {
             "title": "Burnbag Power History",
             "fullscreen": self.fullscreen,
@@ -974,6 +987,7 @@ class Viewer:
             "graph_details": {field: {"samples": data["sample_count"], "points": len(data["points"])}
                               for field, data in series.items()},
             "graph_range": (self.graph_data or {}).get("range"),
+            "graph_layout": layout,
             "program": str(Path(__file__).resolve()),
             "source_details": self.sources.source_info,
             "merged_source_counts": (self.overview or {}).get("source_counts", {}),

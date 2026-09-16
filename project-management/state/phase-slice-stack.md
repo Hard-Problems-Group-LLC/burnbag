@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting GNOME controls and earlier hardware checks. Operator confirmed phase 5000 sudo installation and all three installed command paths; BB-MANUAL-05 is closed. Graph-only remains approved and queued, not implemented.
+Notes: Awaiting operator GNOME and hardware checks; phase 6000 shared-unit plots and translucent key are complete and verified. Native-binding capture limitation is recorded separately. Live updates and graph-only remain queued.
 
 ## Phases
 
@@ -30,6 +30,7 @@ Notes: Awaiting GNOME controls and earlier hardware checks. Operator confirmed p
 | 3100 | done | Viewer data and time ranges |
 | 4000 | done | Persistent viewer fields |
 | 5000 | done | Standard installer recovery |
+| 6000 | done | Shared viewer plot and unit axes |
 | 9000 | blocked | Manual validation and final closure |
 
 ## Slices
@@ -103,6 +104,12 @@ Notes: Awaiting GNOME controls and earlier hardware checks. Operator confirmed p
 | 2000 | 5000 | done | Repair privileged command verification |
 | 3000 | 5000 | done | Verify isolated installs and regressions |
 | 4000 | 5000 | done | Synchronize docs and hand off |
+| 1000 | 6000 | done | Specify unit groups and deferred live data |
+| 2000 | 6000 | done | Autorange groups and readable ticks |
+| 3000 | 6000 | done | Draw shared rectangle and axis strips |
+| 4000 | 6000 | done | Add translucent key and shared hit testing |
+| 5000 | 6000 | done | Verify actual frames and regressions |
+| 6000 | 6000 | done | Document and publish |
 
 ## Regenerate local tracking
 

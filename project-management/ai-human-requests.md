@@ -12,10 +12,16 @@ results are in [the testing guide](../docs/testing.md).
     permissions/protocol and PNG capture. Only a real GNOME session can verify
     the native minimize/restore/maximize/close controls and full-screen layout.
   - Follow [viewer manual verification](../docs/testing.md#gtk-history-viewer-manual-verification)
-    after the revised build is available through the development launcher.
+    after refreshing the intended standard or development installation.
   - Acceptance: report native titlebar controls, F11 graph-only fullscreen,
     table paging/search and both cross-navigation gestures. For automation,
     report capture usability and socket cleanup. Include any visible errors.
+    Phase 6000 adds shared-unit plots and their lower-center color key; inspect
+    those on the same ordinary/fullscreen pass. Automated actual-frame checks
+    pass in an isolated newer-binding environment. Native PyGObject 3.46 capture
+    has the separate known limitation
+    [BB-BUG-2026-09-15-03](bugs/open/BB-BUG-2026-09-15-03-gtk-capture-bindings.md);
+    ordinary graph display does not depend on that endpoint.
 
 
 ## Active Requests

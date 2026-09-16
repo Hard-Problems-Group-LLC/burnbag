@@ -413,3 +413,49 @@ at 2026-09-15T22:57:52-07:00: `sudo time ./install.sh` succeeded, and after
 `hash -r` all three commands resolved under `/usr/local/bin`. BB-MANUAL-05 is
 closed; earlier GNOME and hardware checks remain separate. See
 [the resolved installer bug](project-management/bugs/closed/BB-BUG-2026-09-15-02-sudo-installation.md).
+
+## Phase 6000 — Shared-rectangle viewer traces and unit axes
+
+Authorized 2026-09-15. Replace tiled plots with one exact plotting rectangle
+for every selected trace. Live viewer updates are backlog-only, not part of
+this phase. Preserve snapshot reads, field preferences and existing navigation.
+
+- **1000 — Contract and unit taxonomy:** specify explicit physical units and
+  meaningful synthetic units for otherwise ambiguous numeric fields. Percentages
+  from both batteries share one unit; unrelated unknown fields do not. Allocate
+  axes in deterministic selected-field order. Record live updates in the backlog.
+- **2000 — Shared ranges and ticks:** group selected visible observations by
+  unit; each group's range contains every displayed value, including extrema
+  preserved by reduction. Support flat, empty, negative and tiny/large ranges.
+  Aim for ten divisions, reducing count to keep tick labels at least 1.5 label
+  heights apart; format distinct, readable values without clipping extrema.
+- **3000 — One rectangle and axis strips:** lay out the first unit at outer
+  left, second at outer right, third inward on the left, and continue alternating.
+  All traces use exactly the same X/Y pixel rectangle with unit-specific Y
+  transforms. Center unit labels along strips, rotated 90 degrees counter-clockwise.
+  Provide an explicit resize/fewer-fields message when labels cannot fit.
+- **4000 — Color key and interaction:** draw distinct trace colors and a
+  lower-center in-plot key with a 50%-alpha background and matching colored
+  labels. Keep the key within the rectangle. Use the shared geometry for hit
+  testing, nearest-trace observation selection, dragging, focus and fullscreen.
+- **5000 — Verification:** test grouping, collective autoranges, strip order,
+  tick spacing and legend geometry; capture real Cairo/GTK frames, inspect them,
+  and exercise multi-unit navigation, resize/fullscreen and saved selections.
+  Regress source merging, gaps, range locks and staged installation.
+- **6000 — Documentation and delivery:** synchronize the viewer specification,
+  generated README/manual, automation contract, tests, task records and Ubersight;
+  ACP verified work while leaving existing physical checks independently open.
+
+Acceptance: BAT0/BAT1 percentages align on one shared scale; watts, watt-hours
+and temperatures each autorange independently on the same plot rectangle.
+Every selected field is keyed by color, axes alternate outside-in, rotated
+unit titles and intermediate ticks remain legible, and interactions use the
+same transforms as drawing. No live-refresh implementation or service change.
+
+Current status: all six slices complete. Native discovery ran 464 tests with
+nine opt-in GUI skips; all nine real GTK frame/interaction cases pass with
+isolated PyGObject 3.50 bindings. Python 3.9/3.14 compatibility suites and
+static/documentation checks pass. The host's pre-existing older-binding capture
+limitation is recorded separately, without changing its packages. Existing
+GNOME/hardware checks remain open. See [completed evidence](project-management/completed-tasks.md)
+and [the viewer specification](docs/specifications/history-viewer.md).

@@ -34,7 +34,11 @@ PATH matches the caller's shell, and managed launcher cleanup selects the
 validated caller home. Operator deployment and all three normal-shell command
 paths passed on 2026-09-15, closing BB-MANUAL-05.
 Phase 3000 awaits visible GNOME controls;
-warning/fallback and physical observations remain under phase 9000.
+phase 6000 is complete for shared-rectangle traces, grouped unit scales,
+alternating axis strips, readable ticks and a lower-center translucent color
+key. Native regression tests and nine isolated-binding GTK frame tests pass;
+the pre-existing native-binding capture limitation is tracked as a separate bug.
+Warning/fallback and physical observations remain under phase 9000.
 New phases and slices follow AGENTS.md's 1000-step numbering
 rule. Slice numbers are local to their owning phase; refer to both separately
 when needed, for example phase 9000, slice 5000.

@@ -31,13 +31,26 @@ SQLite fixtures for both sources. It checks actual captured graph pixels,
 cross-page navigation, initial/unlocked/locked ranges, search, mouse drag,
 reset, series selection and F11 over the Unix socket. Field-selection tests use
 isolated XDG configuration and exercise drafts, OK, Cancel/Escape/titlebar close,
-write failures, empty selections, multiple actual rendered plots and persistence
+write failures, empty selections, multiple actual overlaid traces and persistence
 across process restarts. Ordinary discovery skips
 these visible-window tests unless `BURNBAG_TEST_GTK=1` is set.
 For unattended verification, prefer `BURNBAG_TEST_GTK=1 xvfb-run -a
 /usr/bin/python3 -B -m unittest tests.test_viewer_gui` on a private virtual
 display so operator input cannot interfere with test windows. This still
 renders actual GTK frames; GNOME title-bar behavior needs the manual check below.
+Alternatively, use a private headless Weston compositor with
+`BURNBAG_TEST_GDK_BACKEND=wayland` and `GSK_RENDERER=cairo`; no operator desktop
+windows are needed. The GUI runner uses its invoking Python interpreter.
+Complete client-frame capture requires PyGObject 3.48+ render-node support;
+older bindings can display the viewer but fail the existing capture endpoint.
+Use a separate test environment rather than changing system Python to verify
+captures, and report native-binding limitations explicitly. See the
+[upstream changelog](https://pygobject.gnome.org/changelog.html).
+`tests.test_viewer_plot` additionally exercises real Cairo rendering without
+a display, including shared ranges, outside-in strips, tiny/large values,
+text spacing, rotated titles, trace/key colors and actual half-alpha blending.
+GUI tests cover shared percentage scales, independent units, common geometry,
+fullscreen, hit testing and snapshot stability after new database appends.
 The compatibility baseline is Python 3.9 or later; run the same discovery suite
 on the oldest supported interpreter and a current release. Real SQLite,
 socket ownership, concurrent prudent clients, fallback handoff, history merging,
@@ -61,7 +74,8 @@ After an actual standard installation, run `hash -r` and
 shell. Expect installed paths (normally `/usr/local/bin/`), not dev wrappers.
 Root cannot certify this user-shell lookup; correct PATH order if needed.
 
-README and manual sources live in `makedocs.py`. Regenerate with
+README and the terminal manual sources live in `makedocs.py`; the viewer manual
+`burnbag-viewer.1` is maintained directly. Regenerate generated documents with
 `/usr/bin/python3 -B makedocs.py`; changes to generated output must be intentional
 and `/usr/bin/python3 -B makedocs.py --check` must pass afterward. Render the manual with
 `groff -man -Tutf8 -z -ww burnbag.1` to check formatting warnings.
@@ -300,7 +314,8 @@ neither real systemd activation nor hardware resume reliability.
 
 ## GTK history viewer manual verification
 
-After `./install.sh --mode dev` and `hash -r`, open
+After refreshing the intended installation (`sudo ./install.sh` for the standard
+installation, or `./install.sh --mode dev` for development) and `hash -r`, open
 `burnbag-viewer`. Check that the GNOME titlebar exposes working minimize,
 restore, maximize, and close controls. F11 must enter and leave fullscreen; on
 the graph tab the graph should fill the screen without the toolbar, status, or
@@ -316,6 +331,17 @@ name), scroll through additional table pages, select a row range and choose
 View selection, then double-click a row and a graph point. Each navigation must
 switch tabs and preserve a useful graph range or matching table selection.
 Try wheel zoom, drag/arrow pan, and choose another numeric measurement.
+
+In Fields..., select both battery percentages if available, then watts,
+watt-hours and temperature. All curves must overlay the exact same rectangle.
+Percentages share one range containing both batteries; unlike units have
+independent ranges. Strips alternate outer left, outer right, inward left,
+inward right in first-unit order. Check centered counter-clockwise unit titles,
+intermediate ticks, and a lower-center translucent box with matching colored
+labels. Resize or use F11: labels must not collide; very small windows explicitly
+ask for more space or fewer fields. Double-click near either battery trace and
+verify the corresponding table row. New collector rows remain absent until
+relaunch; live updates are intentionally backlog-only.
 
 `burnbag-viewer --last '5 hours'` must start with exactly that viewport, while
 allowing navigation outside it. Add `--only` to restrict both data and all
@@ -338,3 +364,6 @@ F11 with `key F11`, switch tabs, select rows, and retrieve a PNG with
 shows the entire viewer client area; GNOME's window decorations are supplied by
 the window manager and are not part of the application frame. Close the viewer
 and confirm its socket is removed. Normal launches must not create a socket.
+Native PyGObject 3.46 currently cannot capture GTK render nodes; record the
+known [capture limitation](../project-management/bugs/open/BB-BUG-2026-09-15-03-gtk-capture-bindings.md)
+instead of treating it as a plot-display failure or silently upgrading the host.

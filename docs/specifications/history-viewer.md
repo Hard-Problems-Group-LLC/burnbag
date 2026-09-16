@@ -74,12 +74,48 @@ retains Date/Time. Saved names absent from the current snapshot are retained
 for future launches. Newly discovered names remain unchecked after an explicit
 selection. Concurrent viewers use the last successfully saved selection.
 
-Multiple selected graph fields have independent labeled plots and Y scales,
-with extrema labeled on both axes and a common time interval. Up to three plots
-stack vertically; larger selections tile across the graph. Zoom, pan, focus and
-fullscreen apply to all plots together; double-clicking any plot navigates to
-its observation. A single bounded viewport query supplies all selected fields,
-preserving raw continuity and independent units.
+## Shared plot and unit scales
+
+Phase 6000 replaces tiled panels with one exact plot rectangle for **all**
+selected traces. One time transform is shared, and each unit type has one
+independently autoranged Y transform. Its range contains all finite values
+shown for every selected field in that unit within the visible time interval,
+including reduced extrema. Hidden fields and out-of-viewport values do not
+expand it. Empty/flat ranges get safe bounds; gaps and singleton points remain
+visible. Changes to selection, viewport or size recompute layout and ranges.
+
+Known units include %, W, Wh, V, A, Ah, degrees Celsius and MHz. Battery
+percentages and CPU busy percentages share %. Energy and full energy share Wh;
+charge and full charge share Ah; all temperature channels share degrees Celsius.
+Explicit synthetic units include Cycles, Online state and Backlight power state.
+Brightness/actual-brightness counts share a unit only within the same device,
+since hardware count scales differ. Unknown numeric fields receive their own
+field-named unit, never a shared catch-all unitless scale. No conversion or
+guessing from observed magnitudes is performed.
+
+Unit ordering follows first occurrence in the deterministic selected-field
+catalog. Axis strips alternate outside-in: unit 1 is outer left, unit 2 outer
+right, unit 3 next inward on the left, unit 4 next inward on the right. All strips
+share the plot's vertical extent; no series has its own panel or inset plot.
+Center each unit title along its strip and rotate it 90 degrees counter-clockwise
+on both sides. Measure text before allocating strip widths. Aim for ten divisions
+(eleven ticks), reducing divisions when vertical spacing would be less than
+1.5 times the measured numeric label height. Use readable distinct tick labels
+and bounds that retain every displayed value. Do not shrink text into illegibility
+to force a fit; explain when the window must be enlarged or fewer unit types chosen.
+
+Give each trace a distinguishable color. The color key is a box inside the plot,
+centered horizontally near its bottom, with a 50%-alpha background and opaque
+labels colored to match the corresponding traces. Wrap labels within the box;
+keep it inside the plot and retain full field/unit names in automation. Render
+the key above traces, with data remaining visible through its background.
+
+Zoom, pan, focus and fullscreen share the same plot geometry. Clicks in label
+strips do not select observations; inside the plot, pick the closest displayed
+observation in pixel space across all traces. Double-click navigates to its
+table record. Drag distance uses the plot width, not the whole widget width.
+One bounded viewport query supplies all selected fields. The snapshot remains
+fixed: live updates are explicitly backlog-only, with no refresh timer today.
 
 ## Initial viewport and query boundaries
 
@@ -127,6 +163,12 @@ and decorations belong to the window manager and are outside the application's
 capture surface. Automated UI acceptance must separately verify native window
 controls and F11 behavior on a GNOME session.
 
+Known implementation limitation: the existing capture path needs PyGObject
+3.48+ fundamental render-node bindings. Native 3.46 returns a binding error,
+although ordinary drawing works. This is tracked separately as
+[BB-BUG-2026-09-15-03](../../project-management/bugs/open/BB-BUG-2026-09-15-03-gtk-capture-bindings.md);
+the installer does not yet enforce or diagnose that optional capability.
+
 `fields open`, `fields set --view graph|table --name FIELD --checked yes|no`,
 `fields tab --view graph|table`, `fields ok` and `fields cancel` use the same
 dialog widgets and commit/cancel handlers. State includes applied graph/table
@@ -135,6 +177,14 @@ While the dialog is open, capture returns its complete client frame; background
 navigation is blocked. Return, Escape and window close operate on the dialog.
 The legacy `series NAME` command selects one graph field transiently; use Fields
 OK to persist it. `pointer click fields` opens the toolbar dialog.
+
+`graph_layout` reports the widget size, exact shared `plot` rectangle (`x`, `y`,
+`width`, `height`), time range, measured label height, ordered unit axes with
+fields/ranges/ticks/strip rectangles/rotated-title centers, trace colors and
+unit associations, and key box/alpha/colored labels. Full unit and field names
+remain available even when display text is elided. A null plot plus a message
+explains insufficient space or an empty selection. This is the same geometry
+used for drawing and pointer actions, not a parallel approximation.
 
 ## Acceptance
 
