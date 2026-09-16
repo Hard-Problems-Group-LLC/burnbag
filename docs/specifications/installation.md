@@ -89,7 +89,9 @@ this copy after documentation changes; the repository-local manual link still
 follows the checkout immediately. Both variants retain the CLI command-selection
 policy below.
 
-The optional managed user launcher is `<user-home>/.local/bin/burnbag`.
+The optional managed user launchers are `burnbag`, `burnbag-viewer` and
+`burnbag-viewerctl` under `<user-home>/.local/bin/`. Apply command selection to
+the whole family so the GUI cannot silently keep running an older system copy.
 The selected home must be an existing absolute directory. An explicit
 `--user-home` overrides the ambient HOME. Without that option, a resolved HOME
 named `.codex-home`, `.claude-home`, `codex-home`, or `claude-home`, or located
@@ -102,8 +104,8 @@ Command-selection policy is selected by `--dev-command`, then
 | Policy | Required behavior |
 | --- | --- |
 | `prompt` | Ask on an interactive terminal. Acceptance selects `local`; declining, EOF, or a noninteractive invocation preserves the existing user launcher and command resolution. |
-| `local` | Publish a managed user launcher that executes this checkout. The user bin directory must already be on PATH ahead of any competing burnbag command. Verify command lookup after publication. |
-| `system` | Remove an existing managed user launcher. Preserve an unmanaged launcher and report the resulting PATH resolution. |
+| `local` | Preflight all three command destinations, then publish managed launchers executing this checkout. The user bin directory must precede competing commands on PATH. Verify each command lookup after publication. |
+| `system` | Remove existing managed launchers for all three commands. Preserve unmanaged launchers and report resulting PATH resolution. |
 
 `--force` permits replacing an unmanaged user launcher during `local`
 selection. A directory or symlink to a directory is refused even with

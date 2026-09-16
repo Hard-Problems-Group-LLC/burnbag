@@ -50,9 +50,9 @@ check_pygobject() {
 
 check_gtk4() {
     if ! "${BURNBAG_SYSTEM_PYTHON}" -c \
-        'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Gdk", "4.0"); from gi.repository import Gtk, Gdk' \
+        'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Gdk", "4.0"); gi.require_foreign("cairo"); from gi.repository import Gtk, Gdk; assert Gtk.get_minor_version() >= 6' \
         >/dev/null 2>&1; then
-        printf '[ERROR] GTK 4 introspection is not importable by %s.\n' \
+        printf '[ERROR] GTK 4/Cairo introspection is not importable by %s.\n' \
             "${BURNBAG_SYSTEM_PYTHON}" >&2
         return 1
     fi
@@ -87,7 +87,7 @@ select_package_source() {
         case "${burnbag_id}" in
             ubuntu|debian)
                 BURNBAG_PACKAGE_MANAGER=apt-get
-                BURNBAG_PACKAGES=(python3-gi gir1.2-glib-2.0 gir1.2-gtk-4.0)
+                BURNBAG_PACKAGES=(python3-gi python3-gi-cairo gir1.2-glib-2.0 gir1.2-gtk-4.0)
                 return 0
                 ;;
             fedora|rhel|centos|rocky|almalinux)

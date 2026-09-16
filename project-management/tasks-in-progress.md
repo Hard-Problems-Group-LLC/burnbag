@@ -54,6 +54,13 @@
   - Slice 6000 awaits GNOME title-bar
     minimize/maximize/restore/close checks in BB-MANUAL-04. Phase 9000's
     earlier manual checks remain independently deferred.
+  - Follow-up phase 3100 is complete; its investigation, fixes and current
+    426-test verification are in [completed tasks](completed-tasks.md).
+    The earlier isolated assistant environment is not the operator's data
+    location. Inspection of the operator's normal state directory confirms
+    that its user SQLite store is absent, while the live system store is intact.
+    Ready for `./install.sh --mode dev --dev-command local`, which now publishes
+    all three bare commands from the checkout. The operator retains deployment.
 
 - `BB-MANUAL-04` — GTK 4 history viewer GNOME window controls.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.

@@ -5,6 +5,10 @@ closure timestamp, short outcome, and link to the authoritative record under
 `closed/`. Keep root cause, resolution, and validation evidence in that
 record.
 
+- `BB-BUG-2026-09-15-01` — Resolved 2026-09-15; all dev commands select the
+  checkout and viewer rendering preserves full-history data and detail. See
+  [the closed record](closed/BB-BUG-2026-09-15-01-viewer-history-visibility.md).
+
 - `BB-BUG-2026-09-14-01` — Resolved 2026-09-14; both graph axes always label
   both extrema, including equal values and short/flat histories. See the
   [closed record](closed/BB-BUG-2026-09-14-01-chart-extrema-labels.md).

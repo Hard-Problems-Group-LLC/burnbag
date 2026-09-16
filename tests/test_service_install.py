@@ -113,6 +113,8 @@ class ServiceInstallTests(unittest.TestCase):
                                 cwd=self.root)
         self.assertEqual(viewer.returncode, 0, viewer.stderr)
         self.assertIn("--automation", viewer.stdout)
+        self.assertIn("--last", viewer.stdout)
+        self.assertIn("--only", viewer.stdout)
         self.assertNotIn("No module named", viewer.stderr)
         controller = subprocess.run([str(self.stage / "usr/local/bin/burnbag-viewerctl"), "--help"],
                                     capture_output=True, text=True, timeout=10, check=False,

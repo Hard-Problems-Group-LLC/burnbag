@@ -1,9 +1,11 @@
 """Read-only dual-source tests for the GTK history viewer's data layer."""
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from burnbag_viewer_data import HistorySources, flatten_data
 
@@ -91,6 +93,16 @@ class HistorySourcesTests(unittest.TestCase):
             reader.close()
         self.assertEqual(before, (self.system.read_bytes(), self.system.stat().st_mtime_ns))
 
+    def test_invalid_user_state_path_is_visible_without_hiding_system_records(self):
+        self._insert(self.system, "s1", 1, {"value": 80})
+        with patch.dict(os.environ, {"XDG_STATE_HOME": "relative-path"}), \
+                patch("burnbag_viewer_data.SYSTEM_DATABASE", self.system):
+            reader = HistorySources()
+        self.addCleanup(reader.close)
+        self.assertEqual("error", reader.source_info["user"]["state"])
+        self.assertIn("absolute", reader.source_info["user"]["error"])
+        self.assertEqual(["s1"], [row["id"] for row in reader.page()])
+
     def test_flatten_data_preserves_nested_measurement_names(self):
         self.assertEqual({"battery.main.percentage": 80,
                           "battery.main.name": "A",
@@ -146,9 +158,80 @@ class HistorySourcesTests(unittest.TestCase):
             points = overview["series"]["late_sensor.temperature_c"]
             self.assertTrue(points)
             self.assertEqual(31.0, points[-1][1])
-            self.assertLessEqual(len(overview["series"]["battery.percentage"]), 100)
+            self.assertLessEqual(len(overview["series"]["battery.percentage"]), 200)
         finally:
             reader.close()
+
+    def test_bounds_apply_to_both_sources_pages_search_catalog_and_graph(self):
+        for i in range(10):
+            self._insert(self.system if i % 2 else self.user, str(i), i, {"battery": {"percentage": 80-i}})
+        reader = HistorySources([("system", self.system), ("user", self.user)], bounds=(3, 7))
+        self.addCleanup(reader.close)
+        self.assertEqual([3, 4, 5, 6, 7], [r["captured_at"] for r in reader.page()])
+        self.assertEqual(5, len(reader.search_page("percentage")))
+        overview = reader.overview()
+        self.assertEqual(5, overview["count"])
+        self.assertEqual([3, 7], overview["range"])
+        self.assertEqual({"system": 3, "user": 2}, overview["source_counts"])
+        self.assertEqual(5, reader.series("battery.percentage", -100, 100)["sample_count"])
+        self.assertEqual([], reader.page(start=8))
+
+    def test_snapshot_does_not_chase_collector_appends(self):
+        self._insert(self.system, "first", 1, {"value": 1})
+        reader = HistorySources([("system", self.system)])
+        self.addCleanup(reader.close)
+        self._insert(self.system, "later", 2, {"value": 2})
+        self.assertEqual(1, reader.overview()["count"])
+        self.assertEqual(["first"], [row["id"] for row in reader.page()])
+
+    def test_bad_user_source_does_not_hide_valid_system_data(self):
+        self._insert(self.system, "first", 1, {"value": 1})
+        self.user.write_text("not sqlite")
+        reader = HistorySources([("system", self.system), ("user", self.user)])
+        self.addCleanup(reader.close)
+        self.assertEqual("error", reader.source_info["user"]["state"])
+        self.assertEqual(str(self.user), reader.source_info["user"]["path"])
+        self.assertEqual(1, reader.overview()["count"])
+
+    def test_corrupt_system_record_does_not_suppress_valid_user_copy(self):
+        self._insert(self.user, "shared", 5, {"batteries": {"b": {"percentage": 80}}})
+        self._insert(self.system, "shared", 5, {})
+        con = sqlite3.connect(self.system)
+        con.execute("UPDATE records SET data='broken'")
+        con.execute("INSERT INTO coverage VALUES (?,?,?,?,?,?,?,?,?)",
+                    ("collector", "machine", "boot", "batteries/b/percentage", 0, 0, 10, 0, 10))
+        con.commit()
+        con.close()
+        reader = HistorySources([("system", self.system), ("user", self.user)])
+        self.addCleanup(reader.close)
+        rows = reader.page()
+        self.assertEqual(1, len(rows))
+        self.assertEqual("user", rows[0]["source"])
+
+    def test_decimated_flat_series_retains_endpoints_and_raw_continuity(self):
+        con = sqlite3.connect(self.system)
+        con.executemany("INSERT INTO records VALUES (?,?,?,?,?,?,?,?,?,?,?)", [
+            (str(i), "sample", i*30, i*30, "m", "b", "c", "system",
+             '{"battery":{"percentage":80}}', None, None) for i in range(3001)])
+        con.commit()
+        con.close()
+        reader = HistorySources([("system", self.system)])
+        self.addCleanup(reader.close)
+        data = reader.series("battery.percentage", 0, 90000, max_buckets=10)
+        self.assertEqual(3001, data["sample_count"])
+        self.assertLessEqual(len(data["points"]), 40)
+        self.assertEqual((0, 90000), (data["points"][0][0], data["points"][-1][0]))
+        self.assertEqual(1, len({point[3] for point in data["points"]}))
+        self.assertEqual(11, reader.series("battery.percentage", 300, 600)["sample_count"])
+
+    def test_real_missing_readings_and_time_gaps_split_segments(self):
+        for i, stamp, data in [(1, 0, {"v": 1}), (2, 5, {"v": 2}),
+                               (3, 10, {"v": None}), (4, 15, {"v": 3}), (5, 500, {"v": 4})]:
+            self._insert(self.system, str(i), stamp, data)
+        reader = HistorySources([("system", self.system)])
+        self.addCleanup(reader.close)
+        points = reader.series("v", 0, 500)["points"]
+        self.assertEqual([1, 1, 2, 3], [point[3] for point in points])
 
 
 if __name__ == "__main__":

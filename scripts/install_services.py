@@ -264,11 +264,12 @@ class ServiceInstaller:
             target = self.source / relative
             if target.is_symlink() and target.resolve() == self.source / source:
                 records.append({"path": str(target), "symlink": os.readlink(target), "shared": True})
-        launcher = self.user_home / ".local/bin/burnbag"
-        if launcher.is_file() and not launcher.is_symlink():
-            data = launcher.read_bytes()
-            if b"# burnbag-managed-dev-launcher\n" in data and str(self.source).encode() in data:
-                records.append({"path": str(launcher), "sha256": digest(data), "shared": True})
+        for command in ("burnbag", "burnbag-viewer", "burnbag-viewerctl"):
+            launcher = self.user_home / ".local/bin" / command
+            if launcher.is_file() and not launcher.is_symlink():
+                data = launcher.read_bytes()
+                if b"# burnbag-managed-dev-launcher\n" in data and str(self.source).encode() in data:
+                    records.append({"path": str(launcher), "sha256": digest(data), "shared": True})
         return records
 
     def install(self) -> None:

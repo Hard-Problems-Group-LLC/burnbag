@@ -212,7 +212,7 @@ user_bin_precedes_other_burnbag() {
         if [[ "${burnbag_path_entry}" == "${BURNBAG_USER_BIN_DIR}" ]]; then
             return 0
         fi
-        burnbag_candidate="${burnbag_path_entry}/burnbag"
+        burnbag_candidate="${burnbag_path_entry}/${1:-burnbag}"
         if [[ -x "${burnbag_candidate}" ]]; then
             return 1
         fi
@@ -256,9 +256,9 @@ resolve_dev_command_mode() {
         return 0
     fi
 
-    burnbag_prompt="When you type 'burnbag', use this checkout instead of the current PATH result? [y/N]: "
+    burnbag_prompt="Use this checkout for burnbag, burnbag-viewer and burnbag-viewerctl? [y/N]: "
     if [[ -z "${burnbag_alternate}" ]]; then
-        burnbag_prompt="Install a managed user launcher so 'burnbag' uses this checkout? [y/N]: "
+        burnbag_prompt="Install managed user launchers for burnbag, burnbag-viewer and burnbag-viewerctl? [y/N]: "
     fi
     if ! read -r -p "${burnbag_prompt}" burnbag_response; then
         printf '\n[INFO] No response received; leaving burnbag command resolution unchanged.\n'
@@ -276,6 +276,9 @@ resolve_dev_command_mode() {
 }
 
 write_managed_dev_launcher() {
+    local burnbag_command="${1:-burnbag}"
+    local burnbag_target="${2:-burnbag.py}"
+    local BURNBAG_USER_LAUNCHER="${BURNBAG_USER_BIN_DIR}/${burnbag_command}"
     local burnbag_resolved_command
 
     case ":${PATH:-}:" in
@@ -288,7 +291,7 @@ write_managed_dev_launcher() {
             return 1
             ;;
     esac
-    if ! user_bin_precedes_other_burnbag; then
+    if ! user_bin_precedes_other_burnbag "${burnbag_command}"; then
         printf '[ERROR] User launcher directory does not precede the current burnbag command: %s\n' \
             "${BURNBAG_USER_BIN_DIR}" >&2
         printf '[HINT] Move it earlier on PATH before selecting local dev command resolution.\n' >&2
@@ -321,7 +324,7 @@ write_managed_dev_launcher() {
     {
         printf '#!/usr/bin/bash\n'
         printf '%s\n' "${BURNBAG_DEV_LAUNCHER_MARKER}"
-        printf 'readonly BURNBAG_TARGET=%q\n' "${BURNBAG_PROJECT_ROOT}/burnbag.py"
+        printf 'readonly BURNBAG_TARGET=%q\n' "${BURNBAG_PROJECT_ROOT}/${burnbag_target}"
         printf '%s\n' "if [[ ! -x \"\${BURNBAG_TARGET}\" ]]; then"
         printf '%s\n' "    printf '[ERROR] burnbag development target is unavailable: %s\\n' \"\${BURNBAG_TARGET}\" >&2"
         printf '%s\n' '    exit 1'
@@ -333,7 +336,7 @@ write_managed_dev_launcher() {
     BURNBAG_TEMP_LAUNCHER=""
 
     hash -r
-    burnbag_resolved_command="$(command -v burnbag || true)"
+    burnbag_resolved_command="$(command -v "${burnbag_command}" || true)"
     if [[ "${burnbag_resolved_command}" != "${BURNBAG_USER_LAUNCHER}" ]]; then
         printf '[ERROR] Managed launcher was written, but command lookup selects: %s\n' \
             "${burnbag_resolved_command:-<not found>}" >&2
@@ -342,12 +345,14 @@ write_managed_dev_launcher() {
         return 1
     fi
 
-    printf '[OK] Bare burnbag commands now select the development checkout: %s\n' \
-        "${BURNBAG_USER_LAUNCHER}"
+    printf '[OK] Bare %s commands now select the development checkout: %s\n' \
+        "${burnbag_command}" "${BURNBAG_USER_LAUNCHER}"
     printf '[INFO] Run hash -r in shells that previously cached another burnbag path.\n'
 }
 
 keep_system_command_resolution() {
+    local burnbag_command="${1:-burnbag}"
+    local BURNBAG_USER_LAUNCHER="${BURNBAG_USER_BIN_DIR}/${burnbag_command}"
     local burnbag_resolved_command
 
     if is_managed_dev_launcher "${BURNBAG_USER_LAUNCHER}"; then
@@ -360,12 +365,12 @@ keep_system_command_resolution() {
     fi
 
     hash -r
-    burnbag_resolved_command="$(command -v burnbag || true)"
+    burnbag_resolved_command="$(command -v "${burnbag_command}" || true)"
     if [[ -n "${burnbag_resolved_command}" ]]; then
-        printf '[OK] Bare burnbag command resolution remains: %s\n' \
-            "${burnbag_resolved_command}"
+        printf '[OK] Bare %s command resolution remains: %s\n' \
+            "${burnbag_command}" "${burnbag_resolved_command}"
     else
-        printf '[INFO] No bare burnbag command currently resolves on PATH.\n'
+        printf '[INFO] No bare %s command currently resolves on PATH.\n' "${burnbag_command}"
     fi
 }
 
@@ -401,10 +406,33 @@ install_dev_mode() {
         "${BURNBAG_PROJECT_ROOT}/.local/share/man"
 
     if [[ "${BURNBAG_RESOLVED_DEV_COMMAND}" == "local" ]]; then
-        write_managed_dev_launcher
+        # Validate the whole command family before replacing any user launcher.
+        local burnbag_command burnbag_launcher
+        for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
+            burnbag_launcher="${BURNBAG_USER_BIN_DIR}/${burnbag_command}"
+            if [[ -d "${burnbag_launcher}" ]]; then
+                printf '[ERROR] Refusing to replace a launcher directory: %s\n' "${burnbag_launcher}" >&2
+                return 1
+            fi
+            if [[ -e "${burnbag_launcher}" || -L "${burnbag_launcher}" ]]; then
+                if ! is_managed_dev_launcher "${burnbag_launcher}" && [[ "${BURNBAG_FORCE}" != true ]]; then
+                    printf '[ERROR] Refusing to replace unmanaged launcher: %s\n' "${burnbag_launcher}" >&2
+                    return 1
+                fi
+            fi
+            if ! user_bin_precedes_other_burnbag "${burnbag_command}"; then
+                printf '[ERROR] User launcher directory does not precede the current %s command: %s\n' "${burnbag_command}" "${BURNBAG_USER_BIN_DIR}" >&2
+                return 1
+            fi
+        done
+        write_managed_dev_launcher burnbag burnbag.py
+        write_managed_dev_launcher burnbag-viewer burnbag_viewer.py
+        write_managed_dev_launcher burnbag-viewerctl burnbag_viewerctl.py
     elif [[ "${BURNBAG_RESOLVED_DEV_COMMAND}" == "system" ]]; then
         BURNBAG_INSTALL_ACTION="restoring system command resolution"
-        keep_system_command_resolution
+        keep_system_command_resolution burnbag
+        keep_system_command_resolution burnbag-viewer
+        keep_system_command_resolution burnbag-viewerctl
     else
         printf '[INFO] Existing user launcher and command resolution were left unchanged.\n'
     fi

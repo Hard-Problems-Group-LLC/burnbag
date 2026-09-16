@@ -289,3 +289,49 @@ live X11 check of 5,553 system rows. Installer checks, generated documentation,
 and viewer manual validation pass. Phase 3000, slice 6000 is active for visible
 GNOME title-bar checks tracked by BB-MANUAL-04. ACP this corrected work while
 those manual checks remain deferred.
+
+## Phase 3100 — Viewer data completeness and time ranges
+
+Authorized 2026-09-15. Investigate missing system/user history in the actual
+installed viewer, correct the reader/rendering/launch paths, and add initial
+time selection with `--last` and an optional `--only` boundary.
+
+- **1000 — Reproduce and trace sources:** compare installed and checkout
+  commands, service database locations, raw row counts and displayed history;
+  distinguish absent stores from unreadable stores and rendering omissions.
+- **2000 — Repair complete history delivery:** fix development command
+  selection, source diagnostics, paging and graph continuity/detail. Verify
+  both stores with real SQLite fixtures and the actual system history.
+- **3000 — Initial and locked ranges:** reuse the terminal duration/calendar
+  implementation for `--last` (and ISO `--from`/`--to`). Capture now once;
+  without `--only`, navigation can leave the initial viewport. With `--only`,
+  queries/search and all navigation stay inside its fixed outer bounds; zoom
+  within those bounds remains available. Reject `--only` without a range.
+- **4000 — Verify and publish:** regression and actual GTK automation tests,
+  staged command/manual installation, documentation and Ubersight updates,
+  followed by ACP. Preserve existing manual requests in phases 3000/9000.
+
+Acceptance: the real installed command can select the same development code
+as burnbag; both readable databases contribute their nonconflicting data;
+empty/failed sources are identified by path; graph rendering preserves real
+gaps and isolated points at broad and narrow ranges. Range selection and
+locking work identically through controls and automation. Database contents
+remain unchanged by viewing.
+
+Completed 2026-09-15: all four slices are delivered. The bare viewer was an
+older installed build because dev mode only published the terminal launcher.
+All three commands now follow the selected checkout. Rendering preserves flat
+tails and isolated samples, zoom queries detail, and source diagnostics expose
+actual paths and counts. The system store is intact; the operator's ordinary
+user SQLite store is absent (the older JSON-lines running log is separate).
+Both sources merge correctly in real SQLite/GTK fixtures.
+
+Verification: 426 native tests including actual GTK/socket/frame tests pass;
+Python 3.9.21 and 3.14.6 each pass 407 tests with five explicit GI/GUI skips.
+The final staged viewer's five-hour range matches direct SQLite queries exactly:
+3,572 records and 3,568 battery samples. Installer/launcher/manual, shellcheck,
+generated-document and whitespace checks pass. See
+[completion evidence](project-management/completed-tasks.md) and
+[the resolved defect](project-management/bugs/closed/BB-BUG-2026-09-15-01-viewer-history-visibility.md).
+The operator retains installation with `./install.sh --mode dev --dev-command local`;
+phase 3000's visible GNOME controls and phase 9000's manual checks remain open.

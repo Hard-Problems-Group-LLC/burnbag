@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: All-history correction and automated checks pass. Awaiting GNOME title-bar control check in BB-MANUAL-04; phase 9000 retains earlier manual checks.
+Notes: Awaiting operator dev install and GNOME controls; phase 3100 is verified and complete. Earlier hardware/fallback checks remain deferred.
 
 ## Phases
 
@@ -27,6 +27,7 @@ Notes: All-history correction and automated checks pass. Awaiting GNOME title-ba
 | P10 | done | Integration and handoff |
 | 1000 | done | Relative history durations |
 | 3000 | active | GTK 4 history viewer |
+| 3100 | done | Viewer data and time ranges |
 | 9000 | blocked | Manual validation and final closure |
 
 ## Slices
@@ -88,6 +89,10 @@ Notes: All-history correction and automated checks pass. Awaiting GNOME title-ba
 | 4000 | 3000 | done | Add socket automation and controller |
 | 5000 | 3000 | done | Integrate install and documentation |
 | 6000 | 3000 | active | Verify and hand off GNOME checks |
+| 1000 | 3100 | done | Trace installed commands and sources |
+| 2000 | 3100 | done | Repair complete history delivery |
+| 3000 | 3100 | done | Add initial and locked time ranges |
+| 4000 | 3100 | done | Verify documentation and publish |
 
 ## Regenerate local tracking
 

@@ -29,6 +29,11 @@ viewer is a separate helper application and does not change collector behavior.
   unreadable sources as a visible per-source condition; never create a database
   or modify collector data. Stream rows in stable timestamp/record-ID order and
   fetch table pages as needed rather than materializing the full history.
+  Expose each source path, state, snapshot row count and time extent through
+  automation and the status tooltip. Capture row-ID ceilings on open, releasing
+  read locks between pages, so collector appends do not extend a query forever.
+  Reopening reads a new snapshot. The older operational `burnbag.log` is a
+  separate JSON-lines narrative, not a SQLite telemetry store.
 - Merge duplicate record IDs with system records taking precedence. For
   measurement streams with system coverage metadata, suppress only overlapping
   user-side measurements; retain other user measurements from the same record.
@@ -37,6 +42,34 @@ viewer is a separate helper application and does not change collector behavior.
 - Search across record IDs, event kinds, scopes, local timestamps, and serialized
   telemetry in both sources. Run source queries off the GTK main thread and page
   matching results just like ordinary table rows.
+
+## Initial viewport and query boundaries
+
+`--last DURATION` sets an initial interval ending at the single startup-time
+snapshot of now. It uses the same grammar and local calendar subtraction as
+the terminal graph: days/weeks are elapsed time; months/years and larger units
+subtract whole calendar months at the same local time, clamping month ends.
+`--from` and `--to` accept the terminal graph's ISO times and defaults; they
+cannot be combined with `--last`. With no range options the viewer covers all
+available history. The table initially shows the selected interval; search and
+navigation may leave it without `--only`. All history fits and browses the full
+allowed snapshot (All in range when locked). Graph-to-table navigation seeks
+the observation and subsequent rows without inserting a hidden ID search.
+
+`--only` requires an explicit range option. It restricts graph/table queries,
+search, overview statistics and navigation to the fixed inclusive interval.
+Zoom and pan inside the interval remain supported; zoom-out, reset, row/range
+focus and drag are clamped at its boundaries. Neither startup loading nor a
+search/series change may reset the viewport to a different interval. Automation
+reports the initial range, allowed bounds, actual viewport and source paths.
+
+Graph reduction retains each time bucket's first, last, minimum and maximum
+observations. Continuity is determined from raw samples before reduction;
+long distances between reduced representatives cannot create false gaps.
+Real missing measurements, long raw intervals and collector changes break
+lines; dots retain isolated observations. Zoom/pan rereads the requested
+viewport at its own resolution. Rendering and hit testing share its exact
+time transform, including empty leading/trailing time in an explicit range.
 
 ## Automation
 

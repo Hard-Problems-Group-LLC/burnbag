@@ -3,6 +3,8 @@
 burnbag-viewer \- browse burnbag power history in a GTK 4 desktop application
 .SH SYNOPSIS
 .B burnbag-viewer
+.RI [ \-\-last " DURATION" | \-\-from " TIME" \-\-to " TIME" ]
+.RI [ \-\-only ]
 .RI [ \-\-automation " SOCKET_PATH" ]
 .br
 .B burnbag-viewerctl
@@ -34,10 +36,45 @@ Absent or unreadable sources are reported in the window. No database is created
 or modified.
 .PP
 The full-history graph is downsampled by time bucket while retaining each
-bucket's minimum and maximum for each numeric measurement. The table itself
+bucket's first, last, minimum and maximum for each numeric measurement.
+Continuity is determined from the original observations, not the spacing
+between reduced points; isolated observations remain visible. Zooming reloads
+detail for the current viewport. The table itself
 remains paged; the window reports the total merged row count and loads further
 rows as the user scrolls.
 .SH OPTIONS
+.TP
+.BI \-\-last " DURATION"
+Set the initial viewport and table interval from DURATION ago to one snapshot
+of the current time. For example, 5h, '5 H', 'five hours', 5:00:00 and 05:00:00
+all mean five hours; 5:00 means five minutes. Quote parameters containing spaces.
+Seconds, minutes, hours, days, weeks, months, years, decades, centuries and
+millennia are supported, including compound durations such as '1h 30m'.
+Units are case insensitive; m means minutes and mo means months.
+Days and weeks are fixed elapsed time (24 hours per day).
+Months and larger units use calendar subtraction at the same local date/time,
+clamping the day to the earlier month's last day. Calendar components must
+total whole months. Ambiguous/nonexistent local times and unsupported calendar
+years are rejected. Cannot be combined with --from or --to.
+.TP
+.BI \-\-from " TIME"
+Set the initial start using ISO 8601, with an explicit UTC offset or Z when
+needed. Without --to, the end is now. Local times must be unambiguous.
+.TP
+.BI \-\-to " TIME"
+Set the initial end using ISO 8601. Without --from, the start is 24 hours earlier.
+.TP
+.B \-\-only
+Require a range supplied by --last or --from/--to and restrict both databases,
+table/search, graph and navigation to that inclusive fixed interval. Zooming
+and panning within the interval remain available; all controls and automation
+clamp at its boundaries. Without --only, the range sets only the initial view
+and navigation may leave it. With no range options, show all available history.
+.PP
+All history expands the graph and table to the complete allowed history;
+with --only this button is named All in range and retains the boundary.
+A right-button graph reset restores the initial viewport. Search spans all
+allowed records without resetting the graph viewport.
 .TP
 .BI \-\-automation " SOCKET_PATH"
 Enable the opt-in, same-user Unix-domain control socket at the absolute path
@@ -60,6 +97,7 @@ with one of the commands
 .BR tab ,
 .BR row ,
 .BR select ,
+.BR series ,
 .BR view ,
 .BR click ,
 .BR pointer ,
@@ -82,9 +120,15 @@ and per-user history is stored beneath
 (or
 .IR "$HOME/.local/state/burnbag/history.sqlite3" ).
 The viewer never writes to either path. Data availability follows the invoking
-user's read permissions.
+user's read permissions. The status line shows per-source counts or missing/error
+states; its tooltip gives the actual database paths and errors. Each launch
+reads a bounded snapshot of the stores so a running collector cannot make a
+query grow indefinitely; reopen to see subsequently recorded observations.
+The older burnbag.log operational JSON-lines file is separate and is not a
+SQLite telemetry source.
 .SH REQUIREMENTS
-GTK 4, PyGObject for the system Python, and a running graphical session are
+GTK 4.6 or later, PyGObject with Cairo integration for the system Python,
+and a running graphical session are
 required. The viewer is separate from the terminal-only
 .B burnbag
 command.

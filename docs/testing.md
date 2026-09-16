@@ -8,6 +8,7 @@ Authorization and acceptance criteria are in [the roadmap](../ROADMAP.md).
 
 ```bash
 /usr/bin/python3 -B -m unittest discover -s tests
+BURNBAG_TEST_GTK=1 /usr/bin/python3 -B -m unittest tests.test_viewer_gui
 bash -n install.sh uninstall.sh scripts/install_prerequisites.sh
 shellcheck install.sh uninstall.sh scripts/install_prerequisites.sh
 ./scripts/install_prerequisites.sh --check
@@ -25,6 +26,15 @@ files, locks, subprocess signals, native GLib, and staged installer destinations
 external power and backlight mutations use fakes. Native-GLib tests explicitly
 skip on interpreters without PyGObject; a skipped suite does not establish
 native integration readiness. No automated test suspends or hibernates the host.
+The opt-in GTK suite uses the selected X11/XWayland display and real private
+SQLite fixtures for both sources. It checks actual captured graph pixels,
+cross-page navigation, initial/unlocked/locked ranges, search, mouse drag,
+reset, series selection and F11 over the Unix socket. Ordinary discovery skips
+these visible-window tests unless `BURNBAG_TEST_GTK=1` is set.
+For unattended verification, prefer `BURNBAG_TEST_GTK=1 xvfb-run -a
+/usr/bin/python3 -B -m unittest tests.test_viewer_gui` on a private virtual
+display so operator input cannot interfere with test windows. This still
+renders actual GTK frames; GNOME title-bar behavior needs the manual check below.
 The compatibility baseline is Python 3.9 or later; run the same discovery suite
 on the oldest supported interpreter and a current release. Real SQLite,
 socket ownership, concurrent prudent clients, fallback handoff, history merging,
@@ -281,6 +291,14 @@ name), scroll through additional table pages, select a row range and choose
 View selection, then double-click a row and a graph point. Each navigation must
 switch tabs and preserve a useful graph range or matching table selection.
 Try wheel zoom, drag/arrow pan, and choose another numeric measurement.
+
+`burnbag-viewer --last '5 hours'` must start with exactly that viewport, while
+allowing navigation outside it. Add `--only` to restrict both data and all
+navigation to the fixed interval. `burnbag-viewer --only` must fail with a
+usage error. Hover over the status line to see actual source paths and errors;
+compare them with the system/user collector configuration. Use `type -a
+burnbag-viewer` after a dev install: `--dev-command local` must select the
+managed user launcher for the viewer and controller as well as burnbag.
 
 For the opt-in controller, use a private per-user runtime path:
 

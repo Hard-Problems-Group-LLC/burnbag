@@ -53,6 +53,8 @@ class InstallTests(unittest.TestCase):
             "#!/usr/bin/bash\nprintf 'system burnbag\\n'\n", encoding="utf-8"
         )
         self.system_burnbag.chmod(0o755)
+        for command in ("burnbag-viewer", "burnbag-viewerctl"):
+            self.write_command(command, "printf 'system " + command + "\\n'")
         # Plain dev now also deploys a system daemon. Never allow this fixture
         # to write /usr/local or manage the host service.
         self.write_command("sudo", "exit 0")
@@ -142,6 +144,16 @@ class InstallTests(unittest.TestCase):
         )
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("--ignore-lid", help_result.stdout)
+        for command in ("burnbag-viewer", "burnbag-viewerctl"):
+            user_command = self.user_home / ".local/bin" / command
+            self.assertTrue(user_command.is_file())
+            result = subprocess.run(["/usr/bin/bash", "-c", "command -v " + command + "; " + command + " --help"],
+                                    env=environment, text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(result.stdout.startswith(str(user_command)))
+            if command == "burnbag-viewer":
+                self.assertIn("--last", result.stdout)
+                self.assertIn("--only", result.stdout)
         development_manual = self.checkout / ".local/share/man/man1/burnbag.1"
         self.assertTrue(development_manual.is_symlink())
         self.assertEqual(development_manual.resolve(), self.checkout / "burnbag.1")
@@ -168,7 +180,20 @@ class InstallTests(unittest.TestCase):
 
         self.assertEqual(system_result.returncode, 0, system_result.stderr)
         self.assertFalse(launcher.exists())
+        for command in ("burnbag-viewer", "burnbag-viewerctl"):
+            self.assertFalse((self.user_home / ".local/bin" / command).exists())
         self.assertEqual(self.resolve_burnbag(environment), str(self.system_burnbag))
+
+    def test_unmanaged_viewer_launcher_is_preserved_before_replacing_family(self):
+        directory = self.user_home / ".local/bin"
+        directory.mkdir(parents=True)
+        viewer = directory / "burnbag-viewer"
+        viewer.write_text("unmanaged")
+        result = self.run_installer("--mode", "dev", "--dev-command", "local", "--skip-prerequisites",
+                                    "--user-home", str(self.user_home))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(viewer.read_text(), "unmanaged")
+        self.assertFalse((directory / "burnbag").exists())
 
     def test_noninteractive_dev_install_leaves_command_resolution_unchanged(self) -> None:
         environment = self.environment()

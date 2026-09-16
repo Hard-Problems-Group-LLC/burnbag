@@ -51,7 +51,7 @@ main "$@"
         result = self.run_check("ubuntu debian")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "calls").read_text(),
-                         "apt-get install -y python3-gi gir1.2-glib-2.0 gir1.2-gtk-4.0\n")
+                         "apt-get install -y python3-gi python3-gi-cairo gir1.2-glib-2.0 gir1.2-gtk-4.0\n")
 
     def test_rhel_derivative_retains_rpm_package(self):
         result = self.run_check("rocky rhel fedora")

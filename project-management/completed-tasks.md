@@ -1,5 +1,48 @@
 # Completed Tasks
 
+- `BB-2026-09-15-3100` — Viewer history visibility and time ranges.
+  Started and completed 2026-09-15; owner: Codex; direct operator instruction.
+  - All four phase 3100 slices are complete. The PATH viewer matched the old
+    `4cdf4ba` build; development installation published only the terminal user
+    launcher. The system SQLite store was readable with more than 6,000 records.
+    The operator's normal user SQLite store is absent and its user service is
+    not installed; the older JSON-lines narrative is not telemetry history.
+    No data loss was established. See [resolved defect](bugs/closed/BB-BUG-2026-09-15-01-viewer-history-visibility.md).
+  - Dev install now manages viewer/controller launchers together with burnbag,
+    verifies command resolution and preserves unmanaged files. Manifests cover
+    removal of all three. GTK/Cairo prerequisites and installed manuals agree.
+  - Rendering retains first/last/extrema and raw continuity, visible singleton
+    points, and viewport-specific detail. Graph clicks reach rows beyond the
+    first page. Local-time search survives GTK filtering, series selection is
+    preserved, source failures remain visible, and snapshots bound concurrent
+    collector appends. Capture uses in-memory PNGs without writing near the
+    installed executable. Both history stores remain read-only.
+  - `--last` reuses all terminal duration/calendar semantics; ISO `--from` and
+    `--to` are supported. With no flags the viewer opens all available history.
+    Without `--only`, the supplied interval is the initial view. With `--only`,
+    graph/table/search queries and all navigation stay inside its inclusive
+    fixed limits while allowing zoom within them. `--only` alone fails before
+    GTK initialization. Native and automated controls share range handling.
+  - Validation: 426 tests pass on native Ubuntu/aarch64 Python 3.13.7 including
+    actual GTK frames, two-source fixtures, cross-page navigation, search,
+    series selection, drag/pan/zoom/reset and F11. Python 3.9.21 and 3.14.6
+    each pass 407 tests with five expected GI/GUI skips and ResourceWarning
+    treated as an error. One search failure on the shared desktop was not
+    reproduced in 15 repetitions on a private Xvfb display; full-suite GUI
+    verification now runs on that isolated display to exclude operator input.
+  - The final staged executable reads the real system history and matches an
+    independent SQLite query exactly for its five-hour snapshot: 3,572 records
+    and 3,568 numeric battery observations, with a verified 1100x720 graph PNG.
+    The real operator user path is explicitly selected for this check and is
+    reported missing. Both sources contribute in separate real SQLite fixtures.
+    Installer/launcher and manual tests, Bash syntax, shellcheck, prerequisite
+    and installer read-only checks, generated docs, groff and whitespace pass.
+  - ROADMAP/specifications/Ubersight are synchronized. Host installation and
+    services were not changed; the operator retains deployment using
+    `./install.sh --mode dev --dev-command local`. Existing GNOME controls
+    (phase 3000) and hardware/fallback requests (phase 9000) remain deferred.
+    Phase ACP proceeds under the standing authorization without another review.
+
 - `BB-2026-09-15-LOCAL-SLICES` — Use local slice numbers within each phase.
   Completed 2026-09-15; owner: Codex; direct operator clarification.
   - Slice IDs and displayed names now use local numbers `1000`, `2000`,
