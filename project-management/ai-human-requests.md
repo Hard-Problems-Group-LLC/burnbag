@@ -5,6 +5,24 @@ results are in [the testing guide](../docs/testing.md).
 
 ## Pending Requests
 
+- `BB-MANUAL-05` — Reinstall and verify the repaired system dev collector.
+  - Created: 2026-09-16T00:41:12-07:00. Owner: operator. Requestor: Codex.
+  - Scope: roadmap phase 3100, slice 5000 and BB-BUG-2026-09-16-01.
+    The reported collector start fails at its private checkout mount; existing
+    syntax-only verification missed the incorrectly parsed bind endpoints.
+  - Automated repair verification passes all 57 affected installer tests,
+    including the real parser regression that fails before the repair. Run
+    `./install.sh --mode dev` from the current checkout and restart the system
+    collector. If it is still retrying, stop it before reinstalling. The operator
+    performs all sudo commands and service mutations; agents do not.
+  - After restart, wait at least five seconds. Acceptance:
+    `burnbag --status-service` reports an active system service and
+    ready collector; recent journal entries have no recurring missing-entry-point
+    error; `burnbag --graph --last '2m'` contains new system observations.
+    Report the status and graph result so the defect can be closed.
+  - Pending: no successful installed-service restart or new continuous
+    observations are claimed yet. Earlier acceptance requests remain open.
+
 - `BB-MANUAL-04` — GTK 4 viewer GNOME interaction and automation check.
   - Created 2026-09-15. Owner: operator. Requestor: Codex.
   - Scope: roadmap phase 3000, slice 6000. Automated work covers the desktop

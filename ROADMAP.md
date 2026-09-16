@@ -350,6 +350,21 @@ phase 3000's visible GNOME controls and phase 9000's manual checks remain open.
   records the strong reusable guidance; it is drafted, not yet submitted.
   Actual system installation/activation remains the operator's action.
 
+  Reactivated 2026-09-16 for
+  [BB-BUG-2026-09-16-01](project-management/bugs/in-progress/BB-BUG-2026-09-16-01-system-dev-bind-path.md):
+  the system dev collector cannot open its checkout entry point and repeatedly
+  restarts. Quoting the entire `BindReadOnlyPaths` source/destination tuple
+  causes systemd to parse it as one path. Repair component quoting and verify
+  the real systemd parser's resolved mount, including special-character paths;
+  syntax acceptance alone did not establish the intended mount. Automated
+  verification passes all 57 affected installer tests. The real parser
+  regression fails before the fix and passes after it for ordinary paths and
+  paths containing spaces, dollar signs, percent signs, quotes and backslashes.
+  Shell syntax and whitespace checks pass. The operator performs reinstallation and
+  restart, then verifies collector readiness and new history observations in
+  BB-MANUAL-05. Agents must not run sudo commands. Existing GNOME and hardware
+  checks remain deferred independently.
+
 ## Phase 4000 — Persistent viewer field selection
 
 Authorized 2026-09-15. Replace the measurement drop-list with **Fields...**.

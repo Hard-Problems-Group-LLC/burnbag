@@ -26,7 +26,12 @@ reporting, exception hardening, documentation/installer consistency, continuous
 history and services, phase 1000 relative graph durations, and phase 3000 GTK 4
 history viewer. Phase 3100's viewer delivery/rendering fixes and initial/locked
 time ranges are complete, including follow-up slice 5000's authoritative
-command/service installation modes and FieldManual ECR-003.
+command/service installation modes and FieldManual ECR-003. On 2026-09-16,
+phase 3100, slice 5000 was reactivated for the system dev service bind-path
+quoting defect (BB-BUG-2026-09-16-01). The repair passes all 57 affected installer
+tests, including a real parser regression that fails before the fix;
+operator reinstallation and restart verification are pending in
+BB-MANUAL-05. Agents do not run sudo commands.
 Phase 4000 is complete: persistent graph/table field selection through a modal
 Fields dialog, automation, real GTK verification and synchronized documentation.
 Phase 3000 awaits visible GNOME controls;

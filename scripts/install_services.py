@@ -194,7 +194,10 @@ class ServiceInstaller:
             # Bind the directory, not files: atomic editor replacements remain
             # visible when the collector next starts.
             mount = Path("/run/burnbag-dev/source")
-            binding = systemd_quote(f"{self.source}:{mount}", expand_environment=False)
+            # The separator must be outside the quotes: systemd otherwise
+            # interprets the entire mapping as a single source path.
+            binding = (systemd_quote(self.source, expand_environment=False) + ":" +
+                       systemd_quote(mount, expand_environment=False))
             unit = unit.replace("[Unit]\n", "[Unit]\nRequiresMountsFor=" +
                                 systemd_quote(self.source, expand_environment=False) + "\n")
             unit = unit.replace("[Service]\n", "[Service]\nRuntimeDirectory=burnbag-dev\n"

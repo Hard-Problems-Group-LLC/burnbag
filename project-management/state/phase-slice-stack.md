@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Phase 4000 Fields dialog is complete and verified; awaiting existing operator installation, GNOME controls and earlier hardware checks.
+Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL-05). Phase 3100, slice 5000 bind-path repair passes all 57 affected tests, including the real systemd parser regression. Earlier GNOME and hardware checks remain deferred.
 
 ## Phases
 
@@ -26,8 +26,8 @@ Notes: Phase 4000 Fields dialog is complete and verified; awaiting existing oper
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
 | 1000 | done | Relative history durations |
-| 3000 | active | GTK 4 history viewer |
-| 3100 | done | Viewer data and time ranges |
+| 3000 | blocked | GTK 4 history viewer |
+| 3100 | active | Viewer data and time ranges |
 | 4000 | done | Persistent viewer fields |
 | 9000 | blocked | Manual validation and final closure |
 
@@ -89,12 +89,12 @@ Notes: Phase 4000 Fields dialog is complete and verified; awaiting existing oper
 | 3000 | 3000 | done | Show complete history by default |
 | 4000 | 3000 | done | Add socket automation and controller |
 | 5000 | 3000 | done | Integrate install and documentation |
-| 6000 | 3000 | active | Verify and hand off GNOME checks |
+| 6000 | 3000 | blocked | Verify and hand off GNOME checks |
 | 1000 | 3100 | done | Trace installed commands and sources |
 | 2000 | 3100 | done | Repair complete history delivery |
 | 3000 | 3100 | done | Add initial and locked time ranges |
 | 4000 | 3100 | done | Verify documentation and publish |
-| 5000 | 3100 | done | Enforce command and service modes |
+| 5000 | 3100 | active | Await collector reinstall and restart |
 | 1000 | 4000 | done | Build dialog and saved selections |
 | 2000 | 4000 | done | Automate and verify field changes |
 | 3000 | 4000 | done | Document and publish |

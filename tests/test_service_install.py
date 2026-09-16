@@ -151,7 +151,7 @@ class ServiceInstallTests(unittest.TestCase):
                     elif scope == "user":
                         self.assertIn('ExecStart="' + str(PROJECT_ROOT / "burnbag.py") + '"', unit)
                     else:
-                        self.assertIn('BindReadOnlyPaths="' + str(PROJECT_ROOT) + ':/run/burnbag-dev/source"', unit)
+                        self.assertIn('BindReadOnlyPaths="' + str(PROJECT_ROOT) + '":"/run/burnbag-dev/source"', unit)
                         self.assertIn('ExecStart=/usr/bin/python3 -B "/run/burnbag-dev/source/burnbag.py"', unit)
                         self.assertIn("ProtectHome=yes", unit)
                         self.assertIn("User=burnbag\nGroup=burnbag", unit)
@@ -168,7 +168,7 @@ class ServiceInstallTests(unittest.TestCase):
         result = self.helper("install", "--source", str(source), "--mode", "dev")
         self.assertEqual(result.returncode, 0, result.stderr)
         unit = self.staged("/usr/local/lib/systemd/system/burnbag.service").read_text()
-        self.assertIn('checkout $name 100%%:/run/burnbag-dev/source"', unit)
+        self.assertIn('checkout $name 100%%":"/run/burnbag-dev/source"', unit)
         self.assertNotIn("$$name", unit)
 
     def test_unit_source_rejects_control_characters_before_writes(self):
@@ -179,11 +179,28 @@ class ServiceInstallTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("systemd-analyze"), "systemd-analyze unavailable")
     def test_systemd_accepts_actual_dev_system_bind_mount_unit(self):
-        self.install("--mode", "dev")
-        unit = self.staged("/usr/local/lib/systemd/system/burnbag.service")
-        result = subprocess.run(["systemd-analyze", "verify", "--man=no", str(unit)],
-                                capture_output=True, text=True, timeout=10, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        # Syntax validity alone misses a quoted colon interpreted as part of
+        # one path. Check systemd's actual source/destination interpretation.
+        unusual_source = self.root / 'checkout $name 100% "quoted" \\path'
+        unusual_source.mkdir()
+        for entry in PROJECT_ROOT.iterdir():
+            if entry.is_file() and entry.suffix in (".py", ".sh", ".1"):
+                shutil.copy2(entry, unusual_source / entry.name)
+        for directory in ("scripts", "systemd"):
+            shutil.copytree(PROJECT_ROOT / directory, unusual_source / directory)
+        for index, source in enumerate((PROJECT_ROOT, unusual_source)):
+            with self.subTest(source=source):
+                self.stage = self.root / f"parsed-stage-{index}"
+                self.install("--mode", "dev", "--source", str(source))
+                unit = self.staged("/usr/local/lib/systemd/system/burnbag.service")
+                environment = dict(os.environ, SYSTEMD_LOG_LEVEL="debug", SYSTEMD_COLORS="0")
+                result = subprocess.run(["systemd-analyze", "verify", "--man=no", str(unit)],
+                                        env=environment, capture_output=True, text=True,
+                                        timeout=10, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                bindings = [line.strip() for line in result.stdout.splitlines()
+                            if line.strip().startswith("BindReadOnlyPaths:")]
+                self.assertEqual(bindings, [f"BindReadOnlyPaths: {source}:/run/burnbag-dev/source:rbind"])
 
     def test_custom_prefix_registers_a_tracked_unit_and_uninstalls_it(self) -> None:
         self.install("--prefix", "/opt/burnbag")

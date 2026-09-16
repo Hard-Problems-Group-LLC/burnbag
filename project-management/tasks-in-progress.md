@@ -1,5 +1,31 @@
 # Tasks In Progress
 
+- `BB-2026-09-16-01` — Repair system dev collector startup.
+  - Created and started: 2026-09-16T00:41:12-07:00. Requestor: operator.
+    Owner: Codex; installed-service acceptance: operator.
+  - Scope: roadmap phase 3100, slice 5000, reactivated for
+    [BB-BUG-2026-09-16-01](bugs/in-progress/BB-BUG-2026-09-16-01-system-dev-bind-path.md).
+  - The operator's start attempt fails because the interpreter cannot open
+    `/run/burnbag-dev/source/burnbag.py`; repeated retries do not record data.
+    The real systemd parser treats the fully quoted source/destination tuple
+    as one path, rather than a bind mount between two paths.
+  - Repair quoting of each path component while retaining the colon separator,
+    service account and home protections. Strengthen verification to inspect
+    the real parser's resolved mount, not only its successful syntax exit.
+    Automated semantic and installer regression checks passed
+    2026-09-16T00:44:53-07:00: all 57 tests in `test_service_install` and
+    `test_install`, plus shell syntax and whitespace checks. The real parser
+    regression fails before the fix and passes afterward for ordinary and
+    special-character checkout paths. Tests ran unprivileged, outside the
+    sandbox for the parser, without sudo or host-service mutations.
+  - Acceptance: correct parsed source/destination for ordinary and special
+    checkout paths; affected tests pass; operator reinstallation/start yields
+    a ready collector and advancing history observations (BB-MANUAL-05).
+  - The operator retains installation and service control. Agents must not
+    execute sudo commands; no successful host repair is claimed yet. Automated
+    work is complete; installed acceptance awaits BB-MANUAL-05. Earlier
+    phase 3000/9000 manual checks remain deferred.
+
 - `BB-2026-09-14-V` — Manual validation and final closure; started 2026-09-14.
   Owner: Codex; observations: operator.
   - Scope: [roadmap 9000](../ROADMAP.md#9000--manual-validation-and-final-closure).
@@ -54,7 +80,7 @@
   - Slice 6000 awaits GNOME title-bar
     minimize/maximize/restore/close checks in BB-MANUAL-04. Phase 9000's
     earlier manual checks remain independently deferred.
-  - Follow-up phase 3100 is complete; its investigation, fixes and current
+  - Follow-up phase 3100's initial delivery is complete; its investigation, fixes and
     426-test verification are in [completed tasks](completed-tasks.md).
     The earlier isolated assistant environment is not the operator's data
     location. Inspection of the operator's normal state directory confirms
@@ -63,6 +89,8 @@
     all three bare commands from the checkout. The operator retains deployment.
     Follow-up slice 5000 also makes the selected system/user service follow
     checkout code and makes standard installation select installed copies.
+    On 2026-09-16, slice 5000 was reactivated for BB-2026-09-16-01 above after
+    the operator reported the system dev collector startup failure.
 
 - `BB-MANUAL-04` — GTK 4 history viewer GNOME window controls.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
