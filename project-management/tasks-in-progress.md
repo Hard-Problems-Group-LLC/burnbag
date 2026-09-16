@@ -63,6 +63,9 @@
     all three bare commands from the checkout. The operator retains deployment.
     Follow-up slice 5000 also makes the selected system/user service follow
     checkout code and makes standard installation select installed copies.
+    Phase 5000 subsequently repairs standard installation under sudo's restricted
+    PATH and resolves the caller home for managed dev-launcher retirement;
+    automated verification is complete, with deployment in BB-MANUAL-05.
 
 - `BB-MANUAL-04` — GTK 4 history viewer GNOME window controls.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.

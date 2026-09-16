@@ -45,7 +45,32 @@ FieldManual footer.
   `P2.4` correspond to phase `P2`, local slice `4000`; historical task and
   request identifiers remain unchanged. Existing published `P1`–`P10` IDs
   remain legacy references. Phase `4000` covers persistent viewer field
-  selection. Allocate the next new phase as `5000`.
+  selection. Phase `5000` covers standard installer recovery under sudo.
+  Allocate the next new phase as `6000`.
+
+## Ubersight maintenance
+
+- Treat `project-management/state/phase-slice-stack.md` as the canonical
+  execution/recovery state for `ROADMAP.md`; Ubersight is its derived display.
+  Keep the roadmap, task/bug records, and stack synchronized at phase and slice
+  transitions, before long validation or publication waits, and at handoff.
+- Use the phase and local slice numbering above in both the stack and display.
+  Start each new phase's slices at `1000`; never prefix a slice ID with its
+  phase ID or renumber existing IDs to insert work.
+- Keep exactly one active phase and one of its slices active while work is
+  incomplete. Mark deferred manual checks blocked and continue independent
+  work. If everything remaining awaits input, mark Delivery blocked, retain
+  the owning active phase/slice, and describe the wait in Notes. Keep deferred
+  validation phase `9000` after delivery phases so recent work remains visible.
+- After updating the stack, run `python3 -B scripts/update_ubersight.py --dry-run`
+  from this project root, then publish with
+  `umask 077; python3 -B scripts/update_ubersight.py`. Use the installed
+  Ubersight writer through this script, with its explicit `burnbag-main`
+  context; do not hand-edit status JSON or invoke network/display probes just
+  to publish progress.
+- Keep `.local/ubersight/` ignored and private. On recovery, verify tracked
+  records and regenerate status; an old dashboard is not authoritative.
+  Never mark manual checks passed without evidence or commit runtime status.
 
 <!-- FIELDMANUAL_MANAGED_FOOTER_START -->
 ---

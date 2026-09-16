@@ -125,8 +125,10 @@ Normal installation selects the system service by default;
 `--install-user-service` selects the intended login user's service. New installs
 enable and start the chosen service; updates preserve deliberate disabled or
 stopped state. User installations do not enable lingering. Plain dev installs
-also deploy a root-owned system-daemon copy while the CLI uses the checkout;
-dev plus `--install-user-service` runs the daemon from the checkout.
+run both commands and the system daemon from the checkout, the latter through
+a private read-only bind mount. Dev plus `--install-user-service` executes the
+checkout directly. Standard installs use independent installed copies; see
+[the installation contract](installation.md) for sudo PATH and caller-home handling.
 
 Staged `--destdir` installs stage all files without host account/service/package
 mutations. `--check` is read-only. System code is root-owned; the service

@@ -51,7 +51,12 @@ Options:
 
 --mode dev selects checkout code for user commands and the selected service.
 Standard mode (the default) installs copies, retires managed dev launchers,
-and verifies installed command lookup. There is no command-selection prompt.
+and verifies installed commands. Non-root installs also verify inherited PATH
+lookup. Root/sudo installs do not require the destination on root's PATH and
+cannot verify the caller shell's PATH; check it in your normal shell afterward.
+Under sudo, --user-home defaults to the validated sudo caller's account home.
+Dev mode and live user-service installation must run as the non-root user.
+There is no command-selection prompt.
 BURNBAG_DEV_LAUNCHER_MODE is obsolete and cannot override --mode.
 Paths must not contain parent-directory (..) components. Staging refuses
 symlinks that lead outside DIR; file targets must not be directories or symlinks.
@@ -140,9 +145,26 @@ ensure_dev_link() {
 
 select_user_home() {
     local burnbag_selected_home
+    local burnbag_passwd burnbag_account burnbag_uid _burnbag_unused
 
     if [[ -n "${BURNBAG_USER_HOME}" ]]; then
         burnbag_selected_home="${BURNBAG_USER_HOME}"
+    elif [[ ${EUID} -eq 0 && ( -n "${SUDO_UID:-}" || -n "${SUDO_USER:-}" ) ]]; then
+        # sudo's HOME is often root's, not the operator's. Resolve only a
+        # matching account identity; never source the caller's shell settings
+        # or add their directories to this privileged process's PATH.
+        if [[ ! "${SUDO_UID:-}" =~ ^[0-9]+$ || -z "${SUDO_USER:-}" ]] \
+            || ! burnbag_passwd="$(getent passwd "${SUDO_UID}")"; then
+            printf '[ERROR] Cannot resolve sudo caller; use --user-home /absolute/operator/home.\n' >&2
+            return 1
+        fi
+        IFS=: read -r burnbag_account _burnbag_unused burnbag_uid _burnbag_unused \
+            _burnbag_unused burnbag_selected_home _burnbag_unused <<<"${burnbag_passwd}"
+        if [[ "${burnbag_passwd}" == *$'\n'* || "${burnbag_account}" != "${SUDO_USER}" \
+            || "${burnbag_uid}" != "${SUDO_UID}" || -z "${burnbag_selected_home}" ]]; then
+            printf '[ERROR] Cannot validate sudo caller account; use --user-home /absolute/operator/home.\n' >&2
+            return 1
+        fi
     else
         burnbag_selected_home="${HOME:-}"
     fi
@@ -291,6 +313,10 @@ is_checkout_command_link() {
 
 validate_standard_command_resolution() {
     local burnbag_command burnbag_entry burnbag_candidate burnbag_found
+    if [[ ${EUID} -eq 0 ]]; then
+        printf "[INFO] Privileged install verifies installed paths, not the caller shell's PATH.\n"
+        return 0
+    fi
     for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
         burnbag_found=false
         while IFS= read -r burnbag_entry; do
@@ -322,6 +348,16 @@ validate_standard_command_resolution() {
 
 activate_standard_commands() {
     local burnbag_command burnbag_launcher burnbag_resolved_command
+    # Check the whole family before retiring any development launchers.
+    for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
+        burnbag_resolved_command="${BURNBAG_BIN_DIR}/${burnbag_command}"
+        if [[ ! -f "${burnbag_resolved_command}" || ! -x "${burnbag_resolved_command}" \
+            || -L "${burnbag_resolved_command}" ]]; then
+            printf '[ERROR] Installed command is not a regular executable: %s\n' \
+                "${burnbag_resolved_command}" >&2
+            return 1
+        fi
+    done
     for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
         for burnbag_launcher in "${BURNBAG_USER_BIN_DIR}/${burnbag_command}" \
             "${BURNBAG_PROJECT_ROOT}/.local/bin/${burnbag_command}"; do
@@ -331,8 +367,15 @@ activate_standard_commands() {
                 || is_checkout_command_link "${burnbag_launcher}" "${burnbag_command}"; then
                 rm -f -- "${burnbag_launcher}"
                 printf '[INFO] Removed managed development launcher: %s\n' "${burnbag_launcher}"
+            elif [[ ${EUID} -eq 0 && ( -e "${burnbag_launcher}" || -L "${burnbag_launcher}" ) ]]; then
+                printf '[WARNING] Preserved unmanaged launcher; check command selection in your normal shell: %s\n' \
+                    "${burnbag_launcher}" >&2
             fi
         done
+        if [[ ${EUID} -eq 0 ]]; then
+            printf '[OK] Verified installed command: %s/%s\n' "${BURNBAG_BIN_DIR}" "${burnbag_command}"
+            continue
+        fi
         hash -r
         burnbag_resolved_command="$(command -v "${burnbag_command}" || true)"
         if [[ "${burnbag_resolved_command}" != "${BURNBAG_BIN_DIR}/${burnbag_command}" ]]; then
@@ -342,6 +385,10 @@ activate_standard_commands() {
         fi
         printf '[OK] Bare %s selects the installed command: %s\n' "${burnbag_command}" "${burnbag_resolved_command}"
     done
+    if [[ ${EUID} -eq 0 ]]; then
+        printf '[INFO] In your normal user shell, put %s on PATH before other burnbag installations.\n' "${BURNBAG_BIN_DIR}"
+        printf '[INFO] After hash -r, verify command -v burnbag burnbag-viewer burnbag-viewerctl.\n'
+    fi
     printf '[INFO] Run hash -r in shells that cached a previous command path.\n'
 }
 
@@ -514,6 +561,12 @@ main() {
             return 2
             ;;
     esac
+
+    if [[ ${EUID} -eq 0 && "${BURNBAG_INSTALL_USER_SERVICE}" == true \
+        && "${BURNBAG_DESTDIR_WAS_SET}" != true ]]; then
+        printf '[ERROR] A user service must be installed as its intended non-root login user; rerun without sudo.\n' >&2
+        return 2
+    fi
 
     if [[ "${BURNBAG_MODE}" == "dev" ]]; then
         if [[ ${EUID} -eq 0 ]]; then

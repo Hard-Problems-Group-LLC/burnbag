@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Phase 4000 Fields dialog is complete and verified; awaiting existing operator installation, GNOME controls and earlier hardware checks.
+Notes: Awaiting operator sudo installation confirmation (BB-MANUAL-05), GNOME controls and earlier hardware checks. Phase 5000 repair is verified; graph-only remains approved and queued, not implemented.
 
 ## Phases
 
@@ -29,6 +29,7 @@ Notes: Phase 4000 Fields dialog is complete and verified; awaiting existing oper
 | 3000 | active | GTK 4 history viewer |
 | 3100 | done | Viewer data and time ranges |
 | 4000 | done | Persistent viewer fields |
+| 5000 | done | Standard installer recovery |
 | 9000 | blocked | Manual validation and final closure |
 
 ## Slices
@@ -98,6 +99,10 @@ Notes: Phase 4000 Fields dialog is complete and verified; awaiting existing oper
 | 1000 | 4000 | done | Build dialog and saved selections |
 | 2000 | 4000 | done | Automate and verify field changes |
 | 3000 | 4000 | done | Document and publish |
+| 1000 | 5000 | done | Reproduce restricted sudo PATH |
+| 2000 | 5000 | done | Repair privileged command verification |
+| 3000 | 5000 | done | Verify isolated installs and regressions |
+| 4000 | 5000 | done | Synchronize docs and hand off |
 
 ## Regenerate local tracking
 
@@ -123,7 +128,7 @@ active. A pending phase may contain already completed independent slices.
 A done phase must have all its slices done.
 
 Keep phase rows in execution order and deferred validation phase 9000 after the active delivery phases. Ubersight shows only two phases before the active row and five after;
-appending delivered work after 2000 can hide recent completion. Titles are clipped
+appending delivered work after 9000 can hide recent completion. Titles are clipped
 to one line, so keep the current action recognizable in a narrow pane. Lead
 blocked notes with the operator wait because the phase-stack view does not
 show the global blocked label.

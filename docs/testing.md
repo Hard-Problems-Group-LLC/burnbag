@@ -47,6 +47,19 @@ month-end/leap-year adjustment, daylight-saving gaps and ambiguities, and
 actual SQLite range selection. Every installation mode and service scope
 checks the installed CLI manual against its generated source, including its
 `--last` calendar explanation, and installs the viewer manual in every mode.
+Installer tests also exercise sudo-style restricted PATH and account-home
+selection. They substitute Bash identity and account lookup in a private copy
+and stage the real service helper, without root privileges or host mutations.
+Both preflight and complete file publication are covered, including executing
+all three installed commands after moving the source checkout away.
+
+For a read-only check of the reported sudo installation failure, run
+`sudo ./install.sh --check` in the intended operator environment. Root PATH
+need not contain `/usr/local/bin`; no packages, files, or services are changed.
+After an actual standard installation, run `hash -r` and
+`command -v burnbag burnbag-viewer burnbag-viewerctl` in the normal non-root
+shell. Expect installed paths (normally `/usr/local/bin/`), not dev wrappers.
+Root cannot certify this user-shell lookup; correct PATH order if needed.
 
 README and manual sources live in `makedocs.py`. Regenerate with
 `/usr/bin/python3 -B makedocs.py`; changes to generated output must be intentional
@@ -55,16 +68,18 @@ and `/usr/bin/python3 -B makedocs.py --check` must pass afterward. Render the ma
 
 ## Physical validation awaiting the operator
 
-The operator selected development installation. Run:
+For development-mode physical checks, run as the intended non-root user:
 
 ```bash
 ./install.sh --mode dev
 ```
 
-This now installs and starts the default system collector as well as selecting
-the checkout CLI. The daemon uses its own root-owned installed copy; rerun the
-installer after changing collector code. Selecting `--install-user-service`
-instead creates a login-session service whose dev daemon follows the checkout.
+This installs and starts a new default system collector as well as selecting
+the checkout commands (updates preserve stopped/disabled preferences). The
+system dev daemon follows the checkout through a private read-only bind mount;
+restart it after changing collector code, and reinstall after unit changes.
+Selecting `--install-user-service` instead creates a login-session service
+whose dev daemon executes the checkout directly.
 It does not enable lingering.
 Then run `hash -r` and `command -v burnbag`; the result should be the managed
 user launcher in `~/.local/bin/burnbag`. The installer reports any PATH ordering

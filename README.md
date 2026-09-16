@@ -55,6 +55,8 @@ Install prerequisites, the terminal command, GTK viewer/controller, and manual p
 
 The installer requests `sudo` only when package or system-file installation requires it. Use `./install.sh --check` for a read-only readiness check. `--destdir /absolute/staging/root` stages files without installing host packages, using sudo, or updating the host manual index. Paths containing `..`, escaping staging symlinks, and directory/symlink file targets are rejected. Use `./install.sh --help` for all options.
 
+`sudo ./install.sh` is also supported for standard system installation. It validates installed executable paths without requiring `/usr/local/bin` on sudo's restricted `PATH`. The operator home defaults to the validated sudo caller's account home; `--user-home` overrides it. The installer does not change root's PATH or claim to verify your shell's lookup. Afterward, in your normal shell, run `hash -r` and `command -v burnbag burnbag-viewer burnbag-viewerctl`; ensure the installed bin directory precedes competing commands. Run dev and user-service installs without sudo.
+
 For a repository-local development install, run:
 
 ```bash
@@ -64,14 +66,14 @@ command -v burnbag
 
 `--mode dev` selects this checkout for `burnbag`, `burnbag-viewer`, `burnbag-viewerctl`, and the selected system or user service. It publishes managed user launchers under `~/.local/bin/` and verifies command lookup, without a second selection prompt. The user bin directory must precede competing commands on `PATH`; run `hash -r` in shells that cached an older path.
 
-Omitting `--mode dev` installs complete copies and selects those installed commands. Standard mode retires managed dev launchers, updates the selected service, and verifies installed command lookup. Both modes behave the same in interactive and unattended use:
+Omitting `--mode dev` installs complete copies and selects those installed commands. Standard mode verifies the installed files, retires managed dev launchers, and updates the selected service. Non-root invocations also verify inherited command lookup. Both modes behave the same in interactive and unattended use:
 
 ```bash
 ./install.sh --mode dev  # Commands and service use this checkout
 ./install.sh             # Commands and service use installed copies
 ```
 
-`--mode` is authoritative. The obsolete `BURNBAG_DEV_LAUNCHER_MODE` is ignored with a diagnostic; legacy `--dev-command` values are accepted only when they agree with the mode (`local` for dev, `system` for standard). Conflicting values and `prompt` are rejected. Unmanaged launchers and conflicting PATH entries cause an actionable failure; dev `--force` explicitly permits replacing an unmanaged user launcher. Use `--user-home /absolute/operator/home` when automation supplies an isolated assistant `HOME`.
+`--mode` is authoritative. The obsolete `BURNBAG_DEV_LAUNCHER_MODE` is ignored with a diagnostic; legacy `--dev-command` values are accepted only when they agree with the mode (`local` for dev, `system` for standard). Conflicting values and `prompt` are rejected. Non-root PATH conflicts cause an actionable failure; root standard installs preserve unmanaged launchers with a warning to check user-shell lookup. Dev `--force` explicitly permits replacing an unmanaged user launcher. Use `--user-home /absolute/operator/home` when automation supplies an isolated assistant `HOME`.
 
 With `--mode dev --install-user-service`, the installer copies the manual to `<user-home>/.local/share/man/man1/burnbag.1`. Rerun the installer after documentation changes to refresh that installed copy. The repository-local `.local/share/man/man1/burnbag.1` symlink continues to follow the checkout.
 

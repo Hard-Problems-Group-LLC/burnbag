@@ -382,3 +382,32 @@ multiple plots and preserved navigation. Generated documentation, viewer manual,
 staged installation and tracking checks pass; captured dialog/graph frames were
 visually inspected. No host installation or operator preferences were changed.
 Earlier GNOME and hardware acceptance stays with phases 3000/9000.
+
+## Phase 5000 — Standard installer recovery
+
+Authorized 2026-09-15 following the reported `sudo ./install.sh` failure:
+`Standard command directory is not on PATH: /usr/local/bin`.
+
+- **1000 — Reproduce:** reproduce the restricted-PATH validation failure
+  without host installation; inspect privileged versus operator identity.
+- **2000 — Repair:** separate privileged installed-file verification from
+  user-shell command lookup and resolve the sudo caller's home for managed
+  launcher retirement. Preserve unmanaged files and ordinary PATH guards.
+- **3000 — Verify:** exercise private installations, mode transitions,
+  restricted PATH, explicit homes, and failure paths; run regression checks.
+- **4000 — Document and hand off:** synchronize installation contracts,
+  generated help/manuals, tracking, and AGENTS.md Ubersight guidance. Keep
+  deployment and existing physical checks distinct from automated evidence.
+
+Acceptance: standard installation does not depend on sudo's PATH containing
+the destination bin directory, does not add user directories to root's PATH,
+and verifies installed commands without claiming to know the caller's shell
+lookup. Only managed development launchers are retired. User-service and dev
+installation retain their non-root requirements. Graph-only remains queued.
+
+Completed 2026-09-15: all four slices verified and handed off. Native discovery
+runs 453 tests with eight opt-in GUI skips; all other cases pass. All 88 affected
+tests pass on Python 3.9.21 and 3.14.6; syntax, shellcheck, generated docs,
+manuals and read-only preflight pass. No host installation was performed;
+operator sudo authentication/deployment remains in BB-MANUAL-05. See
+[the resolved installer bug](project-management/bugs/closed/BB-BUG-2026-09-15-02-sudo-installation.md).

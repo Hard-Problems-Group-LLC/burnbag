@@ -1,5 +1,34 @@
 # Completed Tasks
 
+- `BB-2026-09-15-5000` — Standard installer recovery under sudo.
+  Started and completed 2026-09-15; owner: Codex; direct operator request.
+  - All four phase 5000 slices are complete. Reproduced the missing
+    `/usr/local/bin` PATH failure; the privileged preflight and post-install
+    checks incorrectly assumed root's PATH described the operator's shell.
+  - Root verifies installed executable files independently of PATH and reports
+    the user-shell lookup check honestly. Non-root PATH guards remain. Sudo
+    caller UID/name are validated before selecting the account home; explicit
+    `--user-home` overrides it. Only managed dev launchers are retired, after
+    verifying all three installed commands; unrelated root/user files remain.
+  - Eight added regression tests cover full isolated publication and installed
+    execution after moving the checkout, restricted/competing root PATH,
+    identity and explicit-home handling, unmanaged preservation, check-only,
+    incomplete publication, and root dev/user-service rejection. Real file
+    deployment uses the service helper's staging mode, not host services.
+  - Native Python 3.12.13 discovery: 453 tests run, eight expected opt-in GUI
+    skips, all others pass. All 88 affected tests pass on Python 3.9.21 and
+    3.14.6. Initial sandbox socket/ownership failures disappear outside the
+    sandbox. Bash syntax, shellcheck, generated documents, both manual pages,
+    whitespace, native prerequisites and ordinary read-only preflight pass.
+  - AGENTS.md now explicitly requires synchronized Ubersight guidance/status,
+    thousands-spaced phases and per-phase slices restarting at 1000. Roadmap,
+    live status, installation contracts, README and manual are synchronized.
+  - No privileged host installation was performed; live sudo authentication
+    requires the operator. See [BB-MANUAL-05](ai-human-requests.md) and
+    [the closed bug](bugs/closed/BB-BUG-2026-09-15-02-sudo-installation.md).
+    Existing GNOME/hardware checks remain open. Graph-only is approved and
+    queued, with no implementation changes.
+
 - `BB-2026-09-15-4000` — Persistent viewer field selection.
   Started and completed 2026-09-15; owner: Codex; direct operator request.
   - All three phase 4000 slices are complete. Fields... replaces the drop-list

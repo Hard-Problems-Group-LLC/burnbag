@@ -5,6 +5,10 @@ closure timestamp, short outcome, and link to the authoritative record under
 `closed/`. Keep root cause, resolution, and validation evidence in that
 record.
 
+- `BB-BUG-2026-09-15-02` — Resolved 2026-09-15T22:41:38-07:00; standard root
+  installation no longer depends on sudo's PATH, and managed launcher cleanup
+  uses the validated caller home. See [the closed record](closed/BB-BUG-2026-09-15-02-sudo-installation.md).
+
 - `BB-BUG-2026-09-15-01` — Resolved 2026-09-15; all dev commands select the
   checkout and viewer rendering preserves full-history data and detail. See
   [the closed record](closed/BB-BUG-2026-09-15-01-viewer-history-visibility.md).
