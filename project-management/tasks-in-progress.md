@@ -65,7 +65,9 @@
     checkout code and makes standard installation select installed copies.
     Phase 5000 subsequently repairs standard installation under sudo's restricted
     PATH and resolves the caller home for managed dev-launcher retirement;
-    automated verification is complete, with deployment in BB-MANUAL-05.
+    automated verification is complete. Operator standard installation and
+    all three normal-shell command paths passed on 2026-09-15; BB-MANUAL-05
+    is closed. The installed standard commands are now selected.
 
 - `BB-MANUAL-04` — GTK 4 history viewer GNOME window controls.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.

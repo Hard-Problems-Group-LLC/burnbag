@@ -408,6 +408,8 @@ installation retain their non-root requirements. Graph-only remains queued.
 Completed 2026-09-15: all four slices verified and handed off. Native discovery
 runs 453 tests with eight opt-in GUI skips; all other cases pass. All 88 affected
 tests pass on Python 3.9.21 and 3.14.6; syntax, shellcheck, generated docs,
-manuals and read-only preflight pass. No host installation was performed;
-operator sudo authentication/deployment remains in BB-MANUAL-05. See
+manuals and read-only preflight pass. Operator acceptance subsequently passed
+at 2026-09-15T22:57:52-07:00: `sudo time ./install.sh` succeeded, and after
+`hash -r` all three commands resolved under `/usr/local/bin`. BB-MANUAL-05 is
+closed; earlier GNOME and hardware checks remain separate. See
 [the resolved installer bug](project-management/bugs/closed/BB-BUG-2026-09-15-02-sudo-installation.md).

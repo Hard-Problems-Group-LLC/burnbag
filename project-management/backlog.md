@@ -23,6 +23,9 @@ specifications, and ISO 8601 timestamps.
     required, but this drafting task does not authorize starting implementation.
   - Scheduling: allocate a roadmap phase and local slices only when execution
     is scheduled, using the next available IDs under AGENTS.md.
+  - 2026-09-15 update: the reported sudo/PATH installer defect is repaired and
+    operator-verified (phase 5000; BB-MANUAL-05 closed). This feature remains
+    queued; no implementation has started.
 
 Existing warning/fallback and physical acceptance checks remain in
 [the human-request queue](ai-human-requests.md), independently of this queued

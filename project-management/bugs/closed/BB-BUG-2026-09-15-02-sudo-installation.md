@@ -58,7 +58,17 @@ ordinary read-only installer preflight pass.
 
 Initial sandbox runs could not bind Unix sockets and saw remapped system
 ownership; reruns outside that sandbox pass without weakening those guards.
-An actual sudo read-only check was attempted noninteractively but requires
-operator authentication. No host installation, account, service, or user
-launcher was changed. [BB-MANUAL-05](../../ai-human-requests.md) records the
-operator's deployment/confirmation step separately from the completed repair.
+The agent's sudo read-only check required operator authentication; the agent
+did not change the host installation, account, service, or user launchers.
+
+## Operator acceptance
+
+Confirmed 2026-09-15T22:57:52-07:00: the operator's `sudo time ./install.sh`
+completed successfully in 15.27 seconds. Prerequisites, system-service
+installation and all installed executable checks passed. The installer
+retired the two existing managed burnbag launchers from the operator's user
+bin and checkout bin directories. After `hash -r`, the normal shell resolved
+burnbag, burnbag-viewer and burnbag-viewerctl under `/usr/local/bin`.
+[BB-MANUAL-05](../../ai-human-requests.md) is complete. This is live installation
+and command-selection evidence, not a claim about service runtime health,
+GNOME controls or hardware behavior.

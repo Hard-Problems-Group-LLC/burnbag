@@ -23,8 +23,11 @@
   - AGENTS.md now explicitly requires synchronized Ubersight guidance/status,
     thousands-spaced phases and per-phase slices restarting at 1000. Roadmap,
     live status, installation contracts, README and manual are synchronized.
-  - No privileged host installation was performed; live sudo authentication
-    requires the operator. See [BB-MANUAL-05](ai-human-requests.md) and
+  - The agent did not perform a privileged host installation. The operator
+    subsequently confirmed successful `sudo time ./install.sh` and all three
+    normal-shell command paths under `/usr/local/bin`, after `hash -r`.
+    Live acceptance passed at 2026-09-15T22:57:52-07:00, closing
+    [BB-MANUAL-05](ai-human-requests.md). See
     [the closed bug](bugs/closed/BB-BUG-2026-09-15-02-sudo-installation.md).
     Existing GNOME/hardware checks remain open. Graph-only is approved and
     queued, with no implementation changes.

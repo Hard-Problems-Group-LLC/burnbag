@@ -31,7 +31,8 @@ Phase 4000 is complete: persistent graph/table field selection through a modal
 Fields dialog, automation, real GTK verification and synchronized documentation.
 Phase 5000 is complete: standard sudo installation no longer assumes root's
 PATH matches the caller's shell, and managed launcher cleanup selects the
-validated caller home. Deployment confirmation remains in BB-MANUAL-05.
+validated caller home. Operator deployment and all three normal-shell command
+paths passed on 2026-09-15, closing BB-MANUAL-05.
 Phase 3000 awaits visible GNOME controls;
 warning/fallback and physical observations remain under phase 9000.
 New phases and slices follow AGENTS.md's 1000-step numbering

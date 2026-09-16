@@ -20,22 +20,6 @@ results are in [the testing guide](../docs/testing.md).
 
 ## Active Requests
 
-- `BB-MANUAL-05` — Confirm the repaired standard sudo installation.
-  - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
-  - Scope: phase 5000, slice 4000 deployment handoff; the code repair and
-    isolated verification are complete. The agent's noninteractive sudo check
-    requires a password; no host installation has been performed.
-  - Run `sudo ./install.sh --check`, then `sudo ./install.sh`. Standard mode
-    verifies installed files without requiring the destination on root's PATH.
-    New services are enabled/started; updates preserve stopped/disabled state.
-  - In the normal non-root shell, run `hash -r` followed by
-    `command -v burnbag burnbag-viewer burnbag-viewerctl`. Expect installed
-    paths, normally under `/usr/local/bin`; correct user PATH ordering if
-    needed. Managed dev launchers should be gone; unmanaged files are preserved.
-  - Acceptance: successful installation with no PATH failure and all three
-    ordinary shell commands selecting installed copies. Report further errors
-    verbatim. This does not replace earlier GNOME or hardware checks.
-
 - `BB-MANUAL-03` — Continuous collector installation and physical sleep history.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.
   - Scope: roadmap P10 operator handoff and manual acceptance in phase 9000,
@@ -127,6 +111,21 @@ results are in [the testing guide](../docs/testing.md).
     operator check.
 
 ## Completed Requests
+
+- `BB-MANUAL-05` — Repaired standard sudo installation confirmed.
+  - Created and activated: 2026-09-15. Completed: 2026-09-15T22:57:52-07:00.
+    Owner and evidence source: operator. Requestor: Codex.
+  - Scope: phase 5000, slice 4000 deployment handoff. The operator ran
+    `sudo time ./install.sh`; prerequisites, system-service installation and
+    all three installed executable checks succeeded without the PATH error.
+    Installation finished in 15.27 seconds and reported removal of the two
+    existing managed burnbag development launchers (user and checkout).
+  - After `hash -r`, the operator's normal-shell lookup returned
+    `/usr/local/bin/burnbag`, `/usr/local/bin/burnbag-viewer`, and
+    `/usr/local/bin/burnbag-viewerctl`. This satisfies installation and command
+    selection acceptance and closes the request. Service runtime health,
+    visible GNOME behavior and physical checks are not inferred from this
+    output; their existing requests remain open.
 
 The graph/summary portion of `BB-MANUAL-01` passed on 2026-09-14 and closes
 phase P3, slice 4000. The request remains active for its remaining hardware

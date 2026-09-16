@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator sudo installation confirmation (BB-MANUAL-05), GNOME controls and earlier hardware checks. Phase 5000 repair is verified; graph-only remains approved and queued, not implemented.
+Notes: Awaiting GNOME controls and earlier hardware checks. Operator confirmed phase 5000 sudo installation and all three installed command paths; BB-MANUAL-05 is closed. Graph-only remains approved and queued, not implemented.
 
 ## Phases
 
