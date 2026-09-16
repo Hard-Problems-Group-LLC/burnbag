@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator installation and GNOME controls. Phase 3100 mode repair is verified; FieldManual ECR-003 is drafted. Earlier manual checks remain deferred.
+Notes: Phase 4000 Fields dialog is complete and verified; awaiting existing operator installation, GNOME controls and earlier hardware checks.
 
 ## Phases
 
@@ -28,6 +28,7 @@ Notes: Awaiting operator installation and GNOME controls. Phase 3100 mode repair
 | 1000 | done | Relative history durations |
 | 3000 | active | GTK 4 history viewer |
 | 3100 | done | Viewer data and time ranges |
+| 4000 | done | Persistent viewer fields |
 | 9000 | blocked | Manual validation and final closure |
 
 ## Slices
@@ -94,6 +95,9 @@ Notes: Awaiting operator installation and GNOME controls. Phase 3100 mode repair
 | 3000 | 3100 | done | Add initial and locked time ranges |
 | 4000 | 3100 | done | Verify documentation and publish |
 | 5000 | 3100 | done | Enforce command and service modes |
+| 1000 | 4000 | done | Build dialog and saved selections |
+| 2000 | 4000 | done | Automate and verify field changes |
+| 3000 | 4000 | done | Document and publish |
 
 ## Regenerate local tracking
 

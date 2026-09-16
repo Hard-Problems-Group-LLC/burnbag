@@ -43,6 +43,44 @@ viewer is a separate helper application and does not change collector behavior.
   telemetry in both sources. Run source queries off the GTK main thread and page
   matching results just like ordinary table rows.
 
+## Field selection and preferences
+
+The toolbar's **Fields...** button replaces the single-measurement drop-list.
+It opens a modal window with Graph and Table pages, each containing two columns
+of named checkboxes and vertical scrolling. Graph choices are numeric sample
+fields from the complete snapshot catalog; Table choices include measurement
+and record fields. Date and Time always remain the first two table columns.
+The dialog is available once discovery finishes, including for empty histories.
+Long names have full-name tooltips. Graph and Table selections are independent.
+The implementation uses a transient modal `Gtk.Window`, consistent with
+[GTK's dialog guidance](https://docs.gtk.org/gtk4/class.Dialog.html), while
+retaining compatibility with the project's GTK 4.6 baseline.
+
+Checkboxes edit a draft only. **OK** atomically saves both selections and then
+applies them together; **Cancel**, Escape and titlebar close discard the draft.
+Enter activates OK. No field changes affect either view before OK. Failed saves
+leave the draft open with a visible error and keep both applied views unchanged.
+Changes preserve viewport/locks, search text, loaded rows and table selection.
+
+Persist versioned JSON in `$XDG_CONFIG_HOME/burnbag/viewer.json`, falling back
+to `~/.config/burnbag/viewer.json` for unset/empty/non-absolute XDG_CONFIG_HOME.
+The file is private (0600), published through a temporary sibling and atomic
+replacement. Preferences never write to a history database. Missing preferences
+retain the former defaults: the first percentage field (otherwise first numeric
+field), and all table columns. Invalid/unreadable preferences give a visible
+warning and use defaults without overwriting the file until OK. Explicit empty
+selections are valid; an empty graph explains how to select fields and the table
+retains Date/Time. Saved names absent from the current snapshot are retained
+for future launches. Newly discovered names remain unchecked after an explicit
+selection. Concurrent viewers use the last successfully saved selection.
+
+Multiple selected graph fields have independent labeled plots and Y scales,
+with extrema labeled on both axes and a common time interval. Up to three plots
+stack vertically; larger selections tile across the graph. Zoom, pan, focus and
+fullscreen apply to all plots together; double-clicking any plot navigates to
+its observation. A single bounded viewport query supplies all selected fields,
+preserving raw continuity and independent units.
+
 ## Initial viewport and query boundaries
 
 `--last DURATION` sets an initial interval ending at the single startup-time
@@ -88,6 +126,15 @@ A capture includes the complete GTK client area. GNOME's server-side titlebar
 and decorations belong to the window manager and are outside the application's
 capture surface. Automated UI acceptance must separately verify native window
 controls and F11 behavior on a GNOME session.
+
+`fields open`, `fields set --view graph|table --name FIELD --checked yes|no`,
+`fields tab --view graph|table`, `fields ok` and `fields cancel` use the same
+dialog widgets and commit/cancel handlers. State includes applied graph/table
+fields, available catalogs, draft selections, preference path and errors.
+While the dialog is open, capture returns its complete client frame; background
+navigation is blocked. Return, Escape and window close operate on the dialog.
+The legacy `series NAME` command selects one graph field transiently; use Fields
+OK to persist it. `pointer click fields` opens the toolbar dialog.
 
 ## Acceptance
 

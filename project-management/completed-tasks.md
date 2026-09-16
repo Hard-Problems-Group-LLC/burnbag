@@ -1,5 +1,34 @@
 # Completed Tasks
 
+- `BB-2026-09-15-4000` — Persistent viewer field selection.
+  Started and completed 2026-09-15; owner: Codex; direct operator request.
+  - All three phase 4000 slices are complete. Fields... replaces the drop-list
+    with a modal Graph/Table notebook, two checkbox columns per page, full-name
+    tooltips and scrolling. Choices are independent; Date/Time stay visible.
+    Multiple plots retain independent scales, axis extrema and shared navigation.
+    The data reader loads selected series in one pass through the viewport.
+  - OK atomically saves private XDG preferences and applies both selections;
+    Cancel, Escape and window close discard drafts. Failed saves leave the
+    dialog open and both views unchanged. Empty selections, corrupt preferences,
+    unavailable saved fields and newly discovered fields have explicit behavior.
+    Changes retain viewport/locks, search, rows and selection.
+  - Existing Unix automation now supports dialog opening, tabs, checkbox edits,
+    OK/Cancel, state and active-dialog captures through the actual widgets.
+    Background automation is blocked while the dialog is modal. The existing
+    single-series command remains available as a transient selection.
+  - Validation: 116 affected tests pass on native Python 3.13.7, including eight
+    actual GTK/socket/frame cases on a private Xvfb display and staged installer
+    checks. All 108 non-GTK cases pass on Python 3.9.21 and 3.14.6. Tests use
+    ResourceWarning as error and private SQLite/XDG fixtures. GUI cases cover
+    both sources, cancellation and close, write failures, empty/multiple choices,
+    process restarts, actual plotted pixels, range locks and navigation. The
+    final warning/dispatch refinements pass all eight GTK cases again.
+    Man rendering, generated-doc consistency and whitespace checks pass.
+  - Inspected captured Graph/Table dialog frames and the multiple-plot frame.
+    README, viewer manual, specification, ROADMAP and Ubersight are synchronized.
+    No host installation or user preferences were changed. The existing
+    GNOME decoration and hardware checks remain deferred under phases 3000/9000.
+
 - `BB-2026-09-15-DEV-DEFAULT` — Authoritative installation mode for commands and services.
   Started and completed 2026-09-15; owner: Codex; direct operator clarification.
   - Phase 3100, slice 5000 is complete. `--mode dev` selects checkout code for

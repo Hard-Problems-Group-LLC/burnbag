@@ -44,7 +44,8 @@ FieldManual footer.
   IDs throughout the live stack and dashboard. Legacy slice references such as
   `P2.4` correspond to phase `P2`, local slice `4000`; historical task and
   request identifiers remain unchanged. Existing published `P1`–`P10` IDs
-  remain legacy references. Allocate the next new phase as `4000`.
+  remain legacy references. Phase `4000` covers persistent viewer field
+  selection. Allocate the next new phase as `5000`.
 
 <!-- FIELDMANUAL_MANAGED_FOOTER_START -->
 ---

@@ -19,8 +19,14 @@ history in pages and exposes local date and time first, followed by record
 attributes and measurement columns discovered across the complete history.
 Search scans both available history databases without blocking the UI.
 .PP
-The graph plots a selected numeric measurement. Use its measurement selector,
-mouse wheel or zoom controls to change scale, and drag or the arrow buttons to
+The Fields... button opens Graph and Table pages with two columns of named
+checkboxes. Choose graph measurements and table columns independently.
+OK saves and applies both selections; Cancel, Escape and closing the dialog
+discard all changes. Enter activates OK. Neither view changes while editing.
+Date and Time always remain the first table columns. Empty selections are valid.
+Multiple graph fields have separate labeled plots and scales sharing the same
+time interval; up to three plots stack vertically, with larger selections tiled.
+Use the mouse wheel or zoom controls to change scale, and drag or the arrow buttons to
 pan. A table row double-click opens the graph around that record. Select a table
 range and choose View selection to fit it. A graph double-click selects and
 scrolls to the corresponding table row, loading that record even when it is
@@ -98,6 +104,7 @@ with one of the commands
 .BR row ,
 .BR select ,
 .BR series ,
+.BR fields ,
 .BR view ,
 .BR click ,
 .BR pointer ,
@@ -112,6 +119,28 @@ command returns PNG bytes for the complete GTK client area. It does not include
 GNOME's server-side titlebar and decorations, which belong to the window
 manager. Keep the socket inside a private per-user runtime directory such as
 .BR "$XDG_RUNTIME_DIR" .
+.PP
+Use fields open, fields set --view graph|table --name FIELD --checked yes|no,
+fields tab --view graph|table, fields ok, and fields cancel to operate the dialog.
+Status includes applied choices, available fields and draft selections/errors.
+Capture returns the dialog client frame while it is open. Return, Escape and
+window close act on the dialog; background navigation is blocked.
+The legacy series NAME command selects a single field for this run; Fields OK
+persists choices.
+.SH PREFERENCES
+Graph and table selections are saved together in
+.I $XDG_CONFIG_HOME/burnbag/viewer.json
+(default
+.IR $HOME/.config/burnbag/viewer.json ).
+An unset, empty or relative XDG_CONFIG_HOME uses the default.
+OK publishes the private file atomically. A failed save leaves the dialog open
+with an error and does not change either view. Invalid or unreadable preferences
+produce a visible warning and use defaults until a successful OK.
+Defaults are the first percentage measurement (otherwise first numeric field)
+and all table columns. Saved empty selections stay empty. Fields absent from the
+current history retain their saved choices; newly discovered fields start
+unchecked after an explicit selection. Concurrent viewers use the last saved
+selection. Field changes preserve time range, search, rows and table selection.
 .SH DATA
 The system database is
 .I /var/lib/burnbag/history.sqlite3

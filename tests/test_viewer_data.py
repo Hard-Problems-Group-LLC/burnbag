@@ -224,6 +224,21 @@ class HistorySourcesTests(unittest.TestCase):
         self.assertEqual(1, len({point[3] for point in data["points"]}))
         self.assertEqual(11, reader.series("battery.percentage", 300, 600)["sample_count"])
 
+    def test_multiple_fields_keep_independent_units_missing_data_and_time_bounds(self):
+        self._insert(self.system, 'a', 100, {'percentage': 80, 'power_w': 4})
+        self._insert(self.system, 'b', 105, {'percentage': 79})
+        self._insert(self.system, 'c', 110, {'percentage': 78, 'power_w': 6})
+        self._insert(self.user, 'd', 200, {'percentage': 77, 'power_w': 8})
+        reader = HistorySources([('system', self.system), ('user', self.user)])
+        self.addCleanup(reader.close)
+        result = reader.series_many(['percentage', 'power_w', 'absent'], 100, 110)
+        self.assertEqual(result['percentage']['sample_count'], 3)
+        self.assertEqual(result['power_w']['sample_count'], 2)
+        self.assertEqual(result['absent']['sample_count'], 0)
+        self.assertEqual([p[1] for p in result['power_w']['points']], [4, 6])
+        self.assertEqual(len({p[3] for p in result['power_w']['points']}), 2)
+        self.assertEqual(len({p[3] for p in result['percentage']['points']}), 1)
+
     def test_real_missing_readings_and_time_gaps_split_segments(self):
         for i, stamp, data in [(1, 0, {"v": 1}), (2, 5, {"v": 2}),
                                (3, 10, {"v": None}), (4, 15, {"v": 3}), (5, 500, {"v": 4})]:

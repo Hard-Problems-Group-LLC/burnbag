@@ -29,7 +29,10 @@ native integration readiness. No automated test suspends or hibernates the host.
 The opt-in GTK suite uses the selected X11/XWayland display and real private
 SQLite fixtures for both sources. It checks actual captured graph pixels,
 cross-page navigation, initial/unlocked/locked ranges, search, mouse drag,
-reset, series selection and F11 over the Unix socket. Ordinary discovery skips
+reset, series selection and F11 over the Unix socket. Field-selection tests use
+isolated XDG configuration and exercise drafts, OK, Cancel/Escape/titlebar close,
+write failures, empty selections, multiple actual rendered plots and persistence
+across process restarts. Ordinary discovery skips
 these visible-window tests unless `BURNBAG_TEST_GTK=1` is set.
 For unattended verification, prefer `BURNBAG_TEST_GTK=1 xvfb-run -a
 /usr/bin/python3 -B -m unittest tests.test_viewer_gui` on a private virtual
@@ -290,7 +293,7 @@ tab strip.
 
 With no range arguments, verify the viewer reports the total merged history
 row count, the graph spans the oldest through newest available measurements,
-and the measurement selector/table columns include fields that appear only in
+and the Fields dialog catalogs include fields that appear only in
 older or newer records. The graph overview should retain full-history extrema;
 the table may load rows in pages as you scroll, but must not stop at the first
 page. Check both tabs. Search a value visible in telemetry (for example a battery

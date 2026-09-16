@@ -175,12 +175,19 @@ class HistorySources:
     def series(self, field: str, start: float, end: float,
                max_buckets: int = 1200) -> Dict[str, Any]:
         """Read current viewport at its own resolution, preserving raw continuity."""
-        builder = SeriesBuilder(start, end, max_buckets)
+        return self.series_many([field], start, end, max_buckets)[field]
+
+    def series_many(self, fields: List[str], start: float, end: float,
+                    max_buckets: int = 1200) -> Dict[str, Any]:
+        """Read selected measurements in one pass, with independent scales and gaps."""
+        builders = {field: SeriesBuilder(start, end, max_buckets) for field in fields}
         for record in self._records(start, end):
             if record["kind"] in SAMPLE_KINDS:
-                builder.add(record, flatten_data(record["data"]).get(field))
-        return {"field": field, "range": [start, end], "points": builder.points(),
-                "sample_count": builder.count}
+                flat = flatten_data(record["data"])
+                for field, builder in builders.items():
+                    builder.add(record, flat.get(field))
+        return {field: {"field": field, "range": [start, end], "points": builder.points(),
+                        "sample_count": builder.count} for field, builder in builders.items()}
 
     def _source_page(self, scope: str, connection: sqlite3.Connection,
                      after: Optional[Tuple[float, str]], limit: int,

@@ -27,6 +27,8 @@ history and services, phase 1000 relative graph durations, and phase 3000 GTK 4
 history viewer. Phase 3100's viewer delivery/rendering fixes and initial/locked
 time ranges are complete, including follow-up slice 5000's authoritative
 command/service installation modes and FieldManual ECR-003.
+Phase 4000 is complete: persistent graph/table field selection through a modal
+Fields dialog, automation, real GTK verification and synchronized documentation.
 Phase 3000 awaits visible GNOME controls;
 warning/fallback and physical observations remain under phase 9000.
 New phases and slices follow AGENTS.md's 1000-step numbering

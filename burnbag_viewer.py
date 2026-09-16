@@ -12,6 +12,7 @@ from pathlib import Path
 import socket
 import stat
 import sys
+import tempfile
 import threading
 import time
 from typing import Any, Optional
@@ -39,6 +40,55 @@ def _load_gtk() -> tuple[Any, Any, Any, Any, Any]:
         ) from exc
 
 
+def field_preferences_path() -> Path:
+    """Use the per-user XDG configuration directory, never a telemetry store."""
+    configured = os.environ.get("XDG_CONFIG_HOME", "")
+    root = Path(configured) if configured and Path(configured).is_absolute() else Path.home() / ".config"
+    return root / "burnbag" / "viewer.json"
+
+
+def load_field_preferences(path: Path) -> tuple[Optional[dict[str, list[str]]], Optional[str]]:
+    """Return explicit selections (including empty lists), or defaults and a warning."""
+    try:
+        with path.open(encoding="utf-8") as stream:
+            contents = stream.read(1024 * 1024 + 1)
+        if len(contents) > 1024 * 1024:
+            raise ValueError("file exceeds 1 MiB")
+        value = json.loads(contents)
+        if not isinstance(value, dict) or value.get("version") != 1:
+            raise ValueError("unsupported preference format")
+        selected = {}
+        for view in ("graph", "table"):
+            fields = value.get(view)
+            if (not isinstance(fields, list) or
+                    any(not isinstance(field, str) or not field for field in fields)):
+                raise ValueError("%s fields must be a list of names" % view)
+            selected[view] = sorted(set(fields))
+        return selected, None
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as exc:
+        return None, "Could not load field preferences from %s: %s" % (path, exc)
+
+
+def save_field_preferences(path: Path, selected: dict[str, list[str]]) -> None:
+    """Publish both selections atomically; a failed write leaves the old file intact."""
+    contents = json.dumps(dict(version=1, **selected), ensure_ascii=False, indent=2) + "\n"
+    if len(contents) > 1024 * 1024:
+        raise ValueError("field preferences exceed 1 MiB")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".viewer-", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(contents)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 class Viewer:
     """Native-decorated GTK application shell and notebook."""
 
@@ -61,10 +111,19 @@ class Viewer:
         self.filter_model: Optional[Any] = None
         self.search_filter: Optional[Any] = None
         self.column_view: Optional[Any] = None
-        self.series_picker: Optional[Any] = None
         self.series_options: list[str] = []
         self.series_field: Optional[str] = None
-        self.updating_series = False
+        self.graph_fields: list[str] = []
+        self.table_fields: list[str] = []
+        self.column_options: list[str] = []
+        self.column_widgets: dict[str, Any] = {}
+        self.preferences_path = field_preferences_path()
+        self.field_preferences, self.preference_warning = load_field_preferences(self.preferences_path)
+        self.fields_button = None
+        self.fields_dialog = None
+        self.fields_notebook = None
+        self.field_checks: dict[str, dict[str, Any]] = {}
+        self.fields_error = None
         self.table_adjustment: Optional[Any] = None
         self.toolbar: Optional[Any] = None
         self.status: Optional[Any] = None
@@ -130,13 +189,12 @@ class Viewer:
         search.connect("search-changed", self._search_changed)
         self.search_entry = search
         toolbar.append(search)
-        series_model = Gtk.StringList.new(["No numeric measurements"])
-        expression = Gtk.PropertyExpression.new(Gtk.StringObject, None, "string")
-        series_picker = Gtk.DropDown.new(series_model, expression)
-        series_picker.set_tooltip_text("Numeric measurement shown in the graph")
-        series_picker.connect("notify::selected", self._series_changed)
-        self.series_picker = series_picker
-        toolbar.append(series_picker)
+        fields_button = Gtk.Button(label="Fields...")
+        fields_button.set_tooltip_text("Choose graph fields and table columns")
+        fields_button.set_sensitive(False)
+        fields_button.connect("clicked", self._open_fields)
+        self.fields_button = fields_button
+        toolbar.append(fields_button)
         for label, callback in (("−", lambda *_: self._zoom(1.8)),
                                 ("+", lambda *_: self._zoom(0.55)),
                                 ("←", lambda *_: self._pan(-0.25)),
@@ -224,6 +282,9 @@ class Viewer:
         self._add_column("Time", "time", flatten_data)
         for field in ("kind", "source"):
             self._add_column(field.title(), field, flatten_data)
+        if self.field_preferences is not None:
+            for field in ("kind", "source"):
+                self.column_widgets[field].set_visible(field in self.field_preferences["table"])
         self._load_next_page()
         self._load_overview()
         window.present()
@@ -256,6 +317,7 @@ class Viewer:
         column.set_resizable(True)
         self.column_view.append_column(column)
         self.columns.add(field)
+        self.column_widgets[field] = column
 
     def _load_next_page(self) -> None:
         if self.loading or not self.has_more or self.sources is None or self.store is None:
@@ -300,11 +362,8 @@ class Viewer:
             self.status.set_text("Full-history overview failed: " + error)
             return False
         self.overview = overview
-        from burnbag_viewer_data import flatten_data
-        for field in overview["columns"]:
-            self._add_column(field, field, flatten_data)
         self._update_series_options()
-        self._queue_graph_read()
+        self.fields_button.set_sensitive(True)
         self._update_status()
         return False
 
@@ -329,6 +388,9 @@ class Viewer:
             details.append("%s: %s — %s%s" % (scope, info["path"], summary,
                           ("; " + info["error"]) if "error" in info else ""))
         parts.extend(self.sources.warnings)
+        if self.preference_warning:
+            parts.insert(0, self.preference_warning)
+            details.insert(0, self.preference_warning)
         self.status.set_text(" · ".join(parts))
         self.status.set_tooltip_text("\n".join(details + self.sources.warnings))
 
@@ -348,10 +410,6 @@ class Viewer:
                 self.store.append(self.Gtk.StringObject.new(json.dumps(record, separators=(",", ":"))))
                 record["_flat"] = flatten_data(record["data"])
                 self.loaded.append(record)
-                for field in record["_flat"]:
-                    self._add_column(field, field, flatten_data)
-            if page:
-                self._update_series_options()
             if page:
                 last = page[-1]
                 self.after = (last["captured_at"], last["id"])
@@ -371,38 +429,121 @@ class Viewer:
             self.has_more = False
         return False
 
-    def _series_changed(self, picker: Any, property_spec: Any) -> None:
-        if self.updating_series:
-            return
-        item = picker.get_selected_item()
-        if item is None:
-            return
-        value = item.get_string()
-        self.series_field = None if value == "No numeric measurements" else value
-        self._queue_graph_read()
-
     def _update_series_options(self) -> None:
-        if self.series_picker is None:
-            return
-        if self.overview is not None:
-            fields = sorted(self.overview.get("series", {}))
-        else:
-            fields = sorted({key for row in self.loaded for key, value in row.get("_flat", {}).items()
-                             if isinstance(value, (int, float)) and not isinstance(value, bool)})
+        fields = sorted((self.overview or {}).get("series", {}))
         fields.sort(key=lambda key: (not key.endswith("percentage"), key))
         self.series_options = fields
-        selected = self.series_field if self.series_field in fields else (fields[0] if fields else None)
-        display = fields or ["No numeric measurements"]
-        self.updating_series = True
-        self.series_picker.set_model(self.Gtk.StringList.new(display))
-        self.series_picker.set_sensitive(bool(fields))
-        if selected is not None:
-            self.series_picker.set_selected(display.index(selected))
-        self.updating_series = False
-        changed = self.series_field != selected
-        self.series_field = selected
-        if changed:
-            self._queue_graph_read()
+        self.column_options = ["kind", "source"] + sorted(
+            set((self.overview or {}).get("columns", [])) - {"date", "time", "kind", "source"})
+        chosen = self.field_preferences or {"graph": fields[:1], "table": self.column_options}
+        self._apply_fields(chosen)
+
+    def _apply_fields(self, selected: dict[str, list[str]]) -> None:
+        from burnbag_viewer_data import flatten_data
+        self.graph_fields = [field for field in self.series_options if field in selected["graph"]]
+        self.series_field = self.graph_fields[0] if self.graph_fields else None
+        self.table_fields = [field for field in self.column_options if field in selected["table"]]
+        for field in self.column_options:
+            self._add_column(field.title() if field in ("kind", "source") else field, field, flatten_data)
+            self.column_widgets[field].set_visible(field in self.table_fields)
+        self._queue_graph_read()
+
+    def _open_fields(self, *_args: Any) -> None:
+        if self.overview is None:
+            raise ValueError("Fields are still being discovered")
+        if self.fields_dialog is not None:
+            self.fields_dialog.present()
+            return
+        Gtk = self.Gtk
+        dialog = Gtk.Window(title="Fields", transient_for=self.window, modal=True)
+        dialog.set_destroy_with_parent(True)
+        dialog.set_default_size(820, 480)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        for edge in ("top", "bottom", "start", "end"):
+            getattr(root, "set_margin_" + edge)(12)
+        root.append(Gtk.Label(label="Choose fields, then press OK to save and apply.", xalign=0))
+        notebook = Gtk.Notebook()
+        notebook.set_vexpand(True)
+        self.field_checks = {}
+        for view, options, selected in (("graph", self.series_options, self.graph_fields),
+                                        ("table", self.column_options, self.table_fields)):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            box.append(Gtk.Label(label=("Numeric measurements; each has its own scale." if view == "graph"
+                                        else "Date and Time are always shown first."), xalign=0))
+            grid = Gtk.Grid(column_spacing=18, row_spacing=8, column_homogeneous=True)
+            self.field_checks[view] = {}
+            for index, field in enumerate(options):
+                check = Gtk.CheckButton(label=field)
+                check.set_active(field in selected)
+                check.set_tooltip_text(field)
+                # The built-in label is a widget child, not the optional custom
+                # CheckButton.child property (which is absent on GTK 4.6).
+                label = check.get_last_child()
+                if isinstance(label, Gtk.Label):
+                    label.set_ellipsize(3)
+                    label.set_max_width_chars(40)
+                check.set_hexpand(True)
+                grid.attach(check, index % 2, index // 2, 1, 1)
+                self.field_checks[view][field] = check
+            if not options:
+                grid.attach(Gtk.Label(label="No fields available in this history."), 0, 0, 2, 1)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_vexpand(True)
+            scroll.set_child(grid)
+            box.append(scroll)
+            notebook.append_page(box, Gtk.Label(label=view.title()))
+        root.append(notebook)
+        error = Gtk.Label(xalign=0, wrap=True)
+        error.add_css_class("error")
+        root.append(error)
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        actions.set_halign(Gtk.Align.END)
+        for label, commit in (("Cancel", False), ("OK", True)):
+            button = Gtk.Button(label=label)
+            button.connect("clicked", lambda _button, apply: self._finish_fields(apply), commit)
+            actions.append(button)
+            if commit:
+                button.add_css_class("suggested-action")
+                dialog.set_default_widget(button)
+        root.append(actions)
+        dialog.set_child(root)
+        dialog.connect("close-request", self._cancel_fields_window)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _controller, keyval, _code, _state: self._fields_key(keyval))
+        dialog.add_controller(keys)
+        self.fields_dialog, self.fields_notebook, self.fields_error = dialog, notebook, error
+        dialog.present()
+
+    def _fields_key(self, keyval: int) -> bool:
+        if keyval in (self.Gdk.KEY_Escape, self.Gdk.KEY_Return, self.Gdk.KEY_KP_Enter):
+            self._finish_fields(keyval != self.Gdk.KEY_Escape)
+            return True
+        return False
+
+    def _cancel_fields_window(self, _window: Any) -> bool:
+        self._finish_fields(False)
+        return True
+
+    def _finish_fields(self, commit: bool) -> None:
+        if self.fields_dialog is None:
+            return
+        if commit:
+            # Retain choices absent from this history snapshot (e.g. another battery).
+            selected = {view: sorted({field for field, check in checks.items() if check.get_active()} |
+                                    (set((self.field_preferences or {}).get(view, [])) - set(checks)))
+                        for view, checks in self.field_checks.items()}
+            try:
+                save_field_preferences(self.preferences_path, selected)
+            except (OSError, ValueError) as exc:
+                self.fields_error.set_text("Could not save fields: %s. Changes have not been applied." % exc)
+                return
+            self.field_preferences, self.preference_warning = selected, None
+            self._apply_fields(selected)
+        dialog, self.fields_dialog = self.fields_dialog, None
+        self.field_checks = {}
+        self.fields_notebook = self.fields_error = None
+        dialog.destroy()
 
     def _scroll_changed(self, adjustment: Any) -> None:
         if (self.has_more and self.loaded and len(self.loaded) % 500 == 0 and
@@ -495,10 +636,34 @@ class Viewer:
     def _draw_graph(self, area: Any, cr: Any, width: int, height: int) -> None:
         cr.set_source_rgb(0.98, 0.98, 0.98)
         cr.paint()
+        if not self.graph_fields:
+            cr.set_source_rgb(0.15, 0.15, 0.18)
+            cr.set_font_size(14)
+            cr.move_to(24, 40)
+            cr.show_text("No graph fields selected. Use Fields... to choose measurements." if self.overview
+                         else "Discovering available fields…")
+        for field, x, y, panel_width, panel_height in self._graph_panels(width, height):
+            cr.save()
+            cr.rectangle(x, y, panel_width, panel_height)
+            cr.clip()
+            cr.translate(x, y)
+            self._draw_series_graph(cr, panel_width, panel_height, field)
+            cr.restore()
+
+    def _graph_panels(self, width: int, height: int) -> list[tuple[str, float, float, float, float]]:
+        count = len(self.graph_fields)
+        if not count:
+            return []
+        columns = (1 if count <= 3 else
+                   min(count, max(1, math.ceil(math.sqrt(count * width / max(1, height) * .5)))))
+        rows = math.ceil(count / columns)
+        return [(field, index % columns * width / columns, index // columns * height / rows,
+                 width / columns, height / rows) for index, field in enumerate(self.graph_fields)]
+
+    def _draw_series_graph(self, cr: Any, width: float, height: float, selected_field: str) -> None:
         left, right, top, bottom = 78.0, max(80.0, width - 18.0), 32.0, max(34.0, height - 48.0)
         minimum, maximum = self._range()
-        selected_field = self.series_field
-        data = self.graph_data or {}
+        data = (self.graph_data or {}).get("series", {}).get(selected_field, {})
         points = data.get("points", []) if data.get("field") == selected_field and data.get("range") == [minimum, maximum] else []
         suffix = "%" if str(selected_field).endswith(("percentage", "percent")) else (
             " W" if str(selected_field).endswith("power_w") else
@@ -550,13 +715,17 @@ class Viewer:
         cr.show_text("%.4g%s" % (high, suffix))
         cr.move_to(8, bottom)
         cr.show_text("%.4g%s" % (low, suffix))
-        cr.move_to(left, height - 12)
-        cr.show_text(datetime.fromtimestamp(minimum).strftime("%Y-%m-%d %H:%M:%S"))
-        label = datetime.fromtimestamp(maximum).strftime("%Y-%m-%d %H:%M:%S")
-        cr.move_to(max(left + 1, right - 160), height - 12)
-        cr.show_text(label)
+        for stamp, align_right in ((minimum, False), (maximum, True)):
+            for offset, fmt in ((26, "%H:%M:%S"), (10, "%Y-%m-%d")):
+                label = datetime.fromtimestamp(stamp).strftime(fmt)
+                label_width = cr.text_extents(label)[2]
+                cr.move_to(max(left, right - label_width) if align_right else left, height - offset)
+                cr.show_text(label)
         cr.move_to(left + 6, 18)
-        cr.show_text(str(selected_field or "No numeric measurement available")[:100])
+        label = selected_field
+        while len(label) > 1 and cr.text_extents(label)[2] > right - left - 8:
+            label = label[:-2] + "…"
+        cr.show_text(label)
         if not points:
             cr.move_to(left + 18, top + 30)
             cr.show_text("Loading observations…" if self.graph_loading else "No observations in this interval")
@@ -608,14 +777,21 @@ class Viewer:
                 self.graph_area.queue_draw()
 
     def _graph_clicked(self, gesture: Any, count: int, x: float, y: float) -> None:
-        points = (self.graph_data or {}).get("points", [])
-        if count < 1 or not points or self.graph_area is None:
+        if count < 1 or self.graph_area is None:
+            return
+        panel = next((p for p in self._graph_panels(self.graph_area.get_width(), self.graph_area.get_height())
+                      if p[1] <= x < p[1] + p[3] and p[2] <= y < p[2] + p[4]), None)
+        if panel is None:
+            return
+        field, origin_x, _origin_y, width, _height = panel
+        points = (self.graph_data or {}).get("series", {}).get(field, {}).get("points", [])
+        if not points:
             return
         minimum, maximum = self._range()
         if (self.graph_data or {}).get("range") != [minimum, maximum]:
             return
-        left, right = 78.0, max(80.0, float(self.graph_area.get_width()) - 18.0)
-        stamp = minimum + max(0, min(1, (x - left) / (right - left))) * (maximum - minimum)
+        left, right = 78.0, max(80.0, width - 18.0)
+        stamp = minimum + max(0, min(1, (x - origin_x - left) / (right - left))) * (maximum - minimum)
         nearest = min(points, key=lambda row: abs(row[0] - stamp))
         self.focused = nearest[0]
         if count >= 2:
@@ -667,12 +843,14 @@ class Viewer:
     def _drag_begin(self, gesture: Any, x: float, y: float) -> None:
         low, high = self._range()
         self.drag_origin = (x, low, high)
+        panels = self._graph_panels(self.graph_area.get_width(), self.graph_area.get_height())
+        self.drag_width = max(1, (panels[0][3] if panels else self.graph_area.get_width()) - 96)
 
     def _drag_update(self, gesture: Any, dx: float, dy: float) -> None:
         if self.drag_origin is None or self.graph_area is None:
             return
         _origin, low, high = self.drag_origin
-        width = max(1, self.graph_area.get_width() - 86)
+        width = self.drag_width
         shift = -dx / width * (high - low)
         self._set_view_range(low + shift, high + shift)
 
@@ -719,23 +897,28 @@ class Viewer:
         self._queue_graph_read()
 
     def _queue_graph_read(self) -> None:
-        if self.closed or self.sources is None or self.series_field is None:
+        if self.closed or self.sources is None:
             return
         self.graph_generation += 1
-        self.graph_loading = True
         if self.graph_timeout:
             self.GLib.source_remove(self.graph_timeout)
-        self.graph_timeout = self.GLib.timeout_add(75, self._start_graph_read)
+            self.graph_timeout = 0
+        self.graph_loading = bool(self.graph_fields)
+        if self.graph_fields:
+            self.graph_timeout = self.GLib.timeout_add(75, self._start_graph_read)
+        else:
+            self.graph_data = {"range": list(self._range()), "series": {}}
         if self.graph_area is not None:
             self.graph_area.queue_draw()
         self._update_status()
 
     def _start_graph_read(self) -> bool:
         self.graph_timeout = 0
-        generation, field, bounds = self.graph_generation, self.series_field, self._range()
+        generation, fields, bounds = self.graph_generation, list(self.graph_fields), self._range()
         def read() -> None:
             try:
-                result, error = self.sources.series(field, *bounds), None
+                result = {"range": list(bounds), "series": self.sources.series_many(fields, *bounds)}
+                error = None
             except Exception as exc:
                 result, error = None, str(exc)
             self.GLib.idle_add(self._finish_graph_read, generation, result, error)
@@ -756,6 +939,7 @@ class Viewer:
         return False
 
     def automation_state(self) -> dict[str, Any]:
+        series = (self.graph_data or {}).get("series", {})
         return {
             "title": "Burnbag Power History",
             "fullscreen": self.fullscreen,
@@ -766,6 +950,15 @@ class Viewer:
             "available_rows": (self.overview.get("count") if self.overview is not None else None),
             "overview_ready": self.overview is not None,
             "graph_series": self.series_field,
+            "graph_fields": list(self.graph_fields),
+            "table_fields": [field for field, column in self.column_widgets.items() if column.get_visible()],
+            "column_options": list(self.column_options),
+            "fields_dialog": ({"tab": "graph" if self.fields_notebook.get_current_page() == 0 else "table",
+                               "draft": {view: [field for field, check in checks.items() if check.get_active()]
+                                         for view, checks in self.field_checks.items()},
+                               "error": self.fields_error.get_text()} if self.fields_dialog else None),
+            "preferences_path": str(self.preferences_path),
+            "preference_warning": self.preference_warning,
             "series_options": list(self.series_options),
             "range": list(self._range()),
             "initial_range": self.initial_range,
@@ -776,8 +969,10 @@ class Viewer:
             "search": self.search_text,
             "selection_count": self.selection.get_selection().get_size() if self.selection else 0,
             "graph_loading": self.graph_loading,
-            "graph_samples": (self.graph_data or {}).get("sample_count", 0),
-            "graph_points": len((self.graph_data or {}).get("points", [])),
+            "graph_samples": sum(data.get("sample_count", 0) for data in series.values()),
+            "graph_points": sum(len(data.get("points", [])) for data in series.values()),
+            "graph_details": {field: {"samples": data["sample_count"], "points": len(data["points"])}
+                              for field, data in series.items()},
             "graph_range": (self.graph_data or {}).get("range"),
             "program": str(Path(__file__).resolve()),
             "source_details": self.sources.source_info,
@@ -794,6 +989,35 @@ class Viewer:
             return self.automation_state()
         if operation == "capture":
             return self._capture_client()
+        if operation == "fields":
+            action = request.get("action", "open")
+            if action == "open":
+                self._open_fields()
+            elif self.fields_dialog is None:
+                raise ValueError("open Fields before editing or confirming")
+            elif action in ("ok", "cancel"):
+                self._finish_fields(action == "ok")
+            elif action == "set":
+                view, name, checked = request.get("view"), request.get("name"), request.get("checked")
+                if (not isinstance(view, str) or not isinstance(name, str) or
+                        view not in self.field_checks or name not in self.field_checks[view] or
+                        not isinstance(checked, bool)):
+                    raise ValueError("fields set requires view, available field name and boolean checked")
+                self.fields_notebook.set_current_page(0 if view == "graph" else 1)
+                self.field_checks[view][name].set_active(checked)
+            elif action == "tab" and request.get("view") in ("graph", "table"):
+                self.fields_notebook.set_current_page(0 if request["view"] == "graph" else 1)
+            else:
+                raise ValueError("fields action must be open, set, tab, ok or cancel")
+            return self.automation_state()
+        if self.fields_dialog is not None:
+            if operation == "key" and request.get("key") in ("Escape", "Return", "KP_Enter"):
+                self._fields_key(self.Gdk.keyval_from_name(request["key"]))
+                return self.automation_state()
+            if operation == "window" and request.get("action") == "close":
+                self.fields_dialog.close()
+                return self.automation_state()
+            raise ValueError("Fields is modal; use fields controls, Return, Escape or window close")
         if operation == "tab":
             target = request.get("name")
             if target not in ("graph", "table") or self.notebook is None:
@@ -811,12 +1035,11 @@ class Viewer:
             return self.automation_state()
         if operation == "series":
             field = request.get("name")
-            if not isinstance(field, str) or field not in self.series_options or self.series_picker is None:
+            if not isinstance(field, str) or field not in self.series_options:
                 raise ValueError("graph series name is not a loaded numeric measurement")
-            self.series_field = field
-            self.series_picker.set_selected(self.series_options.index(field))
-            if self.graph_area is not None:
-                self.graph_area.queue_draw()
+            # Backward-compatible transient single-series command. Persistence
+            # remains explicit through Fields OK, as it is for ordinary input.
+            self._apply_fields({"graph": [field], "table": self.table_fields})
             return self.automation_state()
         if operation == "select":
             first, last = request.get("first"), request.get("last")
@@ -882,7 +1105,7 @@ class Viewer:
             clicks = request.get("clicks", 1)
             action = request.get("action", "click")
             x, y = request.get("x", 0), request.get("y", 0)
-            if (target not in ("graph", "table", "tab-graph", "tab-table", "view-selection") or
+            if (target not in ("graph", "table", "tab-graph", "tab-table", "view-selection", "fields") or
                     button not in (1, 2, 3) or clicks not in (1, 2) or
                     not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or
                     not 0 <= x <= 1 or not 0 <= y <= 1 or
@@ -906,7 +1129,9 @@ class Viewer:
                     self._drag_update(None, dx, 0)
                     if action == "release":
                         self._drag_end(None, dx, 0)
-            if action in ("click", "release") and target == "tab-graph" and self.notebook is not None:
+            if action in ("click", "release") and target == "fields":
+                self._open_fields()
+            elif action in ("click", "release") and target == "tab-graph" and self.notebook is not None:
                 self.notebook.set_current_page(0)
             elif action in ("click", "release") and target == "tab-table" and self.notebook is not None:
                 self.notebook.set_current_page(1)
@@ -959,16 +1184,17 @@ class Viewer:
     def _capture_client(self) -> dict[str, Any]:
         if self.window is None:
             raise RuntimeError("viewer window is not ready")
-        width, height = self.window.get_width(), self.window.get_height()
+        target = self.fields_dialog or self.window
+        width, height = target.get_width(), target.get_height()
         if width < 1 or height < 1 or width * height > 40_000_000:
             raise RuntimeError("viewer client dimensions are unavailable or too large")
         snapshot = self.Gtk.Snapshot.new()
-        paintable = self.Gtk.WidgetPaintable.new(self.window)
+        paintable = self.Gtk.WidgetPaintable.new(target)
         paintable.snapshot(snapshot, width, height)
         node = snapshot.to_node()
         if node is None:
             raise RuntimeError("viewer client has no renderable frame")
-        native = self.window.get_native()
+        native = target.get_native()
         renderer = native.get_renderer()
         rect = self.Graphene.Rect().init(0, 0, width, height)
         texture = renderer.render_texture(node, rect)

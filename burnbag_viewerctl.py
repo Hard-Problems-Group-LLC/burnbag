@@ -57,6 +57,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     view = sub.add_parser("view", help="fit the graph to the selected table rows")
     series = sub.add_parser("series", help="select a loaded numeric graph measurement")
     series.add_argument("name")
+    fields = sub.add_parser("fields", help="edit graph/table checkboxes; only OK saves and applies")
+    fields.add_argument("action", choices=("open", "set", "tab", "ok", "cancel"))
+    fields.add_argument("--view", choices=("graph", "table"))
+    fields.add_argument("--name", help="field name for set")
+    fields.add_argument("--checked", choices=("yes", "no"), help="checkbox state for set")
     row = sub.add_parser("row", help="activate a loaded table row")
     row.add_argument("position", type=int)
     row.add_argument("--clicks", type=int, choices=(1, 2), default=1)
@@ -70,7 +75,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     click.add_argument("--clicks", type=int, choices=(1, 2), default=1)
     pointer = sub.add_parser("pointer", help="send a pointer operation")
     pointer.add_argument("action", choices=("move", "press", "release", "click", "wheel"))
-    pointer.add_argument("target", choices=("graph", "table", "tab-graph", "tab-table", "view-selection"))
+    pointer.add_argument("target", choices=("graph", "table", "tab-graph", "tab-table", "view-selection", "fields"))
     pointer.add_argument("x", type=float, nargs="?", default=0.5)
     pointer.add_argument("y", type=float, nargs="?", default=0.5)
     pointer.add_argument("--delta", type=float, default=0)
@@ -101,6 +106,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         payload["op"] = "view"
     elif args.command == "series":
         payload.update(op="series", name=args.name)
+    elif args.command == "fields":
+        payload.update(op="fields", action=args.action, view=args.view, name=args.name,
+                       checked=(args.checked == "yes") if args.checked is not None else None)
     elif args.command == "row":
         payload.update(op="row", position=args.position, clicks=args.clicks)
     elif args.command == "select":

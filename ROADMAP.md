@@ -349,3 +349,36 @@ phase 3000's visible GNOME controls and phase 9000's manual checks remain open.
   Help, manuals and tracking agree. [FieldManual ECR-003](ECRs/FieldManual/open/burnbag-ECR-2026-003-authoritative-installation-mode.md)
   records the strong reusable guidance; it is drafted, not yet submitted.
   Actual system installation/activation remains the operator's action.
+
+## Phase 4000 — Persistent viewer field selection
+
+Authorized 2026-09-15. Replace the measurement drop-list with **Fields...**.
+The modal dialog has Graph and Table pages, each using two columns of named
+checkboxes. Choices are independent; Date and Time remain the first table
+columns. OK saves and applies both selections together; Cancel, Escape and
+window close discard the draft. No graph/table changes occur while editing.
+
+- **1000 — Dialog and durable selection:** atomic per-user preferences at
+  `$XDG_CONFIG_HOME/burnbag/viewer.json` (default `~/.config/burnbag/viewer.json`),
+  staged edits, multi-field graph panels and table visibility. Preserve names
+  absent from the current snapshot; report corrupt/unwritable preferences.
+- **2000 — Automation and verification:** expose dialog state, checkbox edits,
+  OK/Cancel and captures through the existing socket; verify persistence across
+  real launches, cancellation, empty selections and failures using isolated data.
+- **3000 — Documentation and publication:** synchronize manuals, specifications,
+  roadmap and live tracking; ACP after automated acceptance. Existing physical
+  GNOME checks remain deferred independently.
+
+Acceptance: saved selections survive restarts; all discovered fields are
+available (numeric measurements for graphs); plots retain separate scales,
+extrema labels and shared time navigation; changing fields preserves viewport,
+search and table selection. Failed saves leave the dialog open without applying.
+
+Completed 2026-09-15: all three slices delivered. Verification passes 116 native
+affected tests (including eight real GTK/socket/frame cases) and 108 non-GTK
+tests on each compatibility interpreter, Python 3.9.21 and 3.14.6. Real launches
+prove save/cancel/close, restart persistence, failure recovery, empty selections,
+multiple plots and preserved navigation. Generated documentation, viewer manual,
+staged installation and tracking checks pass; captured dialog/graph frames were
+visually inspected. No host installation or operator preferences were changed.
+Earlier GNOME and hardware acceptance stays with phases 3000/9000.
