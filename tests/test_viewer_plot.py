@@ -143,6 +143,13 @@ class PlotRenderTests(unittest.TestCase):
         viewer.view_range = (100, 200)
         viewer.overview = {'range': [100, 200]}
         viewer.focused = None
+        viewer.focused_record_id = None
+        viewer.selected_range = None
+        viewer.drag_moved = False
+        viewer.fit_button = None
+        viewer.table_bounds = None
+        viewer.range_limits = None
+        viewer.selection = None
         viewer.graph_loading = False
         return viewer
 
@@ -187,14 +194,38 @@ class PlotRenderTests(unittest.TestCase):
         trace = layout['traces'][1]
         point = trace['points'][1]
         position = graph_point(layout['plot'], layout['range'], trace['range'], *point[:2])
-        selected = []
-        viewer._show_table_record = selected.append
         viewer.notebook = SimpleNamespace(set_current_page=lambda page: None)
         viewer._graph_clicked(None, 2, *position)
-        self.assertEqual(selected[0]['id'], point[2])
+        self.assertEqual(viewer.focused_record_id, point[2])
         viewer._graph_clicked(None, 2, 0, position[1])
-        self.assertEqual(len(selected), 1)
+        self.assertEqual(viewer.focused_record_id, point[2])
         viewer._drag_begin(None, *position)
         self.assertEqual(viewer.drag_width, layout['plot'][2])
         viewer._drag_begin(None, 0, position[1])
         self.assertIsNone(viewer.drag_origin)
+
+    def test_selection_band_is_translucent_clipped_and_beneath_traces(self):
+        viewer = self.viewer({PERCENT0: [20, 30, 25]})
+        def render():
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1100, 700)
+            viewer._draw_graph(None, cairo.Context(surface), 1100, 700)
+            return bytes(surface.get_data()), surface.get_stride()
+        original, stride = render()
+        viewer.selected_range = (140, 170)
+        selected, _ = render()
+        layout = viewer._graph_layout(1100, 700)
+        left, top, width, height = layout['plot']
+        def pixel(data, fraction):
+            x, y = int(left + width * fraction), int(top + height * .2)
+            return list(data[y * stride + x * 4:y * stride + x * 4 + 3])
+        self.assertEqual(pixel(original, .2), pixel(selected, .2))
+        self.assertEqual(pixel(original, .8), pixel(selected, .8))
+        self.assertNotEqual(pixel(original, .5), pixel(selected, .5))
+        self.assertGreater(pixel(selected, .5)[0], pixel(selected, .5)[2])
+        self.assertTrue(all(channel > 200 for channel in pixel(selected, .5)))
+        # A highlight extending outside the viewport must not tint the axes.
+        viewer.selected_range = (0, 300)
+        extended, _ = render()
+        for y in range(700):
+            self.assertEqual(original[y*stride:y*stride+int(left-2)*4],
+                             extended[y*stride:y*stride+int(left-2)*4])

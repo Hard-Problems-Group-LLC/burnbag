@@ -120,6 +120,7 @@ class Viewer:
         self.preferences_path = field_preferences_path()
         self.field_preferences, self.preference_warning = load_field_preferences(self.preferences_path)
         self.fields_button = None
+        self.fit_button = None
         self.fields_dialog = None
         self.fields_notebook = None
         self.field_checks: dict[str, dict[str, Any]] = {}
@@ -131,7 +132,8 @@ class Viewer:
         self.sources: Optional[Any] = sources
         self.initial_range = initial_range
         self.range_limits = initial_range if only else None
-        self.table_bounds = initial_range
+        self.table_bounds = self.range_limits
+        self.selected_range: Optional[tuple[float, float]] = None
         self.startup_now = time.time()
         self.graph_data = None
         self.graph_loading = False
@@ -150,7 +152,9 @@ class Viewer:
         self.search_text = ""
         self.view_range: Optional[tuple[float, float]] = initial_range
         self.focused: Optional[float] = None
+        self.focused_record_id: Optional[str] = None
         self.drag_origin: Optional[tuple[float, float, float]] = None
+        self.drag_moved = False
         self.pointer_state = {"target": None, "x": 0.0, "y": 0.0, "buttons": []}
         self.fullscreen = False
         self.automation_path: Optional[str] = None
@@ -195,12 +199,17 @@ class Viewer:
         fields_button.connect("clicked", self._open_fields)
         self.fields_button = fields_button
         toolbar.append(fields_button)
-        for label, callback in (("−", lambda *_: self._zoom(1.8)),
-                                ("+", lambda *_: self._zoom(0.55)),
+        for label, callback in (("−", lambda *_: self._zoom(2.0)),
+                                ("Fit", self._fit_selection),
+                                ("+", lambda *_: self._zoom(0.5)),
                                 ("←", lambda *_: self._pan(-0.25)),
                                 ("→", lambda *_: self._pan(0.25))):
             button = Gtk.Button(label=label)
             button.connect("clicked", callback)
+            if label == "Fit":
+                self.fit_button = button
+                button.set_sensitive(False)
+                button.set_tooltip_text("Fit both views to the highlighted time interval")
             toolbar.append(button)
         view_button = Gtk.Button(label="View selection")
         view_button.connect("clicked", self._view_selection)
@@ -246,10 +255,14 @@ class Viewer:
         scroll_controller.connect("scroll", self._graph_scrolled)
         graph_area.add_controller(scroll_controller)
         drag = Gtk.GestureDrag()
+        drag.set_button(1)
         drag.connect("drag-begin", self._drag_begin)
         drag.connect("drag-update", self._drag_update)
         drag.connect("drag-end", self._drag_end)
         graph_area.add_controller(drag)
+        # Group the recognizers so a drag cannot steal the click's sequence;
+        # our threshold then distinguishes a click from a selected interval.
+        drag.group(click)
         table = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         table.set_name("history-table-page")
         table.set_hexpand(True)
@@ -268,7 +281,8 @@ class Viewer:
         self.table_adjustment = scroll.get_vadjustment()
         table.append(scroll)
         notebook.append_page(graph, Gtk.Label(label="Graph"))
-        notebook.append_page(table, Gtk.Label(label="Measurements"))
+        notebook.append_page(table, Gtk.Label(label="Table"))
+        notebook.connect("switch-page", self._tab_changed)
         root.append(notebook)
         window.set_child(root)
 
@@ -420,6 +434,12 @@ class Viewer:
                         self._select_table_position(position)
                         self.pending_record_id = None
                         break
+                if self.pending_record_id and (not self.has_more or
+                        (self.after and self.focused is not None and self.after[0] > self.focused)):
+                    self.pending_record_id = None
+                elif (self.pending_record_id and self.notebook is not None and
+                      self.notebook.get_current_page() == 1):
+                    self._load_next_page()
             self._update_status()
             if self.graph_area is not None:
                 self.graph_area.queue_draw()
@@ -561,9 +581,8 @@ class Viewer:
         if term == self.search_text:
             return
         self.search_text = term
-        self.table_bounds = None
-        self.pending_record_id = None
         self._reset_table()
+        self._sync_table_cursor(load=False)
         if self.search_timeout:
             self.GLib.source_remove(self.search_timeout)
         self.search_timeout = self.GLib.timeout_add(300, self._start_search)
@@ -594,10 +613,10 @@ class Viewer:
             self._set_fullscreen(False)
             return True
         if keyval in (self.Gdk.KEY_plus, self.Gdk.KEY_equal, self.Gdk.KEY_KP_Add):
-            self._zoom(0.55)
+            self._zoom(0.5)
             return True
         if keyval in (self.Gdk.KEY_minus, self.Gdk.KEY_KP_Subtract):
-            self._zoom(1.8)
+            self._zoom(2.0)
             return True
         if keyval in (self.Gdk.KEY_Left, self.Gdk.KEY_KP_Left):
             self._pan(-0.25)
@@ -658,6 +677,13 @@ class Viewer:
         cr.save()
         cr.rectangle(*layout['plot'])
         cr.clip()
+        if self.selected_range is not None:
+            start, end = self.selected_range
+            x1 = left + plot_width * (start - minimum) / (maximum - minimum)
+            x2 = left + plot_width * (end - minimum) / (maximum - minimum)
+            cr.set_source_rgba(.2, .4, .85, .18)
+            cr.rectangle(x1, top, max(1, x2 - x1), plot_height)
+            cr.fill()
         for trace in layout['traces']:
             cr.set_source_rgb(*trace['color'])
             cr.set_line_width(1.8)
@@ -756,7 +782,7 @@ class Viewer:
 
     def _focus_record(self, record: dict[str, Any]) -> None:
         stamp = float(record["captured_at"])
-        self.focused = stamp
+        self._set_cursor(record)
         self._set_view_range(stamp - 1800, stamp + 1800)
         if self.notebook is not None:
             self.notebook.set_current_page(0)
@@ -770,9 +796,8 @@ class Viewer:
         stamps = [float(row["captured_at"]) for row in records if row]
         if stamps:
             low, high = min(stamps), max(stamps)
-            margin = max(60.0, (high - low) * .05)
-            self._set_view_range(low - margin, high + margin)
-            self.focused = None
+            self._set_selected_range((low, high))
+            self._fit_selection()
             if self.notebook is not None:
                 self.notebook.set_current_page(0)
             if self.graph_area is not None:
@@ -780,7 +805,7 @@ class Viewer:
 
     def _graph_clicked(self, gesture: Any, count: int, x: float, y: float) -> None:
         from burnbag_viewer_data import graph_point
-        if count < 1 or self.graph_area is None:
+        if count < 1 or self.graph_area is None or self.drag_moved:
             return
         layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height())
         if layout['plot'] is None:
@@ -788,6 +813,8 @@ class Viewer:
         left, top, width, height = layout['plot']
         if not (left <= x <= left + width and top <= y <= top + height):
             return
+        if count >= 2:
+            self._set_selected_range(None)
         candidates = []
         for trace in layout['traces']:
             for point in trace['points']:
@@ -796,36 +823,73 @@ class Viewer:
         if not candidates:
             return
         nearest = min(candidates, key=lambda item: item[0])[1]
-        self.focused = nearest[0]
-        if count >= 2:
-            self._show_table_record({"captured_at": nearest[0], "id": nearest[2]})
-            self.notebook.set_current_page(1)
+        self._set_cursor({"captured_at": nearest[0], "id": nearest[2]})
         self.graph_area.queue_draw()
 
-    def _show_table_record(self, record: dict[str, Any]) -> None:
-        if self.filter_model is None or self.selection is None or self.column_view is None:
+    def _set_cursor(self, record: dict[str, Any]) -> None:
+        self.focused = float(record["captured_at"])
+        self.focused_record_id = record["id"]
+        self._sync_table_cursor()
+
+    def _sync_table_cursor(self, *, load: bool = True) -> None:
+        """Locate the cursor without changing the table's domain or search."""
+        self.pending_record_id = None
+        if self.selection is None:
             return
-        for position in range(self.filter_model.get_n_items()):
-            item = self.filter_model.get_item(position)
-            try:
-                match = json.loads(item.get_string()).get("id") == record.get("id")
-            except (AttributeError, ValueError, TypeError):
-                match = False
-            if match:
-                self.selection.select_item(position, True)
-                try:
-                    self.column_view.scroll_to(position, None, self.Gtk.ListScrollFlags.FOCUS, None)
-                except (AttributeError, TypeError):
-                    pass
+        self.selection.unselect_all()
+        if self.focused_record_id is None:
+            return
+        if self.table_bounds is not None and not self.table_bounds[0] <= self.focused <= self.table_bounds[1]:
+            return
+        for position, row in enumerate(self.loaded):
+            if row.get("id") == self.focused_record_id:
+                self._select_table_position(position)
                 return
-        # Seek the table by time, preserving context instead of replacing the
-        # user's search with an opaque ID or scanning all preceding pages.
-        self.search_text = ""
-        self.search_entry.set_text("")
-        self.table_bounds = (record["captured_at"], self.range_limits[1] if self.range_limits else None)
-        self._reset_table()
-        self.pending_record_id = record["id"]
-        self._load_next_page()
+        if self.has_more and (self.after is None or self.after[0] <= self.focused):
+            self.pending_record_id = self.focused_record_id
+            if load and self.notebook is not None and self.notebook.get_current_page() == 1:
+                self._load_next_page()
+
+    def _tab_changed(self, notebook: Any, page: Any, position: int) -> None:
+        if position == 1:
+            self._sync_table_range()
+            self._sync_table_cursor()
+            # switch-page can run before get_current_page() changes.
+            if self.pending_record_id:
+                self._load_next_page()
+
+    def _sync_table_range(self) -> None:
+        bounds = self.selected_range if self.selected_range is not None else self.range_limits
+        if bounds != self.table_bounds:
+            self.table_bounds = bounds
+            self._reset_table()
+            self._sync_table_cursor(load=False)
+            self._load_next_page()
+            self._update_status()
+
+    def _set_selected_range(self, bounds: Optional[tuple[float, float]], *, sync_table: bool = True) -> None:
+        if bounds is not None:
+            low, high = sorted(map(float, bounds))
+            if self.range_limits is not None:
+                low = max(self.range_limits[0], min(low, self.range_limits[1]))
+                high = max(self.range_limits[0], min(high, self.range_limits[1]))
+            bounds = (low, high)
+        self.selected_range = bounds
+        if self.fit_button is not None:
+            self.fit_button.set_sensitive(bounds is not None)
+        if sync_table:
+            self._sync_table_range()
+        if self.graph_area is not None:
+            self.graph_area.queue_draw()
+
+    def _fit_selection(self, *_args: Any) -> None:
+        if self.selected_range is None:
+            return
+        low, high = self.selected_range
+        if low == high:
+            low, high = low - .5, high + .5
+        self._set_view_range(low, high)
+        self._sync_table_range()
 
     def _select_table_position(self, position: int) -> None:
         if self.selection is None or self.column_view is None:
@@ -846,6 +910,7 @@ class Viewer:
     def _drag_begin(self, gesture: Any, x: float, y: float) -> None:
         layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height())
         self.drag_origin = None
+        self.drag_moved = False
         if layout['plot'] is None:
             return
         left, top, width, height = layout['plot']
@@ -854,23 +919,32 @@ class Viewer:
         low, high = self._range()
         self.drag_origin = (x, low, high)
         self.drag_width = width
+        self.drag_left = left
 
     def _drag_update(self, gesture: Any, dx: float, dy: float) -> None:
         if self.drag_origin is None or self.graph_area is None:
             return
-        _origin, low, high = self.drag_origin
+        origin, low, high = self.drag_origin
+        if not self.drag_moved and abs(dx) < 4:
+            return
+        self.drag_moved = True
         width = self.drag_width
-        shift = -dx / width * (high - low)
-        self._set_view_range(low + shift, high + shift)
+        first = low + (origin - self.drag_left) / width * (high - low)
+        last = low + max(0, min(width, origin + dx - self.drag_left)) / width * (high - low)
+        self._set_selected_range((first, last), sync_table=False)
 
     def _drag_end(self, gesture: Any, dx: float, dy: float) -> None:
+        self._drag_update(gesture, dx, dy)
         self.drag_origin = None
+        if self.drag_moved:
+            self._sync_table_range()
 
     def _zoom(self, factor: float) -> None:
         low, high = self._range()
         center = (low + high) / 2
         half = max(.5, (high - low) * factor / 2)
         self._set_view_range(center - half, center + half)
+        self._set_selected_range(self.view_range)
 
     def _pan(self, fraction: float) -> None:
         low, high = self._range()
@@ -891,11 +965,16 @@ class Viewer:
 
     def _reset_view(self) -> None:
         self.focused = None
+        self.focused_record_id = None
+        self._set_selected_range(None)
+        self._sync_table_cursor()
         self.view_range = self.initial_range
         self._queue_graph_read()
 
     def _all_history(self, *_args: Any) -> None:
         self.focused = None
+        self.focused_record_id = None
+        self._set_selected_range(None, sync_table=False)
         self.view_range = self.range_limits
         self.table_bounds = self.range_limits
         self.search_text = ""
@@ -976,7 +1055,15 @@ class Viewer:
             "range": list(self._range()),
             "initial_range": self.initial_range,
             "range_limits": self.range_limits,
+            "selected_range": self.selected_range,
+            "cursor": ({"captured_at": self.focused, "id": self.focused_record_id}
+                       if self.focused_record_id is not None else None),
+            "fit_enabled": bool(self.fit_button and self.fit_button.get_sensitive()),
             "table_bounds": self.table_bounds,
+            "table_loading": self.loading,
+            "table_has_more": self.has_more,
+            "cursor_row_selected": any(row.get("id") == self.focused_record_id and self.selection.is_selected(i)
+                                       for i, row in enumerate(self.loaded)) if self.selection else False,
             "table_range": [self.loaded[0]["captured_at"], self.loaded[-1]["captured_at"]] if self.loaded else None,
             "table_sources": sorted({row["source"] for row in self.loaded}),
             "search": self.search_text,
@@ -1046,6 +1133,9 @@ class Viewer:
             return self.automation_state()
         if operation == "view":
             self._view_selection()
+            return self.automation_state()
+        if operation == "fit":
+            self._fit_selection()
             return self.automation_state()
         if operation == "series":
             field = request.get("name")
@@ -1119,7 +1209,7 @@ class Viewer:
             clicks = request.get("clicks", 1)
             action = request.get("action", "click")
             x, y = request.get("x", 0), request.get("y", 0)
-            if (target not in ("graph", "table", "tab-graph", "tab-table", "view-selection", "fields") or
+            if (target not in ("graph", "table", "tab-graph", "tab-table", "view-selection", "fields", "fit") or
                     button not in (1, 2, 3) or clicks not in (1, 2) or
                     not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or
                     not 0 <= x <= 1 or not 0 <= y <= 1 or
@@ -1138,9 +1228,9 @@ class Viewer:
                 if action == "press" and button == 1:
                     self._drag_begin(None, pixels_x, pixels_y)
                 elif action in ("move", "release") and self.drag_origin is not None:
-                    dragging = True
                     dx = pixels_x - self.drag_origin[0]
                     self._drag_update(None, dx, 0)
+                    dragging = self.drag_moved
                     if action == "release":
                         self._drag_end(None, dx, 0)
             if action in ("click", "release") and target == "fields":
@@ -1151,10 +1241,14 @@ class Viewer:
                 self.notebook.set_current_page(1)
             elif action in ("click", "release") and target == "view-selection":
                 self._view_selection()
+            elif action in ("click", "release") and target == "fit":
+                self._fit_selection()
             elif action in ("click", "release") and not dragging and target == "graph" and self.graph_area is not None:
                 if button == 3:
                     self._reset_view()
-                else:
+                elif button == 1:
+                    if action == "click":
+                        self.drag_moved = False
                     self._graph_clicked(None, clicks, x * self.graph_area.get_width(),
                                          y * self.graph_area.get_height())
             elif action == "wheel":

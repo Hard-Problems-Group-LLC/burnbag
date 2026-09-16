@@ -47,7 +47,8 @@ FieldManual footer.
   remain legacy references. Phase `4000` covers persistent viewer field
   selection. Phase `5000` covers standard installer recovery under sudo.
   Phase `6000` covers shared-rectangle viewer traces and unit-based axes.
-  Allocate the next new phase as `7000`.
+  Phase `7000` covers graph range selection, cursor/table synchronization and
+  selection-aware zoom. Allocate the next new phase as `8000`.
 
 ## Ubersight maintenance
 

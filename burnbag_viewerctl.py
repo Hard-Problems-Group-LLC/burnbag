@@ -50,11 +50,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     tab.add_argument("name", choices=("graph", "table"))
     search = sub.add_parser("search", help="set the history search text")
     search.add_argument("text")
-    zoom = sub.add_parser("zoom", help="change graph scale")
+    zoom = sub.add_parser("zoom", help="change graph and table time window")
     zoom.add_argument("factor", type=float, help="scale multiplier (below 1 zooms in)")
     pan = sub.add_parser("pan", help="pan graph by a fraction of the current width")
     pan.add_argument("fraction", type=float)
     view = sub.add_parser("view", help="fit the graph to the selected table rows")
+    sub.add_parser("fit", help="fit the graph to the highlighted time interval")
     series = sub.add_parser("series", help="select a loaded numeric graph measurement")
     series.add_argument("name")
     fields = sub.add_parser("fields", help="edit graph/table checkboxes; only OK saves and applies")
@@ -75,7 +76,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     click.add_argument("--clicks", type=int, choices=(1, 2), default=1)
     pointer = sub.add_parser("pointer", help="send a pointer operation")
     pointer.add_argument("action", choices=("move", "press", "release", "click", "wheel"))
-    pointer.add_argument("target", choices=("graph", "table", "tab-graph", "tab-table", "view-selection", "fields"))
+    pointer.add_argument("target", choices=("graph", "table", "tab-graph", "tab-table", "view-selection", "fields", "fit"))
     pointer.add_argument("x", type=float, nargs="?", default=0.5)
     pointer.add_argument("y", type=float, nargs="?", default=0.5)
     pointer.add_argument("--delta", type=float, default=0)
@@ -102,8 +103,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         payload.update(op="zoom", factor=args.factor)
     elif args.command == "pan":
         payload.update(op="pan", fraction=args.fraction)
-    elif args.command == "view":
-        payload["op"] = "view"
+    elif args.command in ("view", "fit"):
+        payload["op"] = args.command
     elif args.command == "series":
         payload.update(op="series", name=args.name)
     elif args.command == "fields":

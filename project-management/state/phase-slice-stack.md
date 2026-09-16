@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator GNOME and hardware checks; phase 6000 shared-unit plots and translucent key are complete and verified. Native-binding capture limitation is recorded separately. Live updates and graph-only remain queued.
+Notes: Awaiting earlier operator GNOME and hardware checks. Phase 7000 selection, cursor, Fit and 2x zoom are complete and verified; ACP approved. Installation and capture-binding follow-up remain separate.
 
 ## Phases
 
@@ -31,6 +31,7 @@ Notes: Awaiting operator GNOME and hardware checks; phase 6000 shared-unit plots
 | 4000 | done | Persistent viewer fields |
 | 5000 | done | Standard installer recovery |
 | 6000 | done | Shared viewer plot and unit axes |
+| 7000 | done | Graph selection and navigation |
 | 9000 | blocked | Manual validation and final closure |
 
 ## Slices
@@ -110,6 +111,12 @@ Notes: Awaiting operator GNOME and hardware checks; phase 6000 shared-unit plots
 | 4000 | 6000 | done | Add translucent key and shared hit testing |
 | 5000 | 6000 | done | Verify actual frames and regressions |
 | 6000 | 6000 | done | Document and publish |
+| 1000 | 7000 | done | Specify selection and cursor behavior |
+| 2000 | 7000 | done | Select and render graph intervals |
+| 3000 | 7000 | done | Filter table and preserve cursor |
+| 4000 | 7000 | done | Add Fit and synchronized 2x zoom |
+| 5000 | 7000 | done | Verify gestures paging and rendering |
+| 6000 | 7000 | done | Document and hand off |
 
 ## Regenerate local tracking
 

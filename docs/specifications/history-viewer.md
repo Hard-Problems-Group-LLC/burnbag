@@ -17,9 +17,9 @@ viewer is a separate helper application and does not change collector behavior.
   measurement columns across the complete available history, not just the
   currently loaded table page.
 - Support graph zoom, pan, and search. A row double-click focuses the graph at
-  that record. A table range plus View fits that interval in the graph. A graph
-  double-click selects and reveals the nearest corresponding table record.
-  These commands switch to the destination tab.
+  that record. A table range plus View highlights and fits that interval in the
+  graph. Both table actions switch to Graph. Graph double-click sets the cursor
+  and clears the highlighted interval without switching tabs.
 - With no range parameters, cover all available history in both the graph and
   table. Build a bounded overview of all numeric samples for the graph while
   preserving the table's responsive keyset paging; show the total row count and
@@ -112,10 +112,50 @@ the key above traces, with data remaining visible through its background.
 
 Zoom, pan, focus and fullscreen share the same plot geometry. Clicks in label
 strips do not select observations; inside the plot, pick the closest displayed
-observation in pixel space across all traces. Double-click navigates to its
-table record. Drag distance uses the plot width, not the whole widget width.
+observation in pixel space across all traces. Drag distance uses the plot
+width, not the whole widget width.
 One bounded viewport query supplies all selected fields. The snapshot remains
 fixed: live updates are explicitly backlog-only, with no refresh timer today.
+
+## Cursor, highlighted interval and navigation
+
+Phase 7000 keeps three independent concepts: the cursor (timestamp and record
+ID), the highlighted inclusive time interval, and the graph viewport. Left-drag
+inside the plot replaces the highlight, without moving the viewport or cursor.
+Reverse drags work; endpoints clamp to the plot edges. Movement under four
+horizontal pixels is click jitter, not a range. The translucent selection band
+is clipped to the plot and drawn beneath the traces/cursor/key.
+
+Single-left-click sets the closest displayed observation as cursor, retaining
+any interval. Double-left-click sets the cursor and clears the interval, staying
+on Graph. Without observations, double-click still clears the interval but does
+not invent a cursor. Clicking axis strips does nothing. Arrow buttons/keys pan
+only the viewport, preserving cursor and highlighted interval.
+
+On Table, only rows inside the highlighted interval are navigable, intersected
+with the search and any `--only` lock. Without a highlight the entire allowed
+snapshot is navigable, independent of graph zoom or startup viewport. The cursor
+row is highlighted by ID, not timestamp alone; it remains remembered if outside
+the interval or excluded by search but does not bypass either filter. Finding a
+cursor beyond the first page loads preceding pages asynchronously rather than
+silently redefining the table's lower bound. Tab changes restore its highlight.
+Search changes retain the interval; stale page responses cannot restore an old
+filter or cursor selection.
+
+The toolbar orders **−**, **Fit**, **+**. Fit is enabled only with a highlighted
+interval and fits the graph to it exactly; table filtering remains that same
+interval. Plus halves and minus doubles the current graph time span about its
+midpoint, then updates the highlight/table interval to that resulting viewport.
+Wheel zoom uses the same synchronization with finer increments. Zoom has a
+one-second minimum span; `--only` remains a hard boundary. Y axes continue to
+autorange by unit over the new viewport. Fit does not switch tabs or clear the
+cursor. A single table row selected with View uses a one-second graph window
+around its exact timestamp, while the table interval retains that timestamp.
+
+Right-click resets the graph to its initial viewport and clears cursor and
+highlight. All history clears search, cursor and highlight and restores the
+complete allowed snapshot in both views (All in range with `--only`). Neither
+action modifies persistent preferences or queries new live data.
 
 ## Initial viewport and query boundaries
 
@@ -125,10 +165,10 @@ the terminal graph: days/weeks are elapsed time; months/years and larger units
 subtract whole calendar months at the same local time, clamping month ends.
 `--from` and `--to` accept the terminal graph's ISO times and defaults; they
 cannot be combined with `--last`. With no range options the viewer covers all
-available history. The table initially shows the selected interval; search and
-navigation may leave it without `--only`. All history fits and browses the full
-allowed snapshot (All in range when locked). Graph-to-table navigation seeks
-the observation and subsequent rows without inserting a hidden ID search.
+available history. Initial range arguments affect the graph only; the table is
+unrestricted unless an interval is highlighted or `--only` is supplied. All
+history fits and browses the full allowed snapshot (All in range when locked).
+Cursor navigation never inserts a hidden ID search or hides preceding rows.
 
 `--only` requires an explicit range option. It restricts graph/table queries,
 search, overview statistics and navigation to the fixed inclusive interval.
@@ -185,6 +225,14 @@ unit associations, and key box/alpha/colored labels. Full unit and field names
 remain available even when display text is elided. A null plot plus a message
 explains insufficient space or an empty selection. This is the same geometry
 used for drawing and pointer actions, not a parallel approximation.
+
+Selection/navigation state additionally reports `selected_range` (nullable,
+inclusive endpoints), `cursor` (nullable record ID and timestamp), `fit_enabled`,
+`table_bounds`, `table_loading`, `table_has_more` and `cursor_row_selected`.
+The controller's `fit` command and `pointer click fit` use the toolbar handler;
+Fit with no highlighted interval is a no-op. `zoom FACTOR` scales both views.
+Pointer press/move/release routes through the same drag threshold, plot transform
+and cursor handlers as GTK input; a motionless press/release counts as a click.
 
 ## Acceptance
 

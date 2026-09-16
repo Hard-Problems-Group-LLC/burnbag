@@ -39,6 +39,11 @@ alternating axis strips, readable ticks and a lower-center translucent color
 key. Native regression tests and nine isolated-binding GTK frame tests pass;
 the pre-existing native-binding capture limitation is tracked as a separate bug.
 Warning/fallback and physical observations remain under phase 9000.
+Phase 7000 is complete locally: graph range highlighting, independent cursor
+identity, selection-filtered table paging, Fit and synchronized 2x zoom. Native,
+isolated GTK and affected compatibility tests pass. Its six local slices and
+acceptance contract are in the root roadmap and viewer specification. The
+operator approved ACP on 2026-09-16; installation remains separate.
 New phases and slices follow AGENTS.md's 1000-step numbering
 rule. Slice numbers are local to their owning phase; refer to both separately
 when needed, for example phase 9000, slice 5000.

@@ -1,5 +1,44 @@
 # Completed Tasks
 
+- `BB-2026-09-16-7000` — Graph selection and synchronized navigation.
+  Started and completed 2026-09-16; owner: Codex; direct side-conversation request.
+  - All six [phase 7000](../ROADMAP.md#phase-7000--graph-selection-and-synchronized-navigation)
+    slices are complete locally. Left-drag highlights an inclusive time interval
+    without panning or moving the cursor. Reversed/clipped drags work and small
+    click jitter is ignored. Single click selects the nearest observation;
+    double-click also clears the interval and remains on Graph.
+  - Table paging/search respect the selected interval and hard range lock, or
+    expose the complete allowed snapshot without a highlight. Cursor identity
+    distinguishes equal timestamps, remains remembered outside filters, and is
+    highlighted on Table when included. Seeking later cursor rows preserves
+    earlier rows instead of changing the table's lower bound; old asynchronous
+    responses cannot overwrite new filters.
+  - Fit is between minus/plus and enabled only with a highlighted interval.
+    It fits the viewport exactly to that interval. The operator explicitly
+    approved the refinement: plus/minus halve/double the viewport and update
+    the highlight/table window to match; arrows pan only the viewport. Wheel
+    zoom follows the same synchronization with finer increments. Reset and
+    All history clear selection/cursor, with All history also clearing search.
+    Controller Fit and selection/cursor/paging state expose the same handlers.
+  - Native Python 3.12.13 discovery ran 476 tests: 464 passed and 12 expected
+    opt-in GUI skips. All 12 real GTK/SQLite/socket/frame cases passed on a
+    private headless Weston display with the existing isolated Python 3.12.12 /
+    PyGObject 3.50 environment and Cairo renderer. Two strengthened cases were
+    rerun successfully for >500-row selected-interval cursor paging and completed
+    empty searches. Inspected the captured graph: highlight remains below
+    traces/key, inside the plot; toolbar order and enabled Fit are correct.
+  - All 65 affected cases passed natively. Python 3.9.21 and 3.14.6 each ran
+    those 65 cases with three expected native-Cairo skips and all other cases
+    passing. ResourceWarning was treated as an error. Generated-document
+    consistency, viewer/controller help, manual rendering, shell syntax and
+    whitespace checks pass. The full suite includes staged installer tests.
+  - Ubersight, AGENTS.md, roadmap, specifications, manual and generated README
+    are synchronized. No system packages, collector services, installed commands,
+    user preferences or live data changed. Existing native capture-binding and
+    GNOME/hardware follow-ups remain independent. The initial handoff left
+    changes local; the operator subsequently approved ACP on 2026-09-16.
+    Publication uses main and origin/main; installation remains a separate action.
+
 - `BB-2026-09-15-6000` — Shared-rectangle viewer traces and unit axes.
   Started and completed 2026-09-15; owner: Codex; direct operator request.
   - All six phase 6000 slices are complete. Every trace uses the exact same

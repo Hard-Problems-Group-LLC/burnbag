@@ -51,6 +51,11 @@ a display, including shared ranges, outside-in strips, tiny/large values,
 text spacing, rotated titles, trace/key colors and actual half-alpha blending.
 GUI tests cover shared percentage scales, independent units, common geometry,
 fullscreen, hit testing and snapshot stability after new database appends.
+Selection tests additionally cover reverse/clipped/jitter drags, cursor ID
+versus timestamp, stale page rejection, exact Fit/2x zoom, search intersections,
+later-page cursor highlighting without hiding earlier data, and actual Cairo
+selection-band pixels. Isolated GTK tests exercise the same interactions over
+real SQLite fixtures and capture the highlighted graph.
 The compatibility baseline is Python 3.9 or later; run the same discovery suite
 on the oldest supported interpreter and a current release. Real SQLite,
 socket ownership, concurrent prudent clients, fallback handoff, history merging,
@@ -328,9 +333,22 @@ older or newer records. The graph overview should retain full-history extrema;
 the table may load rows in pages as you scroll, but must not stop at the first
 page. Check both tabs. Search a value visible in telemetry (for example a battery
 name), scroll through additional table pages, select a row range and choose
-View selection, then double-click a row and a graph point. Each navigation must
-switch tabs and preserve a useful graph range or matching table selection.
-Try wheel zoom, drag/arrow pan, and choose another numeric measurement.
+View selection, then double-click a row: both actions switch to Graph. A graph
+click sets the cursor without clearing a highlighted range; double-click sets
+the cursor and clears the range without changing tabs. Switch to Table and
+check the cursor row is highlighted, including beyond the first loaded page.
+Earlier rows must remain navigable. Try wheel zoom, arrow pan, and another field.
+
+Left-drag in either direction: a translucent interval appears without moving
+the viewport or cursor. Fit must be disabled before selecting and enabled after.
+Switch to Table: only interval rows are navigable, intersected with search; a
+cursor outside those filters stays remembered but is not shown. Fit must set
+the graph exactly to the interval. Plus halves and minus doubles the graph time
+span and updates the highlight/table to match. Arrow pan leaves the highlight
+unchanged. Double-click clears the range; Table then allows all snapshot rows
+(subject to search and any --only lock). Right-click clears cursor and highlight
+and resets the graph; All history additionally clears search. Small hand jitter
+must remain a click rather than create a tiny range.
 
 In Fields..., select both battery percentages if available, then watts,
 watt-hours and temperature. All curves must overlay the exact same rectangle.

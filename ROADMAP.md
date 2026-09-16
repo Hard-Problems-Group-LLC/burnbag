@@ -459,3 +459,39 @@ static/documentation checks pass. The host's pre-existing older-binding capture
 limitation is recorded separately, without changing its packages. Existing
 GNOME/hardware checks remain open. See [completed evidence](project-management/completed-tasks.md)
 and [the viewer specification](docs/specifications/history-viewer.md).
+
+## Phase 7000 — Graph selection and synchronized navigation
+
+Authorized 2026-09-16 by direct operator request. Keep cursor identity, selected
+time interval and graph viewport separate; do not alter collectors, snapshots,
+stored field preferences or deferred live-update work.
+
+- **1000 — Interaction contract:** specify click versus drag, double-click
+  clearing, inclusive table filtering, cursor identity, Fit and exact 2x zoom.
+  Define range-lock, search, empty-selection and reset behavior.
+- **2000 — Selection and rendering:** left-drag highlights a clamped interval
+  without panning; tolerate small click jitter and reverse drags. Single-click
+  sets the nearest observation cursor; double-click also clears the range and
+  remains on Graph. Draw the highlight below curves and retain arrow panning.
+- **3000 — Table synchronization:** filter paged queries by the selected range,
+  or expose the complete allowed snapshot with no selection. Highlight the
+  cursor by record identity when it is in the filtered table. Seek later pages
+  without hiding earlier rows; preserve selection through search and tab changes
+  and reject stale asynchronous results.
+- **4000 — Fit, zoom and automation:** insert disabled-unless-selected Fit
+  between minus and plus; fit exactly to the selection. Plus/minus halve/double
+  the graph viewport and set that interval as the shared table/highlight window.
+  Keep wheel zoom consistent, preserve hard limits, expose state and controls.
+- **5000 — Verification:** cover real SQLite paging, cursor identity, filtering,
+  reverse/clipped/jitter drags, resets, exact zoom and locks; verify actual Cairo
+  highlight pixels and isolated GTK interaction, then run regressions.
+- **6000 — Documentation and handoff:** synchronize generated README, viewer
+  manual/specification, tests and task records; publish accurate Ubersight state.
+  Leave existing GNOME/hardware and capture-binding follow-ups independent.
+
+Current status: all six slices complete locally. Native discovery ran 476 tests
+with 12 opt-in GUI skips; all 12 isolated GTK cases pass separately. Affected
+Python 3.9/3.14 suites, actual Cairo/GTK rendering and static/documentation checks
+pass. The approved refinement, evidence and remaining deployment boundary are
+in [completed tasks](project-management/completed-tasks.md). The operator approved
+ACP on 2026-09-16; installation and earlier GNOME/hardware checks are independent.
