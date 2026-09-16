@@ -64,7 +64,8 @@ class InstallTests(unittest.TestCase):
 
     def environment(self, *, user_bin_first: bool = True) -> dict[str, str]:
         environment = os.environ.copy()
-        environment.pop("BURNBAG_DEV_LAUNCHER_MODE", None)
+        for key in ("BURNBAG_DEV_LAUNCHER_MODE", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
+            environment.pop(key, None)
         user_bin = self.user_home / ".local" / "bin"
         ordered_bins = (
             (user_bin, self.system_bin)
@@ -117,15 +118,13 @@ class InstallTests(unittest.TestCase):
         )
         return result.stdout.strip()
 
-    def test_local_dev_selection_controls_bare_command_and_can_restore_system(self) -> None:
+    def test_default_dev_selection_controls_all_bare_commands(self) -> None:
         environment = self.environment()
         launcher = self.user_home / ".local" / "bin" / "burnbag"
 
         local_result = self.run_installer(
             "--mode",
             "dev",
-            "--dev-command",
-            "local",
             "--skip-prerequisites",
             "--user-home",
             str(self.user_home),
@@ -167,51 +166,87 @@ class InstallTests(unittest.TestCase):
             self.assertTrue(link.is_symlink(), relative)
             self.assertEqual(link.resolve(), self.checkout / target)
 
-        system_result = self.run_installer(
-            "--mode",
-            "dev",
-            "--dev-command",
-            "system",
-            "--skip-prerequisites",
-            "--user-home",
-            str(self.user_home),
-            environment=environment,
-        )
-
-        self.assertEqual(system_result.returncode, 0, system_result.stderr)
-        self.assertFalse(launcher.exists())
-        for command in ("burnbag-viewer", "burnbag-viewerctl"):
-            self.assertFalse((self.user_home / ".local/bin" / command).exists())
-        self.assertEqual(self.resolve_burnbag(environment), str(self.system_burnbag))
-
     def test_unmanaged_viewer_launcher_is_preserved_before_replacing_family(self):
         directory = self.user_home / ".local/bin"
         directory.mkdir(parents=True)
         viewer = directory / "burnbag-viewer"
         viewer.write_text("unmanaged")
-        result = self.run_installer("--mode", "dev", "--dev-command", "local", "--skip-prerequisites",
+        result = self.run_installer("--mode", "dev", "--skip-prerequisites",
                                     "--user-home", str(self.user_home))
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(viewer.read_text(), "unmanaged")
         self.assertFalse((directory / "burnbag").exists())
 
-    def test_noninteractive_dev_install_leaves_command_resolution_unchanged(self) -> None:
+    def test_mode_roundtrip_switches_all_commands_and_service_without_checkout_dependency(self):
+        # Keep the real helper and file publication. Substitute only login
+        # identity and the external service manager in this private fixture.
+        (self.checkout / "scripts/install_services.py").write_text(
+            "import os, runpy\nfrom pathlib import Path\nfrom types import SimpleNamespace\n"
+            "module = runpy.run_path(str(Path(__file__).with_name('install_services_real.py')))\n"
+            "module['pwd'].getpwuid = lambda uid: SimpleNamespace(pw_dir=os.environ['HOME'])\n"
+            "raise SystemExit(module['main']())\n")
+        self.write_command("systemctl", "printf 'LoadState=not-found\\nActiveState=inactive\\nUnitFileState=disabled\\n'")
+        self.write_command("mandb", "exit 0")
         environment = self.environment()
-        launcher = self.user_home / ".local" / "bin" / "burnbag"
-
-        result = self.run_installer(
-            "--mode",
-            "dev",
-            "--skip-prerequisites",
-            "--user-home",
-            str(self.user_home),
-            environment=environment,
-        )
-
+        prefix = self.user_home / "installed"
+        environment["PATH"] = ":".join((str(self.user_home / ".local/bin"),
+            str(prefix / "bin"), str(self.checkout / ".local/bin"), str(self.system_bin), "/usr/bin", "/bin"))
+        options = ("--install-user-service", "--skip-prerequisites")
+        dev = self.run_installer("--mode", "dev", *options, environment=environment)
+        self.assertEqual(dev.returncode, 0, dev.stderr)
+        unit = self.user_home / ".config/systemd/user/burnbag.service"
+        self.assertIn(str(self.checkout / "burnbag.py"), unit.read_text())
+        viewer = self.checkout / "burnbag_viewer.py"
+        viewer.write_text(viewer.read_text().replace("GTK 4 desktop browser", "CHECKOUT-EDIT desktop browser"))
+        result = subprocess.run(["burnbag-viewer", "--help"], env=environment, text=True,
+                                capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Non-interactive dev install", result.stdout)
-        self.assertFalse(launcher.exists())
-        self.assertEqual(self.resolve_burnbag(environment), str(self.system_burnbag))
+        self.assertIn("CHECKOUT-EDIT", result.stdout)
+        # No --mode: standard must become authoritative, even with legacy env.
+        environment["BURNBAG_DEV_LAUNCHER_MODE"] = "local"
+        standard = self.run_installer("--prefix", str(prefix), *options, environment=environment)
+        self.assertEqual(standard.returncode, 0, standard.stderr)
+        self.assertIn(str(prefix / "bin/burnbag"), unit.read_text())
+        self.assertNotIn(str(self.checkout), unit.read_text())
+        for command in ("burnbag", "burnbag-viewer", "burnbag-viewerctl"):
+            self.assertFalse((self.user_home / ".local/bin" / command).exists())
+            self.assertFalse((self.checkout / ".local/bin" / command).exists())
+        moved = self.checkout.with_name("checkout-away")
+        self.checkout.rename(moved)
+        try:
+            for command in ("burnbag", "burnbag-viewer", "burnbag-viewerctl"):
+                result = subprocess.run(["/usr/bin/bash", "-c", "command -v " + command + "; " + command + " --help"],
+                                        cwd=self.user_home, env=environment, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.startswith(str(prefix / "bin" / command)))
+            result = subprocess.run(["/usr/bin/python3", "-B", "-c",
+                "import sys; sys.path.insert(0, sys.argv[1]); import burnbag_history, burnbag_service; print(burnbag_service.__file__)",
+                str(prefix / "lib/burnbag")], cwd=self.user_home, env=environment,
+                text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(str(prefix / "lib/burnbag"), result.stdout)
+        finally:
+            moved.rename(self.checkout)
+        dev_again = self.run_installer("--mode", "dev", *options, environment=environment)
+        self.assertEqual(dev_again.returncode, 0, dev_again.stderr)
+        self.assertIn(str(self.checkout / "burnbag.py"), unit.read_text())
+        for command in ("burnbag", "burnbag-viewer", "burnbag-viewerctl"):
+            self.assertTrue((self.user_home / ".local/bin" / command).is_file())
+
+    def test_standard_refuses_unmanaged_shadowing_before_installation(self):
+        prefix = self.user_home / "installed"
+        environment = self.environment()
+        environment["PATH"] = str(self.user_home / ".local/bin") + ":" + str(prefix / "bin") + ":" + environment["PATH"]
+        shadow = self.user_home / ".local/bin/burnbag-viewer"
+        shadow.parent.mkdir(parents=True)
+        shadow.write_text("#!/bin/sh\necho operator-owned\n")
+        shadow.chmod(0o755)
+        result = self.run_installer("--prefix", str(prefix), "--install-user-service",
+                                    "--skip-prerequisites", environment=environment)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("would override the standard command", result.stderr)
+        self.assertIn("operator-owned", shadow.read_text())
+        self.assertFalse(prefix.exists())
 
     def test_dev_install_preserves_private_existing_launcher_directory(self) -> None:
         user_bin = self.user_home / ".local/bin"
@@ -221,10 +256,10 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(user_bin.stat().st_mode & 0o777, 0o700)
 
-    def test_noninteractive_environment_policy_can_select_local_checkout(self) -> None:
+    def test_obsolete_environment_policy_cannot_override_development_mode(self) -> None:
         environment = self.environment()
-        environment["BURNBAG_DEV_LAUNCHER_MODE"] = "local"
-        launcher = self.user_home / ".local" / "bin" / "burnbag"
+        environment["BURNBAG_DEV_LAUNCHER_MODE"] = "system"
+        launcher, _ = self.existing_managed_launcher()
 
         result = self.run_installer(
             "--mode",
@@ -236,49 +271,56 @@ class InstallTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(launcher.is_file())
+        self.assertTrue(launcher.exists())
         self.assertEqual(self.resolve_burnbag(environment), str(launcher))
+        self.assertIn("BURNBAG_DEV_LAUNCHER_MODE is ignored", result.stderr)
 
-    def test_noninteractive_default_preserves_existing_managed_launcher(self) -> None:
+    def test_default_updates_existing_managed_launcher_to_this_checkout(self) -> None:
         launcher, original = self.existing_managed_launcher()
         result = self.run_installer("--mode", "dev", "--skip-prerequisites")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(launcher.read_text(), original)
-        self.assertIn("left unchanged", result.stdout)
+        self.assertNotEqual(launcher.read_text(), original)
+        self.assertIn(str(self.checkout / "burnbag.py"), launcher.read_text())
 
-    def test_interactive_eof_preserves_existing_managed_launcher(self) -> None:
+    def test_legacy_conflicting_command_options_fail_before_writes(self) -> None:
+        for mode, selection in (("dev", "system"), ("dev", "prompt"), ("standard", "local")):
+            with self.subTest(mode=mode, selection=selection):
+                result = self.run_installer("--mode", mode, "--dev-command", selection,
+                                            "--skip-prerequisites")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("--mode determines commands and services", result.stderr)
+                self.assertFalse((self.checkout / ".local").exists())
+
+    def test_dev_check_preserves_existing_launcher_without_creating_checkout_links(self) -> None:
         launcher, original = self.existing_managed_launcher()
+        result = self.run_installer("--mode", "dev", "--check", "--skip-prerequisites")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(launcher.read_text(), original)
+        self.assertFalse((self.checkout / ".local").exists())
+
+    def test_interactive_default_selects_checkout_without_prompt_or_input(self) -> None:
         master, slave = pty.openpty()
         process = subprocess.Popen(
             [str(self.checkout / "install.sh"), "--mode", "dev", "--skip-prerequisites"],
-            cwd=self.checkout,
-            env=self.environment(),
-            stdin=slave,
-            stdout=slave,
-            stderr=slave,
-            text=True,
+            cwd=self.checkout, env=self.environment(), stdin=slave, stdout=slave, stderr=slave,
         )
         os.close(slave)
         output = b""
         try:
-            while b"[y/N]: " not in output:
-                ready, _, _ = select.select([master], [], [], 10)
-                self.assertTrue(ready, "installer did not reach its prompt")
-                output += os.read(master, 4096)
-            os.write(master, b"\x04")
-            process.communicate(timeout=10)
-            self.assertEqual(process.returncode, 0, output.decode())
+            process.wait(timeout=10)
             while select.select([master], [], [], 0)[0]:
                 try:
                     output += os.read(master, 4096)
                 except OSError:
                     break
-            self.assertIn(b"No response received", output)
-            self.assertEqual(launcher.read_text(), original)
+            self.assertEqual(process.returncode, 0, output.decode())
+            self.assertNotIn(b"[y/N]", output)
+            for command in ("burnbag", "burnbag-viewer", "burnbag-viewerctl"):
+                self.assertTrue((self.user_home / ".local/bin" / command).is_file())
         finally:
             if process.poll() is None:
                 process.kill()
-                process.communicate()
+                process.wait()
             os.close(master)
 
     def test_invalid_input_is_rejected_before_prerequisite_invocation(self) -> None:
@@ -488,8 +530,6 @@ class InstallTests(unittest.TestCase):
         result = self.run_installer(
             "--mode",
             "dev",
-            "--dev-command",
-            "system",
             "--skip-prerequisites",
             environment=environment,
         )
@@ -506,13 +546,13 @@ class InstallTests(unittest.TestCase):
                 environment = self.environment()
                 environment["HOME"] = str(assistant_home)
                 rejected = self.run_installer(
-                    "--mode", "dev", "--dev-command", "system", "--skip-prerequisites",
+                    "--mode", "dev", "--skip-prerequisites",
                     environment=environment,
                 )
                 self.assertNotEqual(rejected.returncode, 0)
                 self.assertIn("isolated assistant environment", rejected.stderr)
                 accepted = self.run_installer(
-                    "--mode", "dev", "--dev-command", "system", "--skip-prerequisites",
+                    "--mode", "dev", "--skip-prerequisites",
                     "--user-home", str(self.user_home), environment=environment,
                 )
                 self.assertEqual(accepted.returncode, 0, accepted.stderr)

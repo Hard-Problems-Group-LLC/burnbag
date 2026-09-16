@@ -1,5 +1,38 @@
 # Completed Tasks
 
+- `BB-2026-09-15-DEV-DEFAULT` — Authoritative installation mode for commands and services.
+  Started and completed 2026-09-15; owner: Codex; direct operator clarification.
+  - Phase 3100, slice 5000 is complete. `--mode dev` selects checkout code for
+    all three bare commands and either service scope without a second prompt.
+    Standard mode is the default, retires managed dev launchers and selects
+    complete installed copies. Conflicting legacy selections are rejected;
+    the obsolete environment policy cannot override mode. Checks and staging
+    remain non-mutating, and unmanaged conflicts fail before publication.
+  - A system dev unit runs as burnbag using a private read-only directory bind
+    of the checkout, retaining home isolation and following atomic file edits.
+    User dev units execute the checkout directly. Standard units and modules
+    use installed copies. Active-service restart and deliberate stopped/disabled
+    preferences retain the existing lifecycle policy.
+  - Verification: all 80 affected installer/service/prerequisite/tracking tests
+    pass on Python 3.13.7, 3.9.21 and 3.14.6 with ResourceWarning as error.
+    A real installer/helper transition fixture changes checkout code, switches
+    to standard, moves the checkout aside and executes all three installed
+    commands plus service-module imports, then switches back to dev. Only
+    external identity/service-manager boundaries are substituted. Both scopes'
+    rendered units follow mode; systemd accepts the actual system-dev mount
+    unit. Special-character paths, conflicting legacy settings, PATH shadowing,
+    read-only checks, manual delivery and unrelated-file preservation pass.
+  - Bash syntax, shellcheck, generated-document consistency, both man pages,
+    read-only dev/standard checks with explicit operator identity, and whitespace
+    pass. Live namespace execution was not available to the unprivileged test
+    process; no host installation or service activation was performed. The
+    operator retains `./install.sh --mode dev` and existing manual acceptance.
+  - Wrote [burnbag-ECR-2026-003](../ECRs/FieldManual/open/burnbag-ECR-2026-003-authoritative-installation-mode.md)
+    with normative mode semantics and a verification matrix. It supersedes
+    ECR-001's optional activation policy only; no target acknowledgement or
+    transport is claimed. FieldManual's submodule is unchanged. README, man,
+    specifications, ROADMAP and live Ubersight are synchronized for ACP.
+
 - `BB-2026-09-15-3100` — Viewer history visibility and time ranges.
   Started and completed 2026-09-15; owner: Codex; direct operator instruction.
   - All four phase 3100 slices are complete. The PATH viewer matched the old

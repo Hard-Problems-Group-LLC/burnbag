@@ -55,7 +55,7 @@ and `/usr/bin/python3 -B makedocs.py --check` must pass afterward. Render the ma
 The operator selected development installation. Run:
 
 ```bash
-./install.sh --mode dev --dev-command local
+./install.sh --mode dev
 ```
 
 This now installs and starts the default system collector as well as selecting
@@ -215,10 +215,17 @@ the host's manual index, or install host packages. `--skip-prerequisites`
 deliberately skips only dependency checks.
 
 Standard installation uses `./install.sh` and the default `/usr/local` prefix.
-Development setup uses `./install.sh --mode dev`; publishing a user launcher
-requires explicit selection or an affirmative interactive answer. To inspect
-command selection, run `command -v burnbag` and clear an old shell lookup with
-`hash -r`. `--dev-command system` removes only burnbag's managed user launcher.
+Development setup uses `./install.sh --mode dev`; all three user commands and
+the selected service must use the checkout. Plain `./install.sh` restores
+installed command and service execution, retiring managed dev launchers.
+Inspect `command -v burnbag burnbag-viewer burnbag-viewerctl` and clear cached
+lookups with `hash -r`. Inspect `systemctl cat burnbag.service` (or `--user`)
+to confirm the service source. A dev system unit binds the checkout privately
+and read-only; a dev user unit names it directly. Standard units name the
+installed executable. Existing service activity preferences are preserved.
+The automated transition test moves its source checkout aside and runs all
+three installed commands plus service support-module imports, then switches
+back to dev. These fixtures do not change host services.
 
 ## Continuous service acceptance
 
@@ -275,7 +282,7 @@ neither real systemd activation nor hardware resume reliability.
 
 ## GTK history viewer manual verification
 
-After `./install.sh --mode dev --dev-command local` and `hash -r`, open
+After `./install.sh --mode dev` and `hash -r`, open
 `burnbag-viewer`. Check that the GNOME titlebar exposes working minimize,
 restore, maximize, and close controls. F11 must enter and leave fullscreen; on
 the graph tab the graph should fill the screen without the toolbar, status, or
@@ -297,7 +304,7 @@ allowing navigation outside it. Add `--only` to restrict both data and all
 navigation to the fixed interval. `burnbag-viewer --only` must fail with a
 usage error. Hover over the status line to see actual source paths and errors;
 compare them with the system/user collector configuration. Use `type -a
-burnbag-viewer` after a dev install: `--dev-command local` must select the
+burnbag-viewer` after a dev install: `--mode dev` must select the
 managed user launcher for the viewer and controller as well as burnbag.
 
 For the opt-in controller, use a private per-user runtime path:

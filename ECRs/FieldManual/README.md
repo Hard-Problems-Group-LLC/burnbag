@@ -10,6 +10,10 @@ not the authoritative maintenance checkout.
 - `closed/`: settled with a dated disposition and FieldManual evidence when
   the closure claims a FieldManual outcome
 
+Current clarification: [burnbag-ECR-2026-003](open/burnbag-ECR-2026-003-authoritative-installation-mode.md)
+requests authoritative dev/standard execution across commands and services,
+superseding ECR-001's optional command-activation policy.
+
 Keep the source ECR and its filename when transmitting a copy. Freeze its
 submitted-request sections after first transport and append later receipts,
 discussion, mitigations, and disposition evidence.

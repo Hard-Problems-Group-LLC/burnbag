@@ -136,6 +136,55 @@ class ServiceInstallTests(unittest.TestCase):
                 viewer_manual = self.staged(Path(str(manual).replace("burnbag.1", "burnbag-viewer.1")))
                 self.assertEqual(viewer_manual.read_bytes(), (PROJECT_ROOT / "burnbag-viewer.1").read_bytes())
 
+    def test_both_service_scopes_follow_mode_through_roundtrips(self) -> None:
+        for scope in ("system", "user"):
+            self.stage = self.root / ("mode-" + scope)
+            for mode in ("dev", "standard", "dev"):
+                with self.subTest(scope=scope, mode=mode):
+                    self.install("--" + scope + "-service", "--mode", mode)
+                    path = Path("/usr/local/lib/systemd/system/burnbag.service") if scope == "system" else self.home / ".config/systemd/user/burnbag.service"
+                    unit = self.staged(path).read_text()
+                    if mode == "standard":
+                        self.assertIn('ExecStart="/usr/local/bin/burnbag"', unit)
+                        self.assertNotIn("BindReadOnlyPaths=", unit)
+                        self.assertNotIn(str(PROJECT_ROOT), next(line for line in unit.splitlines() if line.startswith("ExecStart=")))
+                    elif scope == "user":
+                        self.assertIn('ExecStart="' + str(PROJECT_ROOT / "burnbag.py") + '"', unit)
+                    else:
+                        self.assertIn('BindReadOnlyPaths="' + str(PROJECT_ROOT) + ':/run/burnbag-dev/source"', unit)
+                        self.assertIn('ExecStart=/usr/bin/python3 -B "/run/burnbag-dev/source/burnbag.py"', unit)
+                        self.assertIn("ProtectHome=yes", unit)
+                        self.assertIn("User=burnbag\nGroup=burnbag", unit)
+                        self.assertIn("RuntimeDirectory=burnbag-dev", unit)
+
+    def test_system_dev_binding_preserves_literal_dollar_and_escapes_specifiers(self):
+        source = self.root / "checkout $name 100%"
+        source.mkdir()
+        for entry in PROJECT_ROOT.iterdir():
+            if entry.is_file() and entry.suffix in (".py", ".sh", ".1"):
+                shutil.copy2(entry, source / entry.name)
+        shutil.copytree(PROJECT_ROOT / "scripts", source / "scripts")
+        shutil.copytree(PROJECT_ROOT / "systemd", source / "systemd")
+        result = self.helper("install", "--source", str(source), "--mode", "dev")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        unit = self.staged("/usr/local/lib/systemd/system/burnbag.service").read_text()
+        self.assertIn('checkout $name 100%%:/run/burnbag-dev/source"', unit)
+        self.assertNotIn("$$name", unit)
+
+    def test_unit_source_rejects_control_characters_before_writes(self):
+        result = self.helper("install", "--source", str(PROJECT_ROOT) + "\nUser=root", "--mode", "dev")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("control characters", result.stderr)
+        self.assertFalse(self.stage.exists())
+
+    @unittest.skipUnless(shutil.which("systemd-analyze"), "systemd-analyze unavailable")
+    def test_systemd_accepts_actual_dev_system_bind_mount_unit(self):
+        self.install("--mode", "dev")
+        unit = self.staged("/usr/local/lib/systemd/system/burnbag.service")
+        result = subprocess.run(["systemd-analyze", "verify", "--man=no", str(unit)],
+                                capture_output=True, text=True, timeout=10, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_custom_prefix_registers_a_tracked_unit_and_uninstalls_it(self) -> None:
         self.install("--prefix", "/opt/burnbag")
         registration = self.stage / "etc/systemd/system/burnbag.service"

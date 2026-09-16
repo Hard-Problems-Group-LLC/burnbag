@@ -127,6 +127,13 @@ After first transport, maintain this section as an append-only history.
 
 ### Discussion And Amendments
 
+- 2026-09-15 — Direct operator clarification is captured in
+  `burnbag-ECR-2026-003`. It supersedes this request's optional command-selection
+  policy: development mode must select checkout execution for commands and
+  services; standard mode must select installed artifacts. Other requested
+  prerequisite and runtime guidance remains unchanged. Neither draft has
+  been submitted or acknowledged by FieldManual.
+
 - 2026-08-07 — Expanded the unsubmitted revision 1 draft to cover observable
   command-resolution outcomes, safe launcher conflicts, and explicit
   interactive versus automation behavior. No submitted text was changed

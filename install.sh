@@ -29,7 +29,6 @@ readonly BURNBAG_PROJECT_ROOT
 readonly BURNBAG_PREREQUISITE_INSTALLER="${BURNBAG_PROJECT_ROOT}/scripts/install_prerequisites.sh"
 readonly BURNBAG_SERVICE_INSTALLER="${BURNBAG_PROJECT_ROOT}/scripts/install_services.py"
 readonly BURNBAG_DEV_LAUNCHER_MARKER="# burnbag-managed-dev-launcher"
-readonly BURNBAG_DEV_LAUNCHER_MODE_ENV="BURNBAG_DEV_LAUNCHER_MODE"
 
 usage() {
     cat <<'EOF'
@@ -40,25 +39,25 @@ Install burnbag, the GTK 4 history viewer and their manual pages, and a system s
 Options:
   --check                 Verify sources and prerequisites without installing.
   --destdir DIR           Stage beneath absolute non-root DIR without sudo or mandb.
-  --dev-command MODE      In dev mode, select prompt, local, or system command
-                          resolution (default: prompt).
+  --dev-command MODE      Deprecated: local agrees with dev; system agrees with
+                          standard. Conflicting values and prompt are rejected.
   --force                 Allow replacement of an unmanaged user launcher.
   --install-user-service  Select the login user's service instead of the system service.
   --mode MODE             Select standard or repo-local dev mode (default: standard).
   --prefix DIR            Install beneath absolute DIR (default: /usr/local).
   --skip-prerequisites    Do not check or install prerequisite packages.
-  --user-home DIR         Use absolute DIR for the dev launcher or user service.
+  --user-home DIR         Select the operator home for commands and user services.
   -h, --help              Show this help text.
 
-For non-interactive dev setup, BURNBAG_DEV_LAUNCHER_MODE may select local or
-system explicitly. Without an explicit selection, command resolution is left
-unchanged. Declining the interactive prompt or reaching EOF also preserves it.
+--mode dev selects checkout code for user commands and the selected service.
+Standard mode (the default) installs copies, retires managed dev launchers,
+and verifies installed command lookup. There is no command-selection prompt.
+BURNBAG_DEV_LAUNCHER_MODE is obsolete and cannot override --mode.
 Paths must not contain parent-directory (..) components. Staging refuses
 symlinks that lead outside DIR; file targets must not be directories or symlinks.
 Staging checks prerequisites without installing host packages.
 New services are enabled and started; updates preserve stopped/disabled state.
-Dev mode deploys a system-daemon copy while the CLI follows the checkout.
-Dev plus --install-user-service runs the daemon from the checkout. User lingering
+Both system and user services follow the checkout in dev mode. User lingering
 is never changed. Use uninstall.sh to remove managed artifacts and retain history.
 EOF
 }
@@ -149,7 +148,7 @@ select_user_home() {
     fi
 
     if [[ -z "${burnbag_selected_home}" ]]; then
-        printf '[ERROR] Dev mode requires HOME or --user-home.\n' >&2
+        printf '[ERROR] Installation requires HOME or --user-home.\n' >&2
         return 1
     fi
     require_absolute_path --user-home "${burnbag_selected_home}"
@@ -182,26 +181,6 @@ is_managed_dev_launcher() {
         && grep -Fqx -- "${BURNBAG_DEV_LAUNCHER_MARKER}" "${burnbag_launcher}"
 }
 
-detect_alternate_burnbag() {
-    local burnbag_path_entry
-    local burnbag_candidate
-
-    while IFS= read -r burnbag_path_entry; do
-        [[ -n "${burnbag_path_entry}" ]] || burnbag_path_entry="."
-        burnbag_candidate="${burnbag_path_entry%/}/burnbag"
-        if [[ ! -x "${burnbag_candidate}" ]]; then
-            continue
-        fi
-        if [[ "${burnbag_candidate}" == "${BURNBAG_USER_LAUNCHER}" ]]; then
-            continue
-        fi
-        printf '%s\n' "${burnbag_candidate}"
-        return 0
-    done < <(printf '%s' "${PATH:-}" | tr ':' '\n')
-
-    return 1
-}
-
 user_bin_precedes_other_burnbag() {
     local burnbag_path_entry
     local burnbag_candidate
@@ -219,60 +198,6 @@ user_bin_precedes_other_burnbag() {
     done < <(printf '%s' "${PATH:-}" | tr ':' '\n')
 
     return 1
-}
-
-resolve_dev_command_mode() {
-    local burnbag_alternate=""
-    local burnbag_prompt
-    local burnbag_response
-
-    burnbag_alternate="$(detect_alternate_burnbag || true)"
-    if [[ -n "${burnbag_alternate}" ]]; then
-        printf '[INFO] Another burnbag command appears on PATH at %s.\n' \
-            "${burnbag_alternate}"
-    else
-        printf '[INFO] No other burnbag command was detected on PATH.\n'
-    fi
-
-    case "${BURNBAG_DEV_COMMAND}" in
-        local|system)
-            BURNBAG_RESOLVED_DEV_COMMAND="${BURNBAG_DEV_COMMAND}"
-            return 0
-            ;;
-        prompt)
-            ;;
-        *)
-            printf '[ERROR] Dev command mode must be prompt, local, or system: %s\n' \
-                "${BURNBAG_DEV_COMMAND}" >&2
-            return 2
-            ;;
-    esac
-
-    if [[ ! -t 0 || ! -t 1 ]]; then
-        printf '[INFO] Non-interactive dev install: leaving burnbag command resolution unchanged.\n'
-        printf '[HINT] Use --dev-command local or set %s=local to select the checkout.\n' \
-            "${BURNBAG_DEV_LAUNCHER_MODE_ENV}"
-        BURNBAG_RESOLVED_DEV_COMMAND="unchanged"
-        return 0
-    fi
-
-    burnbag_prompt="Use this checkout for burnbag, burnbag-viewer and burnbag-viewerctl? [y/N]: "
-    if [[ -z "${burnbag_alternate}" ]]; then
-        burnbag_prompt="Install managed user launchers for burnbag, burnbag-viewer and burnbag-viewerctl? [y/N]: "
-    fi
-    if ! read -r -p "${burnbag_prompt}" burnbag_response; then
-        printf '\n[INFO] No response received; leaving burnbag command resolution unchanged.\n'
-        BURNBAG_RESOLVED_DEV_COMMAND="unchanged"
-        return 0
-    fi
-    case "${burnbag_response}" in
-        y|Y|yes|YES|Yes)
-            BURNBAG_RESOLVED_DEV_COMMAND="local"
-            ;;
-        *)
-            BURNBAG_RESOLVED_DEV_COMMAND="unchanged"
-            ;;
-    esac
 }
 
 write_managed_dev_launcher() {
@@ -350,28 +275,96 @@ write_managed_dev_launcher() {
     printf '[INFO] Run hash -r in shells that previously cached another burnbag path.\n'
 }
 
-keep_system_command_resolution() {
-    local burnbag_command="${1:-burnbag}"
-    local BURNBAG_USER_LAUNCHER="${BURNBAG_USER_BIN_DIR}/${burnbag_command}"
-    local burnbag_resolved_command
+is_checkout_command_link() {
+    local burnbag_candidate="$1"
+    local burnbag_command="$2"
+    local burnbag_source
+    case "${burnbag_command}" in
+        burnbag) burnbag_source=burnbag.py ;;
+        burnbag-viewer) burnbag_source=burnbag_viewer.py ;;
+        burnbag-viewerctl) burnbag_source=burnbag_viewerctl.py ;;
+    esac
+    [[ "${burnbag_candidate}" == "${BURNBAG_PROJECT_ROOT}/.local/bin/${burnbag_command}" \
+        && -L "${burnbag_candidate}" \
+        && "$(readlink -f -- "${burnbag_candidate}")" == "${BURNBAG_PROJECT_ROOT}/${burnbag_source}" ]]
+}
 
-    if is_managed_dev_launcher "${BURNBAG_USER_LAUNCHER}"; then
-        rm -f -- "${BURNBAG_USER_LAUNCHER}"
-        printf '[INFO] Removed managed development launcher: %s\n' \
-            "${BURNBAG_USER_LAUNCHER}"
-    elif [[ -e "${BURNBAG_USER_LAUNCHER}" || -L "${BURNBAG_USER_LAUNCHER}" ]]; then
-        printf '[INFO] Leaving unmanaged user launcher unchanged: %s\n' \
-            "${BURNBAG_USER_LAUNCHER}"
-    fi
+validate_standard_command_resolution() {
+    local burnbag_command burnbag_entry burnbag_candidate burnbag_found
+    for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
+        burnbag_found=false
+        while IFS= read -r burnbag_entry; do
+            [[ -n "${burnbag_entry}" ]] || burnbag_entry=.
+            burnbag_entry="${burnbag_entry%/}"
+            if [[ "${burnbag_entry}" == "${BURNBAG_BIN_DIR}" ]]; then
+                burnbag_found=true
+                break
+            fi
+            burnbag_candidate="${burnbag_entry}/${burnbag_command}"
+            [[ -x "${burnbag_candidate}" ]] || continue
+            if [[ "${burnbag_candidate}" == "${BURNBAG_USER_BIN_DIR}/${burnbag_command}" ]] \
+                && is_managed_dev_launcher "${burnbag_candidate}"; then
+                continue
+            fi
+            if is_checkout_command_link "${burnbag_candidate}" "${burnbag_command}"; then
+                continue
+            fi
+            printf '[ERROR] %s would override the standard command at %s/%s. Move the installed bin directory earlier on PATH or remove the conflicting launcher.\n' \
+                "${burnbag_candidate}" "${BURNBAG_BIN_DIR}" "${burnbag_command}" >&2
+            return 1
+        done < <(printf '%s\n' "${PATH:-}" | tr ':' '\n')
+        if [[ "${burnbag_found}" != true ]]; then
+            printf '[ERROR] Standard command directory is not on PATH: %s\n' "${BURNBAG_BIN_DIR}" >&2
+            return 1
+        fi
+    done
+}
 
-    hash -r
-    burnbag_resolved_command="$(command -v "${burnbag_command}" || true)"
-    if [[ -n "${burnbag_resolved_command}" ]]; then
-        printf '[OK] Bare %s command resolution remains: %s\n' \
-            "${burnbag_command}" "${burnbag_resolved_command}"
-    else
-        printf '[INFO] No bare %s command currently resolves on PATH.\n' "${burnbag_command}"
-    fi
+activate_standard_commands() {
+    local burnbag_command burnbag_launcher burnbag_resolved_command
+    for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
+        for burnbag_launcher in "${BURNBAG_USER_BIN_DIR}/${burnbag_command}" \
+            "${BURNBAG_PROJECT_ROOT}/.local/bin/${burnbag_command}"; do
+            [[ "${burnbag_launcher}" != "${BURNBAG_BIN_DIR}/${burnbag_command}" ]] || continue
+            if { [[ "${burnbag_launcher}" == "${BURNBAG_USER_BIN_DIR}/${burnbag_command}" ]] \
+                    && is_managed_dev_launcher "${burnbag_launcher}"; } \
+                || is_checkout_command_link "${burnbag_launcher}" "${burnbag_command}"; then
+                rm -f -- "${burnbag_launcher}"
+                printf '[INFO] Removed managed development launcher: %s\n' "${burnbag_launcher}"
+            fi
+        done
+        hash -r
+        burnbag_resolved_command="$(command -v "${burnbag_command}" || true)"
+        if [[ "${burnbag_resolved_command}" != "${BURNBAG_BIN_DIR}/${burnbag_command}" ]]; then
+            printf '[ERROR] Standard %s command did not win lookup: %s\n' \
+                "${burnbag_command}" "${burnbag_resolved_command:-<not found>}" >&2
+            return 1
+        fi
+        printf '[OK] Bare %s selects the installed command: %s\n' "${burnbag_command}" "${burnbag_resolved_command}"
+    done
+    printf '[INFO] Run hash -r in shells that cached a previous command path.\n'
+}
+
+validate_dev_command_resolution() {
+    # Validate the whole command family before replacing any user launcher.
+    local burnbag_command burnbag_launcher
+    for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
+        burnbag_launcher="${BURNBAG_USER_BIN_DIR}/${burnbag_command}"
+        if [[ -d "${burnbag_launcher}" ]]; then
+            printf '[ERROR] Refusing to replace a launcher directory: %s\n' "${burnbag_launcher}" >&2
+            return 1
+        fi
+        if [[ -e "${burnbag_launcher}" || -L "${burnbag_launcher}" ]]; then
+            if ! is_managed_dev_launcher "${burnbag_launcher}" && [[ "${BURNBAG_FORCE}" != true ]]; then
+                printf '[ERROR] Refusing to replace unmanaged launcher: %s\n' "${burnbag_launcher}" >&2
+                return 1
+            fi
+        fi
+        if ! user_bin_precedes_other_burnbag "${burnbag_command}"; then
+            printf '[ERROR] User launcher directory does not precede the current %s command: %s\n' "${burnbag_command}" "${BURNBAG_USER_BIN_DIR}" >&2
+            return 1
+        fi
+    done
 }
 
 install_dev_mode() {
@@ -380,7 +373,6 @@ install_dev_mode() {
 
     printf '[INFO] Development launcher user home: %s\n' \
         "${BURNBAG_EFFECTIVE_USER_HOME}"
-    resolve_dev_command_mode
 
     BURNBAG_INSTALL_ACTION="creating repository-local development links"
     local burnbag_dev_directory
@@ -405,44 +397,17 @@ install_dev_mode() {
     printf '[INFO] Add %s to MANPATH for man-page discovery.\n' \
         "${BURNBAG_PROJECT_ROOT}/.local/share/man"
 
-    if [[ "${BURNBAG_RESOLVED_DEV_COMMAND}" == "local" ]]; then
-        # Validate the whole command family before replacing any user launcher.
-        local burnbag_command burnbag_launcher
-        for burnbag_command in burnbag burnbag-viewer burnbag-viewerctl; do
-            burnbag_launcher="${BURNBAG_USER_BIN_DIR}/${burnbag_command}"
-            if [[ -d "${burnbag_launcher}" ]]; then
-                printf '[ERROR] Refusing to replace a launcher directory: %s\n' "${burnbag_launcher}" >&2
-                return 1
-            fi
-            if [[ -e "${burnbag_launcher}" || -L "${burnbag_launcher}" ]]; then
-                if ! is_managed_dev_launcher "${burnbag_launcher}" && [[ "${BURNBAG_FORCE}" != true ]]; then
-                    printf '[ERROR] Refusing to replace unmanaged launcher: %s\n' "${burnbag_launcher}" >&2
-                    return 1
-                fi
-            fi
-            if ! user_bin_precedes_other_burnbag "${burnbag_command}"; then
-                printf '[ERROR] User launcher directory does not precede the current %s command: %s\n' "${burnbag_command}" "${BURNBAG_USER_BIN_DIR}" >&2
-                return 1
-            fi
-        done
-        write_managed_dev_launcher burnbag burnbag.py
-        write_managed_dev_launcher burnbag-viewer burnbag_viewer.py
-        write_managed_dev_launcher burnbag-viewerctl burnbag_viewerctl.py
-    elif [[ "${BURNBAG_RESOLVED_DEV_COMMAND}" == "system" ]]; then
-        BURNBAG_INSTALL_ACTION="restoring system command resolution"
-        keep_system_command_resolution burnbag
-        keep_system_command_resolution burnbag-viewer
-        keep_system_command_resolution burnbag-viewerctl
-    else
-        printf '[INFO] Existing user launcher and command resolution were left unchanged.\n'
-    fi
+    write_managed_dev_launcher burnbag burnbag.py
+    write_managed_dev_launcher burnbag-viewer burnbag_viewer.py
+    write_managed_dev_launcher burnbag-viewerctl burnbag_viewerctl.py
+
 }
 
 main() {
     BURNBAG_CHECK_ONLY=false
     BURNBAG_DESTDIR=""
     BURNBAG_DESTDIR_WAS_SET=false
-    BURNBAG_DEV_COMMAND="${BURNBAG_DEV_LAUNCHER_MODE:-prompt}"
+    BURNBAG_DEV_COMMAND=""
     BURNBAG_DEV_COMMAND_WAS_SET=false
     BURNBAG_EFFECTIVE_USER_HOME=""
     BURNBAG_FORCE=false
@@ -456,7 +421,6 @@ main() {
     BURNBAG_USER_HOME_WAS_SET=false
     BURNBAG_USER_LAUNCHER=""
     BURNBAG_USER_PREFIX=false
-    BURNBAG_RESOLVED_DEV_COMMAND=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -552,14 +516,6 @@ main() {
     esac
 
     if [[ "${BURNBAG_MODE}" == "dev" ]]; then
-        case "${BURNBAG_DEV_COMMAND}" in
-            prompt|local|system) ;;
-            *)
-                printf '[ERROR] Dev command mode must be prompt, local, or system: %s\n' \
-                    "${BURNBAG_DEV_COMMAND}" >&2
-                return 2
-                ;;
-        esac
         if [[ ${EUID} -eq 0 ]]; then
             printf '[ERROR] --mode dev must run as the intended non-root user.\n' >&2
             return 2
@@ -577,21 +533,24 @@ main() {
         fi
         select_user_home
     else
-        if [[ "${BURNBAG_DEV_COMMAND_WAS_SET}" == true ]]; then
-            printf '[ERROR] --dev-command requires --mode dev.\n' >&2
-            return 2
-        fi
         if [[ "${BURNBAG_FORCE}" == true ]]; then
             printf '[ERROR] --force is only supported with --mode dev.\n' >&2
             return 2
         fi
-        if [[ "${BURNBAG_USER_HOME_WAS_SET}" == true && "${BURNBAG_INSTALL_USER_SERVICE}" != true ]]; then
-            printf '[ERROR] --user-home requires --mode dev.\n' >&2
-            return 2
-        fi
-        if [[ "${BURNBAG_INSTALL_USER_SERVICE}" == true ]]; then
+        if [[ "${BURNBAG_DESTDIR_WAS_SET}" != true || "${BURNBAG_INSTALL_USER_SERVICE}" == true || "${BURNBAG_USER_HOME_WAS_SET}" == true ]]; then
             select_user_home
         fi
+    fi
+
+    if [[ "${BURNBAG_DEV_COMMAND_WAS_SET}" == true ]]; then
+        if [[ "${BURNBAG_MODE}:${BURNBAG_DEV_COMMAND}" != dev:local && "${BURNBAG_MODE}:${BURNBAG_DEV_COMMAND}" != standard:system ]]; then
+            printf '[ERROR] --mode determines commands and services: dev uses the checkout; standard uses installed copies. Conflicting --dev-command or prompt selection is no longer supported.\n' >&2
+            return 2
+        fi
+        printf '[INFO] --dev-command is redundant; --mode controls commands and services.\n'
+    fi
+    if [[ -n "${BURNBAG_DEV_LAUNCHER_MODE:-}" ]]; then
+        printf '[WARNING] BURNBAG_DEV_LAUNCHER_MODE is ignored; --mode controls commands and services.\n' >&2
     fi
 
     require_absolute_path --prefix "${BURNBAG_PREFIX}"
@@ -612,6 +571,12 @@ main() {
     fi
     if [[ "${BURNBAG_MODE}" == "standard" ]]; then
         validate_standard_targets
+    fi
+
+    if [[ "${BURNBAG_MODE}" == dev ]]; then
+        validate_dev_command_resolution
+    elif [[ "${BURNBAG_DESTDIR_WAS_SET}" != true ]]; then
+        validate_standard_command_resolution
     fi
 
     local burnbag_source
@@ -685,6 +650,11 @@ main() {
 
     BURNBAG_INSTALL_ACTION="installing support modules and the selected service"
     /usr/bin/python3 -B "${BURNBAG_SERVICE_INSTALLER}" install "${burnbag_service_options[@]}"
+
+    if [[ "${BURNBAG_MODE}" == standard && "${BURNBAG_DESTDIR_WAS_SET}" != true ]]; then
+        BURNBAG_INSTALL_ACTION="activating standard command resolution"
+        activate_standard_commands
+    fi
 
     if [[ -z "${BURNBAG_DESTDIR}" ]] && command -v mandb >/dev/null 2>&1; then
         BURNBAG_INSTALL_ACTION="updating the manual-page index"

@@ -34,6 +34,8 @@ class InstallError(Exception):
 def absolute(value: str, label: str) -> Path:
     if not value or not Path(value).is_absolute() or ".." in Path(value).parts:
         raise InstallError(f"{label} requires an absolute path without '..': {value!r}")
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise InstallError(f"{label} must not contain control characters")
     return Path(value)
 
 
@@ -41,9 +43,11 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def systemd_quote(path: Path) -> str:
+def systemd_quote(path: Path | str, *, expand_environment: bool = True) -> str:
     # Unit specifiers and environment substitution have their own escaping.
-    text = str(path).replace("%", "%%").replace("$", "$$")
+    text = str(path).replace("%", "%%")
+    if expand_environment:
+        text = text.replace("$", "$$")
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
@@ -179,12 +183,27 @@ class ServiceInstaller:
             ):
                 add(self.prefix / target, self.source_bytes(relative), mode, shared=True)
 
-        executable = self.source / "burnbag.py" if self.dev and self.scope == "user" and self.source else self.prefix / "bin/burnbag"
+        executable = self.source / "burnbag.py" if self.dev and self.source else self.prefix / "bin/burnbag"
+        command = systemd_quote(executable)
         unit = self.source_bytes(f"systemd/burnbag-{self.scope}.service").decode("utf-8")
+        if self.dev and self.scope == "system":
+            if ":" in str(self.source):
+                raise InstallError("A system dev checkout path cannot contain ':' (systemd bind-mount separator)")
+            # PID 1 binds the checkout into this unit's namespace. This works
+            # with private home ancestors without exposing or chmodding them.
+            # Bind the directory, not files: atomic editor replacements remain
+            # visible when the collector next starts.
+            mount = Path("/run/burnbag-dev/source")
+            binding = systemd_quote(f"{self.source}:{mount}", expand_environment=False)
+            unit = unit.replace("[Unit]\n", "[Unit]\nRequiresMountsFor=" +
+                                systemd_quote(self.source, expand_environment=False) + "\n")
+            unit = unit.replace("[Service]\n", "[Service]\nRuntimeDirectory=burnbag-dev\n"
+                                "RuntimeDirectoryMode=0755\nBindReadOnlyPaths=" + binding + "\n")
+            command = '/usr/bin/python3 -B ' + systemd_quote(mount / "burnbag.py")
         if self.scope == "user":
             state = str(self.user_state).replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"')
             unit = unit.replace("[Service]\n", '[Service]\nEnvironment="XDG_STATE_HOME=' + state + '"\n')
-        rendered_unit = unit.replace("@EXECUTABLE@", systemd_quote(executable)).encode("utf-8")
+        rendered_unit = unit.replace("@EXECUTABLE@", command).encode("utf-8")
         add(self.unit_path(), rendered_unit)
         if self.scope == "system":
             if self.prefix not in {Path("/usr"), Path("/usr/local")}:

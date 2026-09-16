@@ -59,8 +59,10 @@
     The earlier isolated assistant environment is not the operator's data
     location. Inspection of the operator's normal state directory confirms
     that its user SQLite store is absent, while the live system store is intact.
-    Ready for `./install.sh --mode dev --dev-command local`, which now publishes
+    Ready for `./install.sh --mode dev`, which now publishes
     all three bare commands from the checkout. The operator retains deployment.
+    Follow-up slice 5000 also makes the selected system/user service follow
+    checkout code and makes standard installation select installed copies.
 
 - `BB-MANUAL-04` — GTK 4 history viewer GNOME window controls.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.

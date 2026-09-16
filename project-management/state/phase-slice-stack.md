@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator dev install and GNOME controls; phase 3100 is verified and complete. Earlier hardware/fallback checks remain deferred.
+Notes: Awaiting operator installation and GNOME controls. Phase 3100 mode repair is verified; FieldManual ECR-003 is drafted. Earlier manual checks remain deferred.
 
 ## Phases
 
@@ -93,6 +93,7 @@ Notes: Awaiting operator dev install and GNOME controls; phase 3100 is verified 
 | 2000 | 3100 | done | Repair complete history delivery |
 | 3000 | 3100 | done | Add initial and locked time ranges |
 | 4000 | 3100 | done | Verify documentation and publish |
+| 5000 | 3100 | done | Enforce command and service modes |
 
 ## Regenerate local tracking
 

@@ -318,7 +318,7 @@ gaps and isolated points at broad and narrow ranges. Range selection and
 locking work identically through controls and automation. Database contents
 remain unchanged by viewing.
 
-Completed 2026-09-15: all four slices are delivered. The bare viewer was an
+Initial delivery 2026-09-15: slices 1000–4000 are delivered. The bare viewer was an
 older installed build because dev mode only published the terminal launcher.
 All three commands now follow the selected checkout. Rendering preserves flat
 tails and isolated samples, zoom queries detail, and source diagnostics expose
@@ -333,5 +333,19 @@ The final staged viewer's five-hour range matches direct SQLite queries exactly:
 generated-document and whitespace checks pass. See
 [completion evidence](project-management/completed-tasks.md) and
 [the resolved defect](project-management/bugs/closed/BB-BUG-2026-09-15-01-viewer-history-visibility.md).
-The operator retains installation with `./install.sh --mode dev --dev-command local`;
+The operator retains installation with `./install.sh --mode dev`;
 phase 3000's visible GNOME controls and phase 9000's manual checks remain open.
+
+- **5000 — Authoritative installation mode:** completed follow-up on 2026-09-15.
+  The clarified contract makes dev mode select checkout code for all three user
+  commands and either service scope; standard mode selects installed copies
+  and retires managed dev launchers. No selection prompt, legacy flag or
+  environment override may contradict the mode. The system dev service uses
+  a private read-only checkout mount under its normal account. Unmanaged-file
+  protections, PATH verification and read-only checks remain enforced.
+  Verification: 80 affected tests pass on Python 3.13.7, 3.9.21 and 3.14.6,
+  including code edits, both mode transitions, source-independent installed
+  execution, all command entry points, both service scopes and unit validation.
+  Help, manuals and tracking agree. [FieldManual ECR-003](ECRs/FieldManual/open/burnbag-ECR-2026-003-authoritative-installation-mode.md)
+  records the strong reusable guidance; it is drafted, not yet submitted.
+  Actual system installation/activation remains the operator's action.

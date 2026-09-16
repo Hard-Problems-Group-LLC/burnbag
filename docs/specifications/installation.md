@@ -1,7 +1,7 @@
 # Installation and development command selection
 
 Status: implemented. Reviewed: 2026-09-15.
-Authorization: [roadmap P1, P4, P5, P9, and 1000](../../ROADMAP.md).
+Authorization: [roadmap P1, P4, P5, P9, 1000, and 3100](../../ROADMAP.md).
 
 This specification defines the filesystem and command-selection behavior of
 [`install.sh`](../../install.sh). Distribution package selection belongs to
@@ -41,13 +41,15 @@ installation.
 Option values, incompatible mode options, required source files, and standard
 destination constraints are validated before invoking the prerequisite helper.
 `--destdir` and an explicit `--prefix` are incompatible with development mode.
-`--dev-command` and `--force` apply only to development mode. `--user-home`
-also identifies the intended user for user-service staging and removal.
+`--force` applies only to development mode. `--user-home` identifies the
+operator whose command selection is being configured and the owner of a user
+service. Checks and staging do not activate commands or services.
 
 ## Service installation
 
 The default scope is the system `burnbag.service`, running under the non-login
-`burnbag:burnbag` account with a root-owned executable. The installer deploys
+`burnbag:burnbag` account. Standard mode uses a root-owned installed executable;
+development mode executes the selected checkout as described below. The installer deploys
 the unit, sysusers declaration, and a narrow polkit rule allowing only bounded
 delay inhibition for pending telemetry writes before sleep/shutdown. Runtime
 singleton ownership prevents system and user collectors from running together.
@@ -80,16 +82,32 @@ and `.local/share/man/man1/`. Rerunning
 accepts existing links to the same source; unrelated links and existing files
 are preserved with an error.
 
-Plain `--mode dev` still installs the default system service and its own
-root-owned daemon copy. Reinstall after changing daemon code. Combining dev
-mode with `--install-user-service` makes that daemon execute this checkout
-directly and installs user-owned copies of both manual pages under
-`<user-home>/.local/share/man/man1/` with mode 0644. Reinstall to refresh
-this copy after documentation changes; the repository-local manual link still
-follows the checkout immediately. Both variants retain the CLI command-selection
-policy below.
+Both system and user services execute checkout code in development mode.
+The user service uses the source executable directly. For a system service,
+PID 1 binds the checkout directory read-only at `/run/burnbag-dev/source` in
+that unit's mount namespace, and starts `/usr/bin/python3 -B` with its
+`burnbag.py`. `RuntimeDirectory` manages the mount's parent; `RequiresMountsFor`
+orders access to the checkout filesystem. `ProtectHome=yes` and the normal
+`burnbag:burnbag` identity remain in effect. The private mount bypasses private
+home ancestors without changing their permissions. The checkout itself and its
+runtime files must be readable by the service account. A source path containing
+`:` is rejected because it conflicts with the bind-mount separator.
 
-The optional managed user launchers are `burnbag`, `burnbag-viewer` and
+The directory mount observes atomic file replacements. Code changes take effect
+on the next process invocation/restart without recopying application code;
+reinstall after changing installation/unit definitions. A missing/inaccessible
+checkout fails visibly; the service never falls back to the installed copy.
+Development mode deliberately trusts the operator's mutable source code.
+A dev system installation may retain packaged copies, but neither operator
+commands nor its service execute those copies.
+
+Both modes install current manuals. The user dev mode publishes manuals under
+`<user-home>/.local/share/man/man1/`; repository-local links follow the checkout.
+The operator retains actual host installation and service activation.
+
+The mount behavior follows [systemd's execution documentation](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.exec.xml).
+
+The managed user launchers are `burnbag`, `burnbag-viewer` and
 `burnbag-viewerctl` under `<user-home>/.local/bin/`. Apply command selection to
 the whole family so the GUI cannot silently keep running an older system copy.
 The selected home must be an existing absolute directory. An explicit
@@ -98,19 +116,34 @@ named `.codex-home`, `.claude-home`, `codex-home`, or `claude-home`, or located
 at or beneath this checkout's `.local/`, is rejected with guidance to select
 the operator's home explicitly.
 
-Command-selection policy is selected by `--dev-command`, then
-`BURNBAG_DEV_LAUNCHER_MODE`, then the default `prompt`:
+## Authoritative mode and transitions
 
-| Policy | Required behavior |
-| --- | --- |
-| `prompt` | Ask on an interactive terminal. Acceptance selects `local`; declining, EOF, or a noninteractive invocation preserves the existing user launcher and command resolution. |
-| `local` | Preflight all three command destinations, then publish managed launchers executing this checkout. The user bin directory must precede competing commands on PATH. Verify each command lookup after publication. |
-| `system` | Remove existing managed launchers for all three commands. Preserve unmanaged launchers and report resulting PATH resolution. |
+`--mode dev` always selects the checkout for user commands and the configured
+service, without an additional selection prompt. Standard mode is the default
+when `--mode dev` is absent; it installs complete copies and selects those
+copies. Code source and system/user service scope are independent choices.
+Interactive and noninteractive invocations have identical mode semantics.
 
-`--force` permits replacing an unmanaged user launcher during `local`
-selection. A directory or symlink to a directory is refused even with
-`--force`. The installer does not edit shell profiles or change its parent
-shell's environment; it reports when existing shells should run `hash -r`.
+The obsolete `BURNBAG_DEV_LAUNCHER_MODE` is ignored with a diagnostic.
+`--dev-command` is a compatibility spelling only: `local` may accompany dev
+and `system` may accompany standard. A conflicting value or `prompt` fails
+before installation. Neither mechanism can override the selected mode.
+
+Dev mode preflights all three user-launcher targets, publishes managed wrappers
+and verifies command lookup. Standard mode checks PATH before installation,
+then retires the operator's managed dev wrappers and this checkout's managed
+command links, and verifies that all three commands resolve under the installed
+prefix. Other checkout directories or unmanaged executables earlier on PATH
+cause an actionable error. Standard copies run independently of the checkout.
+Mode transitions update the selected service's execution source and reload its
+unit; existing activation preferences follow the service policy above.
+
+`--force` permits replacing an unmanaged user launcher in dev mode. Directories
+are always refused. Standard mode preserves unmanaged conflicts and fails
+rather than claiming successful activation. Installers cannot change the
+parent shell's PATH, aliases or cached lookups; they verify their inherited
+ordinary command lookup and report `hash -r` where needed. No shell profiles
+or other users' launchers are rewritten. Checks/staging never retire launchers.
 
 ## Scoped uninstallation
 

@@ -79,16 +79,16 @@ readme_lines = [
     "command -v burnbag",
     CB,
     "",
-    "In an interactive terminal, dev mode reports any competing `burnbag` command and asks whether bare invocations should prefer this checkout. If accepted, it installs managed launchers for `burnbag`, `burnbag-viewer` and `burnbag-viewerctl` under `~/.local/bin/` and verifies that command lookup selects each one. The user bin directory must already precede the installed command on `PATH`; the installer cannot change its parent shell's environment.",
+    "`--mode dev` selects this checkout for `burnbag`, `burnbag-viewer`, `burnbag-viewerctl`, and the selected system or user service. It publishes managed user launchers under `~/.local/bin/` and verifies command lookup, without a second selection prompt. The user bin directory must precede competing commands on `PATH`; run `hash -r` in shells that cached an older path.",
     "",
-    "Non-interactive dev installs leave existing launchers and command resolution unchanged unless policy is explicit. Declining the interactive prompt or reaching end-of-input also preserves them:",
+    "Omitting `--mode dev` installs complete copies and selects those installed commands. Standard mode retires managed dev launchers, updates the selected service, and verifies installed command lookup. Both modes behave the same in interactive and unattended use:",
     "",
     f"{CB}bash",
-    "./install.sh --mode dev --dev-command local",
-    "BURNBAG_DEV_LAUNCHER_MODE=local ./install.sh --mode dev",
+    "./install.sh --mode dev  # Commands and service use this checkout",
+    "./install.sh             # Commands and service use installed copies",
     CB,
     "",
-    "Use `--dev-command system` to remove the three managed user launchers and restore their other `PATH` results. Dev mode refuses to replace an unmanaged user launcher unless `--force` is explicit. When an automation environment supplies an isolated assistant `HOME`, pass `--user-home /absolute/operator/home`.",
+    "`--mode` is authoritative. The obsolete `BURNBAG_DEV_LAUNCHER_MODE` is ignored with a diagnostic; legacy `--dev-command` values are accepted only when they agree with the mode (`local` for dev, `system` for standard). Conflicting values and `prompt` are rejected. Unmanaged launchers and conflicting PATH entries cause an actionable failure; dev `--force` explicitly permits replacing an unmanaged user launcher. Use `--user-home /absolute/operator/home` when automation supplies an isolated assistant `HOME`.",
     "",
     "With `--mode dev --install-user-service`, the installer copies the manual to `<user-home>/.local/share/man/man1/burnbag.1`. Rerun the installer after documentation changes to refresh that installed copy. The repository-local `.local/share/man/man1/burnbag.1` symlink continues to follow the checkout.",
     "",
@@ -246,9 +246,11 @@ readme_lines.extend(['',
  'follows login sessions and does not enable lingering. Only one background collector can run per machine. '
  'Upgrades preserve intentionally stopped or disabled service state.',
  '',
- 'Plain `./install.sh --mode dev` also installs a root-owned system-daemon copy while the CLI follows this '
- 'checkout. `./install.sh --mode dev --install-user-service --dev-command local` makes the user daemon '
- 'follow the checkout too. `--check` is read-only; `--destdir` stages files without changing host accounts '
+ 'Plain `./install.sh --mode dev` makes both the commands and system daemon follow this '
+ 'checkout. The system service sees it through a private read-only directory bind mount; it retains '
+ 'its burnbag account and home-directory isolation. A dev user service executes the checkout directly. '
+ 'Restart a running collector after code edits; no application recopy is needed. '
+ '`--check` is read-only; `--destdir` stages files without changing host accounts '
  'or services. `./install.sh --install-user-service --prefix "$HOME/.local"` installs the standard '
  'executable and user service under user-owned paths.',
  '',
@@ -560,15 +562,17 @@ man_lines = [
     '.PP',
     '.B ./install.sh \\-\\-mode dev',
     '.PP',
-    'Interactive dev mode reports a competing burnbag command and asks whether bare invocations should prefer the checkout. When accepted, it installs a managed launcher under $HOME/.local/bin and verifies effective command lookup. That directory must already precede the installed command on PATH because an installer cannot change its parent shell environment.',
+    'Development mode selects checkout code for burnbag, burnbag-viewer, burnbag-viewerctl and the selected system or user service, in both interactive and unattended use. Managed user launchers under $HOME/.local/bin must precede competing commands on PATH. There is no separate command-selection prompt. Run hash -r in shells that cached an older path.',
     '.PP',
-    'Non\\-interactive callers select checkout resolution explicitly with:',
+    'Omit development mode to install complete independent copies and select them:',
     '.PP',
-    '.B ./install.sh \\-\\-mode dev \\-\\-dev\\-command local',
+    '.B ./install.sh',
     '.PP',
-    'or set BURNBAG_DEV_LAUNCHER_MODE=local. Use \\-\\-dev\\-command system to remove the managed user launcher and retain the other PATH result. Use \\-\\-user\\-home with an explicit operator home when automation supplies an isolated assistant HOME.',
+    'Standard mode retires managed development launchers and verifies installed command lookup. Conflicting unmanaged launchers or PATH order fail explicitly. --mode is authoritative: BURNBAG_DEV_LAUNCHER_MODE is obsolete and ignored; legacy --dev-command is accepted only when it agrees with the mode (local for dev, system for standard). Prompt and conflicting selections are rejected. Use --user-home with an explicit operator home when automation supplies an isolated assistant HOME.',
     '.PP',
-    'Use ./install.sh --check for a read-only readiness check. Staged --destdir installation checks prerequisites but does not install host packages, use sudo, or run mandb. Invalid paths and escaping symlinks are rejected. Noninteractive defaults and declined/EOF prompts preserve existing user launchers; explicit --dev-command system removes the managed launcher.',
+    'A dev system service reads the checkout through a private read-only bind mount while retaining the burnbag account and home isolation; a dev user service executes the checkout directly. Code edits take effect on the next command invocation or service restart. Standard services use installed copies. The checkout must remain available for dev use.',
+    '.PP',
+    'Use ./install.sh --check for a read-only readiness check. Staged --destdir installation checks prerequisites but does not change command selection, install host packages, use sudo, or run mandb. Invalid paths and escaping symlinks are rejected.',
     '.SH SYSTEM REQUIREMENTS',
     'Requires the distribution /usr/bin/python3 (Python 3.9+),',
     'PyGObject (python3-gi and gir1.2-glib-2.0 on Ubuntu/Debian; python3-gobject on Fedora/RHEL),',
@@ -661,8 +665,9 @@ man_lines[man_lines.index(".SH EXAMPLES"):man_lines.index(".SH EXAMPLES")] = ['.
  '.SH SERVICE INSTALLATION AND REMOVAL',
  'install.sh selects a system service as the non-login burnbag user and group by default. '
  '--install-user-service selects the intended user and does not enable lingering. New installs enable and '
- 'start; upgrades preserve intentional stopped/disabled state. Plain --mode dev installs a root-owned '
- 'system-daemon copy and a checkout CLI; dev with --install-user-service runs the daemon from the checkout.',
+ 'start; upgrades preserve intentional stopped/disabled state. With --mode dev, user commands and either '
+ 'service scope execute checkout code. Without --mode dev, installed commands and service copies win; '
+ 'managed dev launchers are retired.',
  '.PP',
  'Dev with --install-user-service also installs a regular manual copy at '
  '<user-home>/.local/share/man/man1/burnbag.1. Rerun the installer after documentation changes to refresh '
