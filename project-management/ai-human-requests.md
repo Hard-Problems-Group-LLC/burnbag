@@ -5,13 +5,14 @@ results are in [the testing guide](../docs/testing.md).
 
 ## Pending Requests
 
-- `BB-MANUAL-05` — Reinstall and verify the repaired system dev collector.
+- `BB-MANUAL-06` — Reinstall and verify the repaired system dev collector.
   - Created: 2026-09-16T00:41:12-07:00. Owner: operator. Requestor: Codex.
   - Scope: roadmap phase 3100, slice 5000 and BB-BUG-2026-09-16-01.
     The reported collector start fails at its private checkout mount; existing
     syntax-only verification missed the incorrectly parsed bind endpoints.
-  - Automated repair verification passes all 57 affected installer tests,
-    including the real parser regression that fails before the repair. Run
+  - Automated repair verification passed all 57 initial installer tests and
+    all 65 tests after integrating delivered phases 5000–7000, including the
+    real parser regression that fails before the repair. Run
     `./install.sh --mode dev` from the current checkout and restart the system
     collector. If it is still retrying, stop it before reinstalling. The operator
     performs all sudo commands and service mutations; agents do not.
@@ -30,10 +31,16 @@ results are in [the testing guide](../docs/testing.md).
     permissions/protocol and PNG capture. Only a real GNOME session can verify
     the native minimize/restore/maximize/close controls and full-screen layout.
   - Follow [viewer manual verification](../docs/testing.md#gtk-history-viewer-manual-verification)
-    after the revised build is available through the development launcher.
+    after refreshing the intended standard or development installation.
   - Acceptance: report native titlebar controls, F11 graph-only fullscreen,
     table paging/search and both cross-navigation gestures. For automation,
     report capture usability and socket cleanup. Include any visible errors.
+    Phase 6000 adds shared-unit plots and their lower-center color key; inspect
+    those on the same ordinary/fullscreen pass. Automated actual-frame checks
+    pass in an isolated newer-binding environment. Native PyGObject 3.46 capture
+    has the separate known limitation
+    [BB-BUG-2026-09-15-03](bugs/open/BB-BUG-2026-09-15-03-gtk-capture-bindings.md);
+    ordinary graph display does not depend on that endpoint.
 
 
 ## Active Requests
@@ -129,6 +136,21 @@ results are in [the testing guide](../docs/testing.md).
     operator check.
 
 ## Completed Requests
+
+- `BB-MANUAL-05` — Repaired standard sudo installation confirmed.
+  - Created and activated: 2026-09-15. Completed: 2026-09-15T22:57:52-07:00.
+    Owner and evidence source: operator. Requestor: Codex.
+  - Scope: phase 5000, slice 4000 deployment handoff. The operator ran
+    `sudo time ./install.sh`; prerequisites, system-service installation and
+    all three installed executable checks succeeded without the PATH error.
+    Installation finished in 15.27 seconds and reported removal of the two
+    existing managed burnbag development launchers (user and checkout).
+  - After `hash -r`, the operator's normal-shell lookup returned
+    `/usr/local/bin/burnbag`, `/usr/local/bin/burnbag-viewer`, and
+    `/usr/local/bin/burnbag-viewerctl`. This satisfies installation and command
+    selection acceptance and closes the request. Service runtime health,
+    visible GNOME behavior and physical checks are not inferred from this
+    output; their existing requests remain open.
 
 The graph/summary portion of `BB-MANUAL-01` passed on 2026-09-14 and closes
 phase P3, slice 4000. The request remains active for its remaining hardware

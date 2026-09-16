@@ -55,6 +55,8 @@ Install prerequisites, the terminal command, GTK viewer/controller, and manual p
 
 The installer requests `sudo` only when package or system-file installation requires it. Use `./install.sh --check` for a read-only readiness check. `--destdir /absolute/staging/root` stages files without installing host packages, using sudo, or updating the host manual index. Paths containing `..`, escaping staging symlinks, and directory/symlink file targets are rejected. Use `./install.sh --help` for all options.
 
+`sudo ./install.sh` is also supported for standard system installation. It validates installed executable paths without requiring `/usr/local/bin` on sudo's restricted `PATH`. The operator home defaults to the validated sudo caller's account home; `--user-home` overrides it. The installer does not change root's PATH or claim to verify your shell's lookup. Afterward, in your normal shell, run `hash -r` and `command -v burnbag burnbag-viewer burnbag-viewerctl`; ensure the installed bin directory precedes competing commands. Run dev and user-service installs without sudo.
+
 For a repository-local development install, run:
 
 ```bash
@@ -64,14 +66,14 @@ command -v burnbag
 
 `--mode dev` selects this checkout for `burnbag`, `burnbag-viewer`, `burnbag-viewerctl`, and the selected system or user service. It publishes managed user launchers under `~/.local/bin/` and verifies command lookup, without a second selection prompt. The user bin directory must precede competing commands on `PATH`; run `hash -r` in shells that cached an older path.
 
-Omitting `--mode dev` installs complete copies and selects those installed commands. Standard mode retires managed dev launchers, updates the selected service, and verifies installed command lookup. Both modes behave the same in interactive and unattended use:
+Omitting `--mode dev` installs complete copies and selects those installed commands. Standard mode verifies the installed files, retires managed dev launchers, and updates the selected service. Non-root invocations also verify inherited command lookup. Both modes behave the same in interactive and unattended use:
 
 ```bash
 ./install.sh --mode dev  # Commands and service use this checkout
 ./install.sh             # Commands and service use installed copies
 ```
 
-`--mode` is authoritative. The obsolete `BURNBAG_DEV_LAUNCHER_MODE` is ignored with a diagnostic; legacy `--dev-command` values are accepted only when they agree with the mode (`local` for dev, `system` for standard). Conflicting values and `prompt` are rejected. Unmanaged launchers and conflicting PATH entries cause an actionable failure; dev `--force` explicitly permits replacing an unmanaged user launcher. Use `--user-home /absolute/operator/home` when automation supplies an isolated assistant `HOME`.
+`--mode` is authoritative. The obsolete `BURNBAG_DEV_LAUNCHER_MODE` is ignored with a diagnostic; legacy `--dev-command` values are accepted only when they agree with the mode (`local` for dev, `system` for standard). Conflicting values and `prompt` are rejected. Non-root PATH conflicts cause an actionable failure; root standard installs preserve unmanaged launchers with a warning to check user-shell lookup. Dev `--force` explicitly permits replacing an unmanaged user launcher. Use `--user-home /absolute/operator/home` when automation supplies an isolated assistant `HOME`.
 
 With `--mode dev --install-user-service`, the installer copies the manual to `<user-home>/.local/share/man/man1/burnbag.1`. Rerun the installer after documentation changes to refresh that installed copy. The repository-local `.local/share/man/man1/burnbag.1` symlink continues to follow the checkout.
 
@@ -81,9 +83,13 @@ With `--mode dev --install-user-service`, the installer copies the manual to `<u
 
 `burnbag-viewer` opens the complete available system/user SQLite history in graph and paged-table tabs. Use `burnbag-viewer --last '5 hours'` for an initial viewport; add `--only` to keep queries, search, and navigation within that interval. `--only` requires `--last` or ISO `--from`/`--to` endpoints. Without `--only`, zoom/pan can leave the initial range. Months and years use the same local calendar subtraction and month-end adjustment as terminal graphs.
 
-**Fields...** opens separate Graph and Table pages with two columns of checkboxes. OK saves and applies both selections; Cancel, Escape and closing the dialog discard edits. Multiple graph fields have separate labeled scales; Date and Time always lead the table. Preferences persist in `$XDG_CONFIG_HOME/burnbag/viewer.json` (default `~/.config/burnbag/viewer.json`). The graph and table remain unchanged until OK; a failed save keeps the dialog open with an error.
+**Fields...** opens separate Graph and Table pages with two columns of checkboxes. OK saves and applies both selections; Cancel, Escape and closing the dialog discard edits. Date and Time always lead the table. Preferences persist in `$XDG_CONFIG_HOME/burnbag/viewer.json` (default `~/.config/burnbag/viewer.json`). The graph and table remain unchanged until OK; a failed save keeps the dialog open with an error.
 
-The status line reports source counts; hover for database paths and failures. Graph/table double-clicks navigate between views, and F11 gives a graph-only fullscreen view. Reopen for a fresh snapshot of ongoing collection. GTK 4.6+ and system-Python Cairo integration are required (`python3-gi-cairo gir1.2-gtk-4.0` on Ubuntu/Debian). See `man burnbag-viewer` for data sources, ranges and opt-in Unix-socket automation.
+All selected traces overlay the exact same plot rectangle. Fields with the same unit share an autorange containing all their visible values; different unit types have independent Y scales. Axis strips alternate left/right from the outside inward, with centered counter-clockwise unit labels and up to ten divisions, reduced to avoid crowded numbers. Unknown numeric fields get individual named units. A lower-center color key has a 50%-alpha background and labels matching trace colors. Click the nearest trace to select its observation; drag distance uses the shared plot width. Live viewer updates are backlog-only: reopen for a fresh snapshot.
+
+Left-drag highlights a time interval without panning. A click sets the cursor; double-click also clears the highlighted interval and stays on Graph. The Table shows only the highlighted interval, or all allowed history if none is selected, with the cursor row highlighted when included. Search intersects that interval. **Fit**, between − and +, is enabled only with a highlight and fits the graph to it. + halves and − doubles the current graph time span, updating the highlight and table to match; wheel zoom uses finer increments. Arrow controls pan without changing the selection. A table row double-click focuses Graph, and View selection highlights/fits selected table rows. Right-click resets the graph and clears cursor/highlight; All history also clears search.
+
+The status line reports source counts; hover for database paths and failures. F11 gives a graph-only fullscreen view. Reopen for a fresh snapshot of ongoing collection. GTK 4.6+ and system-Python Cairo integration are required (`python3-gi-cairo gir1.2-gtk-4.0` on Ubuntu/Debian). See `man burnbag-viewer` for data sources, ranges and opt-in Unix-socket automation.
 
 ## Modes & Syntax
 

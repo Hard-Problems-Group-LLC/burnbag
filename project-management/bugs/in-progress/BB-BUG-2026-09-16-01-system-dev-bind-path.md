@@ -7,7 +7,7 @@
 - Reporter: Operator
 - Owner: Codex
 - Related work: roadmap phase 3100, slice 5000; `BB-2026-09-16-01`;
-  `BB-MANUAL-05`
+  `BB-MANUAL-06`
 
 ## Symptom And Impact
 
@@ -56,8 +56,13 @@ signs, quotes and backslashes. All 57 affected `test_service_install` and
 checks pass. Tests ran unprivileged, outside the sandbox for systemd parser
 access, without sudo or host-service mutations.
 
+After integration with the delivered phases 5000–7000, all 65 installer tests
+pass, including the added standard sudo-installation cases. Remote features
+and completion evidence are preserved. All 17 tracking tests, final shell
+syntax and whitespace checks pass on the integrated result.
+
 Installed-service recovery is pending operator reinstallation, restart, ready
-status and advancing history observations in BB-MANUAL-05. Agents must not
+status and advancing history observations in BB-MANUAL-06. Agents must not
 execute sudo commands. No successful host repair is claimed.
 
 ## History
@@ -68,3 +73,6 @@ execute sudo commands. No successful host repair is claimed.
   hardware checks remain deferred independently.
 - 2026-09-16T00:44:53-07:00: code repair and automated verification complete;
   bug remains in progress pending operator-installed runtime evidence.
+- 2026-09-16: integrated newer delivery work and passed all 65 installer cases.
+  Collector acceptance uses BB-MANUAL-06; existing closed BB-MANUAL-05 remains
+  the independent standard sudo-installation acceptance record.

@@ -31,13 +31,31 @@ SQLite fixtures for both sources. It checks actual captured graph pixels,
 cross-page navigation, initial/unlocked/locked ranges, search, mouse drag,
 reset, series selection and F11 over the Unix socket. Field-selection tests use
 isolated XDG configuration and exercise drafts, OK, Cancel/Escape/titlebar close,
-write failures, empty selections, multiple actual rendered plots and persistence
+write failures, empty selections, multiple actual overlaid traces and persistence
 across process restarts. Ordinary discovery skips
 these visible-window tests unless `BURNBAG_TEST_GTK=1` is set.
 For unattended verification, prefer `BURNBAG_TEST_GTK=1 xvfb-run -a
 /usr/bin/python3 -B -m unittest tests.test_viewer_gui` on a private virtual
 display so operator input cannot interfere with test windows. This still
 renders actual GTK frames; GNOME title-bar behavior needs the manual check below.
+Alternatively, use a private headless Weston compositor with
+`BURNBAG_TEST_GDK_BACKEND=wayland` and `GSK_RENDERER=cairo`; no operator desktop
+windows are needed. The GUI runner uses its invoking Python interpreter.
+Complete client-frame capture requires PyGObject 3.48+ render-node support;
+older bindings can display the viewer but fail the existing capture endpoint.
+Use a separate test environment rather than changing system Python to verify
+captures, and report native-binding limitations explicitly. See the
+[upstream changelog](https://pygobject.gnome.org/changelog.html).
+`tests.test_viewer_plot` additionally exercises real Cairo rendering without
+a display, including shared ranges, outside-in strips, tiny/large values,
+text spacing, rotated titles, trace/key colors and actual half-alpha blending.
+GUI tests cover shared percentage scales, independent units, common geometry,
+fullscreen, hit testing and snapshot stability after new database appends.
+Selection tests additionally cover reverse/clipped/jitter drags, cursor ID
+versus timestamp, stale page rejection, exact Fit/2x zoom, search intersections,
+later-page cursor highlighting without hiding earlier data, and actual Cairo
+selection-band pixels. Isolated GTK tests exercise the same interactions over
+real SQLite fixtures and capture the highlighted graph.
 The compatibility baseline is Python 3.9 or later; run the same discovery suite
 on the oldest supported interpreter and a current release. Real SQLite,
 socket ownership, concurrent prudent clients, fallback handoff, history merging,
@@ -47,24 +65,40 @@ month-end/leap-year adjustment, daylight-saving gaps and ambiguities, and
 actual SQLite range selection. Every installation mode and service scope
 checks the installed CLI manual against its generated source, including its
 `--last` calendar explanation, and installs the viewer manual in every mode.
+Installer tests also exercise sudo-style restricted PATH and account-home
+selection. They substitute Bash identity and account lookup in a private copy
+and stage the real service helper, without root privileges or host mutations.
+Both preflight and complete file publication are covered, including executing
+all three installed commands after moving the source checkout away.
 
-README and manual sources live in `makedocs.py`. Regenerate with
+For a read-only check of the reported sudo installation failure, run
+`sudo ./install.sh --check` in the intended operator environment. Root PATH
+need not contain `/usr/local/bin`; no packages, files, or services are changed.
+After an actual standard installation, run `hash -r` and
+`command -v burnbag burnbag-viewer burnbag-viewerctl` in the normal non-root
+shell. Expect installed paths (normally `/usr/local/bin/`), not dev wrappers.
+Root cannot certify this user-shell lookup; correct PATH order if needed.
+
+README and the terminal manual sources live in `makedocs.py`; the viewer manual
+`burnbag-viewer.1` is maintained directly. Regenerate generated documents with
 `/usr/bin/python3 -B makedocs.py`; changes to generated output must be intentional
 and `/usr/bin/python3 -B makedocs.py --check` must pass afterward. Render the manual with
 `groff -man -Tutf8 -z -ww burnbag.1` to check formatting warnings.
 
 ## Physical validation awaiting the operator
 
-The operator selected development installation. Run:
+For development-mode physical checks, run as the intended non-root user:
 
 ```bash
 ./install.sh --mode dev
 ```
 
-This now installs and starts the default system collector as well as selecting
-the checkout CLI. The daemon uses its own root-owned installed copy; rerun the
-installer after changing collector code. Selecting `--install-user-service`
-instead creates a login-session service whose dev daemon follows the checkout.
+This installs and starts a new default system collector as well as selecting
+the checkout commands (updates preserve stopped/disabled preferences). The
+system dev daemon follows the checkout through a private read-only bind mount;
+restart it after changing collector code, and reinstall after unit changes.
+Selecting `--install-user-service` instead creates a login-session service
+whose dev daemon executes the checkout directly.
 It does not enable lingering.
 Then run `hash -r` and `command -v burnbag`; the result should be the managed
 user launcher in `~/.local/bin/burnbag`. The installer reports any PATH ordering
@@ -285,7 +319,8 @@ neither real systemd activation nor hardware resume reliability.
 
 ## GTK history viewer manual verification
 
-After `./install.sh --mode dev` and `hash -r`, open
+After refreshing the intended installation (`sudo ./install.sh` for the standard
+installation, or `./install.sh --mode dev` for development) and `hash -r`, open
 `burnbag-viewer`. Check that the GNOME titlebar exposes working minimize,
 restore, maximize, and close controls. F11 must enter and leave fullscreen; on
 the graph tab the graph should fill the screen without the toolbar, status, or
@@ -298,9 +333,33 @@ older or newer records. The graph overview should retain full-history extrema;
 the table may load rows in pages as you scroll, but must not stop at the first
 page. Check both tabs. Search a value visible in telemetry (for example a battery
 name), scroll through additional table pages, select a row range and choose
-View selection, then double-click a row and a graph point. Each navigation must
-switch tabs and preserve a useful graph range or matching table selection.
-Try wheel zoom, drag/arrow pan, and choose another numeric measurement.
+View selection, then double-click a row: both actions switch to Graph. A graph
+click sets the cursor without clearing a highlighted range; double-click sets
+the cursor and clears the range without changing tabs. Switch to Table and
+check the cursor row is highlighted, including beyond the first loaded page.
+Earlier rows must remain navigable. Try wheel zoom, arrow pan, and another field.
+
+Left-drag in either direction: a translucent interval appears without moving
+the viewport or cursor. Fit must be disabled before selecting and enabled after.
+Switch to Table: only interval rows are navigable, intersected with search; a
+cursor outside those filters stays remembered but is not shown. Fit must set
+the graph exactly to the interval. Plus halves and minus doubles the graph time
+span and updates the highlight/table to match. Arrow pan leaves the highlight
+unchanged. Double-click clears the range; Table then allows all snapshot rows
+(subject to search and any --only lock). Right-click clears cursor and highlight
+and resets the graph; All history additionally clears search. Small hand jitter
+must remain a click rather than create a tiny range.
+
+In Fields..., select both battery percentages if available, then watts,
+watt-hours and temperature. All curves must overlay the exact same rectangle.
+Percentages share one range containing both batteries; unlike units have
+independent ranges. Strips alternate outer left, outer right, inward left,
+inward right in first-unit order. Check centered counter-clockwise unit titles,
+intermediate ticks, and a lower-center translucent box with matching colored
+labels. Resize or use F11: labels must not collide; very small windows explicitly
+ask for more space or fewer fields. Double-click near either battery trace and
+verify the corresponding table row. New collector rows remain absent until
+relaunch; live updates are intentionally backlog-only.
 
 `burnbag-viewer --last '5 hours'` must start with exactly that viewport, while
 allowing navigation outside it. Add `--only` to restrict both data and all
@@ -323,3 +382,6 @@ F11 with `key F11`, switch tabs, select rows, and retrieve a PNG with
 shows the entire viewer client area; GNOME's window decorations are supplied by
 the window manager and are not part of the application frame. Close the viewer
 and confirm its socket is removed. Normal launches must not create a socket.
+Native PyGObject 3.46 currently cannot capture GTK render nodes; record the
+known [capture limitation](../project-management/bugs/open/BB-BUG-2026-09-15-03-gtk-capture-bindings.md)
+instead of treating it as a plot-display failure or silently upgrading the host.

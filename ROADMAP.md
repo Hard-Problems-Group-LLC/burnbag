@@ -360,9 +360,12 @@ phase 3000's visible GNOME controls and phase 9000's manual checks remain open.
   verification passes all 57 affected installer tests. The real parser
   regression fails before the fix and passes after it for ordinary paths and
   paths containing spaces, dollar signs, percent signs, quotes and backslashes.
-  Shell syntax and whitespace checks pass. The operator performs reinstallation and
+  All 65 installer tests pass after integration with the subsequently delivered
+  phases 5000–7000; those features and their completed records are preserved.
+  All 17 tracking tests, shell syntax and whitespace checks pass.
+  The operator performs reinstallation and
   restart, then verifies collector readiness and new history observations in
-  BB-MANUAL-05. Agents must not run sudo commands. Existing GNOME and hardware
+  BB-MANUAL-06. Agents must not run sudo commands. Existing GNOME and hardware
   checks remain deferred independently.
 
 ## Phase 4000 — Persistent viewer field selection
@@ -397,3 +400,116 @@ multiple plots and preserved navigation. Generated documentation, viewer manual,
 staged installation and tracking checks pass; captured dialog/graph frames were
 visually inspected. No host installation or operator preferences were changed.
 Earlier GNOME and hardware acceptance stays with phases 3000/9000.
+
+## Phase 5000 — Standard installer recovery
+
+Authorized 2026-09-15 following the reported `sudo ./install.sh` failure:
+`Standard command directory is not on PATH: /usr/local/bin`.
+
+- **1000 — Reproduce:** reproduce the restricted-PATH validation failure
+  without host installation; inspect privileged versus operator identity.
+- **2000 — Repair:** separate privileged installed-file verification from
+  user-shell command lookup and resolve the sudo caller's home for managed
+  launcher retirement. Preserve unmanaged files and ordinary PATH guards.
+- **3000 — Verify:** exercise private installations, mode transitions,
+  restricted PATH, explicit homes, and failure paths; run regression checks.
+- **4000 — Document and hand off:** synchronize installation contracts,
+  generated help/manuals, tracking, and AGENTS.md Ubersight guidance. Keep
+  deployment and existing physical checks distinct from automated evidence.
+
+Acceptance: standard installation does not depend on sudo's PATH containing
+the destination bin directory, does not add user directories to root's PATH,
+and verifies installed commands without claiming to know the caller's shell
+lookup. Only managed development launchers are retired. User-service and dev
+installation retain their non-root requirements. Graph-only remains queued.
+
+Completed 2026-09-15: all four slices verified and handed off. Native discovery
+runs 453 tests with eight opt-in GUI skips; all other cases pass. All 88 affected
+tests pass on Python 3.9.21 and 3.14.6; syntax, shellcheck, generated docs,
+manuals and read-only preflight pass. Operator acceptance subsequently passed
+at 2026-09-15T22:57:52-07:00: `sudo time ./install.sh` succeeded, and after
+`hash -r` all three commands resolved under `/usr/local/bin`. BB-MANUAL-05 is
+closed; earlier GNOME and hardware checks remain separate. See
+[the resolved installer bug](project-management/bugs/closed/BB-BUG-2026-09-15-02-sudo-installation.md).
+
+## Phase 6000 — Shared-rectangle viewer traces and unit axes
+
+Authorized 2026-09-15. Replace tiled plots with one exact plotting rectangle
+for every selected trace. Live viewer updates are backlog-only, not part of
+this phase. Preserve snapshot reads, field preferences and existing navigation.
+
+- **1000 — Contract and unit taxonomy:** specify explicit physical units and
+  meaningful synthetic units for otherwise ambiguous numeric fields. Percentages
+  from both batteries share one unit; unrelated unknown fields do not. Allocate
+  axes in deterministic selected-field order. Record live updates in the backlog.
+- **2000 — Shared ranges and ticks:** group selected visible observations by
+  unit; each group's range contains every displayed value, including extrema
+  preserved by reduction. Support flat, empty, negative and tiny/large ranges.
+  Aim for ten divisions, reducing count to keep tick labels at least 1.5 label
+  heights apart; format distinct, readable values without clipping extrema.
+- **3000 — One rectangle and axis strips:** lay out the first unit at outer
+  left, second at outer right, third inward on the left, and continue alternating.
+  All traces use exactly the same X/Y pixel rectangle with unit-specific Y
+  transforms. Center unit labels along strips, rotated 90 degrees counter-clockwise.
+  Provide an explicit resize/fewer-fields message when labels cannot fit.
+- **4000 — Color key and interaction:** draw distinct trace colors and a
+  lower-center in-plot key with a 50%-alpha background and matching colored
+  labels. Keep the key within the rectangle. Use the shared geometry for hit
+  testing, nearest-trace observation selection, dragging, focus and fullscreen.
+- **5000 — Verification:** test grouping, collective autoranges, strip order,
+  tick spacing and legend geometry; capture real Cairo/GTK frames, inspect them,
+  and exercise multi-unit navigation, resize/fullscreen and saved selections.
+  Regress source merging, gaps, range locks and staged installation.
+- **6000 — Documentation and delivery:** synchronize the viewer specification,
+  generated README/manual, automation contract, tests, task records and Ubersight;
+  ACP verified work while leaving existing physical checks independently open.
+
+Acceptance: BAT0/BAT1 percentages align on one shared scale; watts, watt-hours
+and temperatures each autorange independently on the same plot rectangle.
+Every selected field is keyed by color, axes alternate outside-in, rotated
+unit titles and intermediate ticks remain legible, and interactions use the
+same transforms as drawing. No live-refresh implementation or service change.
+
+Current status: all six slices complete. Native discovery ran 464 tests with
+nine opt-in GUI skips; all nine real GTK frame/interaction cases pass with
+isolated PyGObject 3.50 bindings. Python 3.9/3.14 compatibility suites and
+static/documentation checks pass. The host's pre-existing older-binding capture
+limitation is recorded separately, without changing its packages. Existing
+GNOME/hardware checks remain open. See [completed evidence](project-management/completed-tasks.md)
+and [the viewer specification](docs/specifications/history-viewer.md).
+
+## Phase 7000 — Graph selection and synchronized navigation
+
+Authorized 2026-09-16 by direct operator request. Keep cursor identity, selected
+time interval and graph viewport separate; do not alter collectors, snapshots,
+stored field preferences or deferred live-update work.
+
+- **1000 — Interaction contract:** specify click versus drag, double-click
+  clearing, inclusive table filtering, cursor identity, Fit and exact 2x zoom.
+  Define range-lock, search, empty-selection and reset behavior.
+- **2000 — Selection and rendering:** left-drag highlights a clamped interval
+  without panning; tolerate small click jitter and reverse drags. Single-click
+  sets the nearest observation cursor; double-click also clears the range and
+  remains on Graph. Draw the highlight below curves and retain arrow panning.
+- **3000 — Table synchronization:** filter paged queries by the selected range,
+  or expose the complete allowed snapshot with no selection. Highlight the
+  cursor by record identity when it is in the filtered table. Seek later pages
+  without hiding earlier rows; preserve selection through search and tab changes
+  and reject stale asynchronous results.
+- **4000 — Fit, zoom and automation:** insert disabled-unless-selected Fit
+  between minus and plus; fit exactly to the selection. Plus/minus halve/double
+  the graph viewport and set that interval as the shared table/highlight window.
+  Keep wheel zoom consistent, preserve hard limits, expose state and controls.
+- **5000 — Verification:** cover real SQLite paging, cursor identity, filtering,
+  reverse/clipped/jitter drags, resets, exact zoom and locks; verify actual Cairo
+  highlight pixels and isolated GTK interaction, then run regressions.
+- **6000 — Documentation and handoff:** synchronize generated README, viewer
+  manual/specification, tests and task records; publish accurate Ubersight state.
+  Leave existing GNOME/hardware and capture-binding follow-ups independent.
+
+Current status: all six slices complete locally. Native discovery ran 476 tests
+with 12 opt-in GUI skips; all 12 isolated GTK cases pass separately. Affected
+Python 3.9/3.14 suites, actual Cairo/GTK rendering and static/documentation checks
+pass. The approved refinement, evidence and remaining deployment boundary are
+in [completed tasks](project-management/completed-tasks.md). The operator approved
+ACP on 2026-09-16; installation and earlier GNOME/hardware checks are independent.

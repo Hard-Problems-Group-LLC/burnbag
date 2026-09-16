@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL-05). Phase 3100, slice 5000 bind-path repair passes all 57 affected tests, including the real systemd parser regression. Earlier GNOME and hardware checks remain deferred.
+Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL-06). Phase 3100, slice 5000 repair passes 65 installer and 17 tracking tests. Delivered phases 5000, 6000 and 7000 are preserved; earlier GNOME, hardware and capture-binding follow-ups remain separate.
 
 ## Phases
 
@@ -29,6 +29,9 @@ Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL
 | 3000 | blocked | GTK 4 history viewer |
 | 3100 | active | Viewer data and time ranges |
 | 4000 | done | Persistent viewer fields |
+| 5000 | done | Standard installer recovery |
+| 6000 | done | Shared viewer plot and unit axes |
+| 7000 | done | Graph selection and navigation |
 | 9000 | blocked | Manual validation and final closure |
 
 ## Slices
@@ -98,6 +101,22 @@ Notes: Awaiting operator reinstall and collector restart verification (BB-MANUAL
 | 1000 | 4000 | done | Build dialog and saved selections |
 | 2000 | 4000 | done | Automate and verify field changes |
 | 3000 | 4000 | done | Document and publish |
+| 1000 | 5000 | done | Reproduce restricted sudo PATH |
+| 2000 | 5000 | done | Repair privileged command verification |
+| 3000 | 5000 | done | Verify isolated installs and regressions |
+| 4000 | 5000 | done | Synchronize docs and hand off |
+| 1000 | 6000 | done | Specify unit groups and deferred live data |
+| 2000 | 6000 | done | Autorange groups and readable ticks |
+| 3000 | 6000 | done | Draw shared rectangle and axis strips |
+| 4000 | 6000 | done | Add translucent key and shared hit testing |
+| 5000 | 6000 | done | Verify actual frames and regressions |
+| 6000 | 6000 | done | Document and publish |
+| 1000 | 7000 | done | Specify selection and cursor behavior |
+| 2000 | 7000 | done | Select and render graph intervals |
+| 3000 | 7000 | done | Filter table and preserve cursor |
+| 4000 | 7000 | done | Add Fit and synchronized 2x zoom |
+| 5000 | 7000 | done | Verify gestures paging and rendering |
+| 6000 | 7000 | done | Document and hand off |
 
 ## Regenerate local tracking
 
@@ -123,7 +142,7 @@ active. A pending phase may contain already completed independent slices.
 A done phase must have all its slices done.
 
 Keep phase rows in execution order and deferred validation phase 9000 after the active delivery phases. Ubersight shows only two phases before the active row and five after;
-appending delivered work after 2000 can hide recent completion. Titles are clipped
+appending delivered work after 9000 can hide recent completion. Titles are clipped
 to one line, so keep the current action recognizable in a narrow pane. Lead
 blocked notes with the operator wait because the phase-stack view does not
 show the global blocked label.

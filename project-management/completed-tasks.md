@@ -1,5 +1,116 @@
 # Completed Tasks
 
+- `BB-2026-09-16-7000` — Graph selection and synchronized navigation.
+  Started and completed 2026-09-16; owner: Codex; direct side-conversation request.
+  - All six [phase 7000](../ROADMAP.md#phase-7000--graph-selection-and-synchronized-navigation)
+    slices are complete locally. Left-drag highlights an inclusive time interval
+    without panning or moving the cursor. Reversed/clipped drags work and small
+    click jitter is ignored. Single click selects the nearest observation;
+    double-click also clears the interval and remains on Graph.
+  - Table paging/search respect the selected interval and hard range lock, or
+    expose the complete allowed snapshot without a highlight. Cursor identity
+    distinguishes equal timestamps, remains remembered outside filters, and is
+    highlighted on Table when included. Seeking later cursor rows preserves
+    earlier rows instead of changing the table's lower bound; old asynchronous
+    responses cannot overwrite new filters.
+  - Fit is between minus/plus and enabled only with a highlighted interval.
+    It fits the viewport exactly to that interval. The operator explicitly
+    approved the refinement: plus/minus halve/double the viewport and update
+    the highlight/table window to match; arrows pan only the viewport. Wheel
+    zoom follows the same synchronization with finer increments. Reset and
+    All history clear selection/cursor, with All history also clearing search.
+    Controller Fit and selection/cursor/paging state expose the same handlers.
+  - Native Python 3.12.13 discovery ran 476 tests: 464 passed and 12 expected
+    opt-in GUI skips. All 12 real GTK/SQLite/socket/frame cases passed on a
+    private headless Weston display with the existing isolated Python 3.12.12 /
+    PyGObject 3.50 environment and Cairo renderer. Two strengthened cases were
+    rerun successfully for >500-row selected-interval cursor paging and completed
+    empty searches. Inspected the captured graph: highlight remains below
+    traces/key, inside the plot; toolbar order and enabled Fit are correct.
+  - All 65 affected cases passed natively. Python 3.9.21 and 3.14.6 each ran
+    those 65 cases with three expected native-Cairo skips and all other cases
+    passing. ResourceWarning was treated as an error. Generated-document
+    consistency, viewer/controller help, manual rendering, shell syntax and
+    whitespace checks pass. The full suite includes staged installer tests.
+  - Ubersight, AGENTS.md, roadmap, specifications, manual and generated README
+    are synchronized. No system packages, collector services, installed commands,
+    user preferences or live data changed. Existing native capture-binding and
+    GNOME/hardware follow-ups remain independent. The initial handoff left
+    changes local; the operator subsequently approved ACP on 2026-09-16.
+    Publication uses main and origin/main; installation remains a separate action.
+
+- `BB-2026-09-15-6000` — Shared-rectangle viewer traces and unit axes.
+  Started and completed 2026-09-15; owner: Codex; direct operator request.
+  - All six phase 6000 slices are complete. Every trace uses the exact same
+    plot rectangle; selected fields with matching units contribute to one
+    collective autorange. Different units retain independent transforms.
+    Semantic units separate state values, device-specific brightness counts
+    and unknown numeric fields instead of mixing arbitrary unitless data.
+  - Axis strips alternate outside-in, with centered counter-clockwise unit
+    titles. Nice ticks aim for ten divisions and respect 1.5-label-height
+    spacing. Flat, empty, negative, tiny, very large and subnormal values have
+    bounded readable ranges. Small canvases explicitly request more space.
+  - Each trace has a matching colored label in the lower-center in-plot key;
+    its background is 50% alpha. Drawing, dragging, closest-point selection,
+    focus and automation use one geometry model. Snapshot reads, source merging,
+    range locks, saved field choices and gaps remain intact.
+  - Verification: native Python 3.12.13 discovery ran 464 tests, with only nine
+    expected opt-in GUI skips. Python 3.9.21 and 3.14.6 each ran 445 tests with
+    13 expected GI/Cairo/GUI skips. All non-skipped tests passed, with
+    ResourceWarning treated as an error. This includes staged installer modes.
+    An additional deterministic 10,000-case numeric check retained all finite
+    observations and distinct tick labels across extreme magnitudes.
+  - All nine actual GTK/socket/frame tests passed on private headless Weston
+    using isolated Python 3.12.12/PyGObject 3.50.0/Cairo 1.29.1 bindings and the
+    Cairo renderer. Inspected the captured five-trace/four-unit frame: common
+    rectangle, shared BAT0/BAT1 percentages, alternating strips and translucent
+    colored key are visible. F11 resizing, cross-navigation, preferences and
+    exclusion of later database appends passed. Direct native Cairo tests also
+    verify rotated glyphs, trace/key colors and actual half-alpha blending.
+  - The host's PyGObject 3.46 cannot return GTK render nodes even for an
+    independent solid-rectangle snapshot. The pre-existing automation capture
+    failure is recorded as [BB-BUG-2026-09-15-03](bugs/open/BB-BUG-2026-09-15-03-gtk-capture-bindings.md).
+    Isolated-binding success does not claim native capture compatibility.
+    No system dependencies, services, installed commands or preferences changed.
+  - Bash syntax, shellcheck, generated-doc consistency, both manuals and
+    whitespace checks pass. AGENTS.md, ROADMAP, specifications, manuals,
+    generated README, tests and Ubersight are synchronized. Live viewer updates
+    are backlog-only; approved terminal graph-only remains unimplemented.
+    Refresh the intended installation to use the new graph. Existing GNOME
+    controls and hardware acceptance stay open under phases 3000/9000.
+
+- `BB-2026-09-15-5000` — Standard installer recovery under sudo.
+  Started and completed 2026-09-15; owner: Codex; direct operator request.
+  - All four phase 5000 slices are complete. Reproduced the missing
+    `/usr/local/bin` PATH failure; the privileged preflight and post-install
+    checks incorrectly assumed root's PATH described the operator's shell.
+  - Root verifies installed executable files independently of PATH and reports
+    the user-shell lookup check honestly. Non-root PATH guards remain. Sudo
+    caller UID/name are validated before selecting the account home; explicit
+    `--user-home` overrides it. Only managed dev launchers are retired, after
+    verifying all three installed commands; unrelated root/user files remain.
+  - Eight added regression tests cover full isolated publication and installed
+    execution after moving the checkout, restricted/competing root PATH,
+    identity and explicit-home handling, unmanaged preservation, check-only,
+    incomplete publication, and root dev/user-service rejection. Real file
+    deployment uses the service helper's staging mode, not host services.
+  - Native Python 3.12.13 discovery: 453 tests run, eight expected opt-in GUI
+    skips, all others pass. All 88 affected tests pass on Python 3.9.21 and
+    3.14.6. Initial sandbox socket/ownership failures disappear outside the
+    sandbox. Bash syntax, shellcheck, generated documents, both manual pages,
+    whitespace, native prerequisites and ordinary read-only preflight pass.
+  - AGENTS.md now explicitly requires synchronized Ubersight guidance/status,
+    thousands-spaced phases and per-phase slices restarting at 1000. Roadmap,
+    live status, installation contracts, README and manual are synchronized.
+  - The agent did not perform a privileged host installation. The operator
+    subsequently confirmed successful `sudo time ./install.sh` and all three
+    normal-shell command paths under `/usr/local/bin`, after `hash -r`.
+    Live acceptance passed at 2026-09-15T22:57:52-07:00, closing
+    [BB-MANUAL-05](ai-human-requests.md). See
+    [the closed bug](bugs/closed/BB-BUG-2026-09-15-02-sudo-installation.md).
+    Existing GNOME/hardware checks remain open. Graph-only is approved and
+    queued, with no implementation changes.
+
 - `BB-2026-09-15-4000` — Persistent viewer field selection.
   Started and completed 2026-09-15; owner: Codex; direct operator request.
   - All three phase 4000 slices are complete. Fields... replaces the drop-list

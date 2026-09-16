@@ -120,6 +120,7 @@ class Viewer:
         self.preferences_path = field_preferences_path()
         self.field_preferences, self.preference_warning = load_field_preferences(self.preferences_path)
         self.fields_button = None
+        self.fit_button = None
         self.fields_dialog = None
         self.fields_notebook = None
         self.field_checks: dict[str, dict[str, Any]] = {}
@@ -131,7 +132,8 @@ class Viewer:
         self.sources: Optional[Any] = sources
         self.initial_range = initial_range
         self.range_limits = initial_range if only else None
-        self.table_bounds = initial_range
+        self.table_bounds = self.range_limits
+        self.selected_range: Optional[tuple[float, float]] = None
         self.startup_now = time.time()
         self.graph_data = None
         self.graph_loading = False
@@ -150,7 +152,9 @@ class Viewer:
         self.search_text = ""
         self.view_range: Optional[tuple[float, float]] = initial_range
         self.focused: Optional[float] = None
+        self.focused_record_id: Optional[str] = None
         self.drag_origin: Optional[tuple[float, float, float]] = None
+        self.drag_moved = False
         self.pointer_state = {"target": None, "x": 0.0, "y": 0.0, "buttons": []}
         self.fullscreen = False
         self.automation_path: Optional[str] = None
@@ -195,12 +199,17 @@ class Viewer:
         fields_button.connect("clicked", self._open_fields)
         self.fields_button = fields_button
         toolbar.append(fields_button)
-        for label, callback in (("−", lambda *_: self._zoom(1.8)),
-                                ("+", lambda *_: self._zoom(0.55)),
+        for label, callback in (("−", lambda *_: self._zoom(2.0)),
+                                ("Fit", self._fit_selection),
+                                ("+", lambda *_: self._zoom(0.5)),
                                 ("←", lambda *_: self._pan(-0.25)),
                                 ("→", lambda *_: self._pan(0.25))):
             button = Gtk.Button(label=label)
             button.connect("clicked", callback)
+            if label == "Fit":
+                self.fit_button = button
+                button.set_sensitive(False)
+                button.set_tooltip_text("Fit both views to the highlighted time interval")
             toolbar.append(button)
         view_button = Gtk.Button(label="View selection")
         view_button.connect("clicked", self._view_selection)
@@ -246,10 +255,14 @@ class Viewer:
         scroll_controller.connect("scroll", self._graph_scrolled)
         graph_area.add_controller(scroll_controller)
         drag = Gtk.GestureDrag()
+        drag.set_button(1)
         drag.connect("drag-begin", self._drag_begin)
         drag.connect("drag-update", self._drag_update)
         drag.connect("drag-end", self._drag_end)
         graph_area.add_controller(drag)
+        # Group the recognizers so a drag cannot steal the click's sequence;
+        # our threshold then distinguishes a click from a selected interval.
+        drag.group(click)
         table = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         table.set_name("history-table-page")
         table.set_hexpand(True)
@@ -268,7 +281,8 @@ class Viewer:
         self.table_adjustment = scroll.get_vadjustment()
         table.append(scroll)
         notebook.append_page(graph, Gtk.Label(label="Graph"))
-        notebook.append_page(table, Gtk.Label(label="Measurements"))
+        notebook.append_page(table, Gtk.Label(label="Table"))
+        notebook.connect("switch-page", self._tab_changed)
         root.append(notebook)
         window.set_child(root)
 
@@ -420,6 +434,12 @@ class Viewer:
                         self._select_table_position(position)
                         self.pending_record_id = None
                         break
+                if self.pending_record_id and (not self.has_more or
+                        (self.after and self.focused is not None and self.after[0] > self.focused)):
+                    self.pending_record_id = None
+                elif (self.pending_record_id and self.notebook is not None and
+                      self.notebook.get_current_page() == 1):
+                    self._load_next_page()
             self._update_status()
             if self.graph_area is not None:
                 self.graph_area.queue_draw()
@@ -561,9 +581,8 @@ class Viewer:
         if term == self.search_text:
             return
         self.search_text = term
-        self.table_bounds = None
-        self.pending_record_id = None
         self._reset_table()
+        self._sync_table_cursor(load=False)
         if self.search_timeout:
             self.GLib.source_remove(self.search_timeout)
         self.search_timeout = self.GLib.timeout_add(300, self._start_search)
@@ -594,10 +613,10 @@ class Viewer:
             self._set_fullscreen(False)
             return True
         if keyval in (self.Gdk.KEY_plus, self.Gdk.KEY_equal, self.Gdk.KEY_KP_Add):
-            self._zoom(0.55)
+            self._zoom(0.5)
             return True
         if keyval in (self.Gdk.KEY_minus, self.Gdk.KEY_KP_Subtract):
-            self._zoom(1.8)
+            self._zoom(2.0)
             return True
         if keyval in (self.Gdk.KEY_Left, self.Gdk.KEY_KP_Left):
             self._pan(-0.25)
@@ -634,107 +653,116 @@ class Viewer:
         self.fullscreen = enabled
 
     def _draw_graph(self, area: Any, cr: Any, width: int, height: int) -> None:
+        from burnbag_viewer_data import fit_graph_text, graph_point
         cr.set_source_rgb(0.98, 0.98, 0.98)
         cr.paint()
-        if not self.graph_fields:
+        layout = self._graph_layout(width, height, cr)
+        measure = lambda text: cr.text_extents(text)[2]
+        if layout['plot'] is None:
             cr.set_source_rgb(0.15, 0.15, 0.18)
-            cr.set_font_size(14)
-            cr.move_to(24, 40)
-            cr.show_text("No graph fields selected. Use Fields... to choose measurements." if self.overview
-                         else "Discovering available fields…")
-        for field, x, y, panel_width, panel_height in self._graph_panels(width, height):
-            cr.save()
-            cr.rectangle(x, y, panel_width, panel_height)
-            cr.clip()
-            cr.translate(x, y)
-            self._draw_series_graph(cr, panel_width, panel_height, field)
-            cr.restore()
-
-    def _graph_panels(self, width: int, height: int) -> list[tuple[str, float, float, float, float]]:
-        count = len(self.graph_fields)
-        if not count:
-            return []
-        columns = (1 if count <= 3 else
-                   min(count, max(1, math.ceil(math.sqrt(count * width / max(1, height) * .5)))))
-        rows = math.ceil(count / columns)
-        return [(field, index % columns * width / columns, index // columns * height / rows,
-                 width / columns, height / rows) for index, field in enumerate(self.graph_fields)]
-
-    def _draw_series_graph(self, cr: Any, width: float, height: float, selected_field: str) -> None:
-        left, right, top, bottom = 78.0, max(80.0, width - 18.0), 32.0, max(34.0, height - 48.0)
-        minimum, maximum = self._range()
-        data = (self.graph_data or {}).get("series", {}).get(selected_field, {})
-        points = data.get("points", []) if data.get("field") == selected_field and data.get("range") == [minimum, maximum] else []
-        suffix = "%" if str(selected_field).endswith(("percentage", "percent")) else (
-            " W" if str(selected_field).endswith("power_w") else
-            " Wh" if str(selected_field).endswith(("energy_wh", "full_wh")) else
-            "°C" if str(selected_field).endswith("temperature_c") or str(selected_field).startswith("thermal_c.") else "")
-        if points:
-            low, high = min(p[1] for p in points), max(p[1] for p in points)
-            pad = max(1.0, (high - low) * .08)
-            low, high = low - pad, high + pad
-            if suffix == "%":
-                low, high = max(0.0, low), min(100.0, high)
-        else:
-            low, high = 0.0, 100.0 if suffix == "%" else 1.0
-        if high <= low:
-            high = low + 1
+            cr.move_to(12, min(40, height / 2))
+            message = layout['message'] if self.overview is not None else 'Discovering available fields…'
+            cr.show_text(fit_graph_text(message, max(0, width - 24), measure))
+            return
+        left, top, plot_width, plot_height = layout['plot']
+        right, bottom = left + plot_width, top + plot_height
+        minimum, maximum = layout['range']
         cr.set_line_width(1.0)
-        cr.set_source_rgb(0.78, 0.79, 0.81)
-        for index in range(6):
-            y = top + (bottom - top) * index / 5
-            cr.move_to(left, y)
-            cr.line_to(right, y)
+        cr.set_source_rgb(0.82, 0.83, 0.85)
+        # One grid, from the first unit. Other units have their own labeled ticks.
+        for tick in layout['axes'][0]['ticks']:
+            cr.move_to(left, tick['y'])
+            cr.line_to(right, tick['y'])
         cr.stroke()
         cr.save()
-        cr.rectangle(left - 2, top - 2, right - left + 4, bottom - top + 4)
+        cr.rectangle(*layout['plot'])
         cr.clip()
-        cr.set_source_rgb(0.12, 0.35, 0.72)
-        cr.set_line_width(1.8)
-        pixels, previous_segment = [], None
-        for stamp, value, _identity, segment in points:
-            x = left + (right - left) * (stamp - minimum) / (maximum - minimum)
-            y = bottom - (bottom - top) * (value - low) / (high - low)
-            if segment != previous_segment:
-                cr.move_to(x, y)
-            else:
-                cr.line_to(x, y)
-            pixels.append((x, y))
-            previous_segment = segment
-        cr.stroke()
-        # Dots make individual observations and one-point segments visible.
-        for x, y in pixels:
-            cr.new_sub_path()
-            cr.arc(x, y, 1.5, 0, 2 * math.pi)
-        cr.fill()
-        cr.restore()
-        cr.set_source_rgb(0.15, 0.15, 0.18)
-        cr.select_font_face("Sans")
-        cr.set_font_size(12)
-        cr.move_to(8, top + 4)
-        cr.show_text("%.4g%s" % (high, suffix))
-        cr.move_to(8, bottom)
-        cr.show_text("%.4g%s" % (low, suffix))
-        for stamp, align_right in ((minimum, False), (maximum, True)):
-            for offset, fmt in ((26, "%H:%M:%S"), (10, "%Y-%m-%d")):
-                label = datetime.fromtimestamp(stamp).strftime(fmt)
-                label_width = cr.text_extents(label)[2]
-                cr.move_to(max(left, right - label_width) if align_right else left, height - offset)
-                cr.show_text(label)
-        cr.move_to(left + 6, 18)
-        label = selected_field
-        while len(label) > 1 and cr.text_extents(label)[2] > right - left - 8:
-            label = label[:-2] + "…"
-        cr.show_text(label)
-        if not points:
-            cr.move_to(left + 18, top + 30)
-            cr.show_text("Loading observations…" if self.graph_loading else "No observations in this interval")
+        if self.selected_range is not None:
+            start, end = self.selected_range
+            x1 = left + plot_width * (start - minimum) / (maximum - minimum)
+            x2 = left + plot_width * (end - minimum) / (maximum - minimum)
+            cr.set_source_rgba(.2, .4, .85, .18)
+            cr.rectangle(x1, top, max(1, x2 - x1), plot_height)
+            cr.fill()
+        for trace in layout['traces']:
+            cr.set_source_rgb(*trace['color'])
+            cr.set_line_width(1.8)
+            pixels, previous_segment = [], None
+            for stamp, value, _identity, segment in trace['points']:
+                x, y = graph_point(layout['plot'], layout['range'], trace['range'], stamp, value)
+                if segment != previous_segment:
+                    cr.move_to(x, y)
+                else:
+                    cr.line_to(x, y)
+                pixels.append((x, y))
+                previous_segment = segment
+            cr.stroke()
+            for x, y in pixels:
+                cr.new_sub_path()
+                cr.arc(x, y, 1.5, 0, 2 * math.pi)
+            cr.fill()
         if self.focused is not None and minimum <= self.focused <= maximum:
-            x = left + (right - left) * (self.focused - minimum) / (maximum - minimum)
+            x = left + plot_width * (self.focused - minimum) / (maximum - minimum)
             cr.set_source_rgb(0.85, 0.16, 0.48)
             cr.move_to(x, top)
             cr.line_to(x, bottom)
             cr.stroke()
+        cr.restore()
+        cr.set_line_width(1)
+        cr.set_source_rgb(.35, .36, .39)
+        cr.rectangle(*layout['plot'])
+        cr.stroke()
+        for axis in layout['axes']:
+            cr.set_source_rgb(.15, .15, .18)
+            cr.move_to(axis['axis_x'], top)
+            cr.line_to(axis['axis_x'], bottom)
+            cr.stroke()
+            for tick in axis['ticks']:
+                xb, yb, tw, th, _xa, _ya = cr.text_extents(tick['label'])
+                x = axis['axis_x'] - tw - 7 - xb if axis['side'] == 'left' else axis['axis_x'] + 7 - xb
+                cr.move_to(x, tick['y'] - yb - th / 2)
+                cr.show_text(tick['label'])
+                cr.move_to(axis['axis_x'], tick['y'])
+                cr.line_to(axis['axis_x'] + (-4 if axis['side'] == 'left' else 4), tick['y'])
+                cr.stroke()
+            cr.save()
+            cr.translate(*axis['label_center'])
+            cr.rotate(-math.pi / 2)
+            xb, yb, tw, th, _xa, _ya = cr.text_extents(axis['display_label'])
+            cr.move_to(-xb - tw / 2, -yb - th / 2)
+            cr.show_text(axis['display_label'])
+            cr.restore()
+        for stamp, align_right in ((minimum, False), (maximum, True)):
+            for offset, fmt in ((26, "%H:%M:%S"), (10, "%Y-%m-%d")):
+                label = fit_graph_text(datetime.fromtimestamp(stamp).strftime(fmt), plot_width / 2 - 4, measure)
+                label_width = cr.text_extents(label)[2]
+                cr.move_to(max(left, right - label_width) if align_right else left, height - offset)
+                cr.show_text(label)
+        if not any(trace['points'] for trace in layout['traces']):
+            cr.move_to(left + 18, top + 30)
+            message = 'Loading observations…' if self.graph_loading else 'No observations in this interval'
+            cr.show_text(fit_graph_text(message, plot_width - 36, measure))
+        legend = layout['legend']
+        cr.set_source_rgba(1, 1, 1, legend['alpha'])
+        cr.rectangle(*legend['box'])
+        cr.fill_preserve()
+        cr.set_source_rgba(.35, .36, .39, legend['alpha'])
+        cr.stroke()
+        for entry in legend['entries']:
+            cr.set_source_rgb(*entry['color'])
+            cr.move_to(legend['box'][0] + entry['position'][0], legend['box'][1] + entry['position'][1])
+            cr.show_text(entry['display_label'])
+
+    def _graph_layout(self, width: float, height: float, cr: Any = None) -> dict[str, Any]:
+        from burnbag_viewer_data import graph_layout
+        if cr is None:
+            import cairo
+            cr = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))
+        cr.select_font_face('Sans')
+        cr.set_font_size(12)
+        return graph_layout(self.graph_fields, (self.graph_data or {}).get('series', {}),
+                            self._range(), width, height, lambda text: cr.text_extents(text)[2],
+                            cr.font_extents()[2])
 
     def _row_record(self, position: int) -> Optional[dict[str, Any]]:
         if self.filter_model is None or self.store is None:
@@ -754,7 +782,7 @@ class Viewer:
 
     def _focus_record(self, record: dict[str, Any]) -> None:
         stamp = float(record["captured_at"])
-        self.focused = stamp
+        self._set_cursor(record)
         self._set_view_range(stamp - 1800, stamp + 1800)
         if self.notebook is not None:
             self.notebook.set_current_page(0)
@@ -768,61 +796,100 @@ class Viewer:
         stamps = [float(row["captured_at"]) for row in records if row]
         if stamps:
             low, high = min(stamps), max(stamps)
-            margin = max(60.0, (high - low) * .05)
-            self._set_view_range(low - margin, high + margin)
-            self.focused = None
+            self._set_selected_range((low, high))
+            self._fit_selection()
             if self.notebook is not None:
                 self.notebook.set_current_page(0)
             if self.graph_area is not None:
                 self.graph_area.queue_draw()
 
     def _graph_clicked(self, gesture: Any, count: int, x: float, y: float) -> None:
-        if count < 1 or self.graph_area is None:
+        from burnbag_viewer_data import graph_point
+        if count < 1 or self.graph_area is None or self.drag_moved:
             return
-        panel = next((p for p in self._graph_panels(self.graph_area.get_width(), self.graph_area.get_height())
-                      if p[1] <= x < p[1] + p[3] and p[2] <= y < p[2] + p[4]), None)
-        if panel is None:
+        layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height())
+        if layout['plot'] is None:
             return
-        field, origin_x, _origin_y, width, _height = panel
-        points = (self.graph_data or {}).get("series", {}).get(field, {}).get("points", [])
-        if not points:
+        left, top, width, height = layout['plot']
+        if not (left <= x <= left + width and top <= y <= top + height):
             return
-        minimum, maximum = self._range()
-        if (self.graph_data or {}).get("range") != [minimum, maximum]:
-            return
-        left, right = 78.0, max(80.0, width - 18.0)
-        stamp = minimum + max(0, min(1, (x - origin_x - left) / (right - left))) * (maximum - minimum)
-        nearest = min(points, key=lambda row: abs(row[0] - stamp))
-        self.focused = nearest[0]
         if count >= 2:
-            self._show_table_record({"captured_at": nearest[0], "id": nearest[2]})
-            self.notebook.set_current_page(1)
+            self._set_selected_range(None)
+        candidates = []
+        for trace in layout['traces']:
+            for point in trace['points']:
+                px, py = graph_point(layout['plot'], layout['range'], trace['range'], *point[:2])
+                candidates.append(((px - x) ** 2 + (py - y) ** 2, point))
+        if not candidates:
+            return
+        nearest = min(candidates, key=lambda item: item[0])[1]
+        self._set_cursor({"captured_at": nearest[0], "id": nearest[2]})
         self.graph_area.queue_draw()
 
-    def _show_table_record(self, record: dict[str, Any]) -> None:
-        if self.filter_model is None or self.selection is None or self.column_view is None:
+    def _set_cursor(self, record: dict[str, Any]) -> None:
+        self.focused = float(record["captured_at"])
+        self.focused_record_id = record["id"]
+        self._sync_table_cursor()
+
+    def _sync_table_cursor(self, *, load: bool = True) -> None:
+        """Locate the cursor without changing the table's domain or search."""
+        self.pending_record_id = None
+        if self.selection is None:
             return
-        for position in range(self.filter_model.get_n_items()):
-            item = self.filter_model.get_item(position)
-            try:
-                match = json.loads(item.get_string()).get("id") == record.get("id")
-            except (AttributeError, ValueError, TypeError):
-                match = False
-            if match:
-                self.selection.select_item(position, True)
-                try:
-                    self.column_view.scroll_to(position, None, self.Gtk.ListScrollFlags.FOCUS, None)
-                except (AttributeError, TypeError):
-                    pass
+        self.selection.unselect_all()
+        if self.focused_record_id is None:
+            return
+        if self.table_bounds is not None and not self.table_bounds[0] <= self.focused <= self.table_bounds[1]:
+            return
+        for position, row in enumerate(self.loaded):
+            if row.get("id") == self.focused_record_id:
+                self._select_table_position(position)
                 return
-        # Seek the table by time, preserving context instead of replacing the
-        # user's search with an opaque ID or scanning all preceding pages.
-        self.search_text = ""
-        self.search_entry.set_text("")
-        self.table_bounds = (record["captured_at"], self.range_limits[1] if self.range_limits else None)
-        self._reset_table()
-        self.pending_record_id = record["id"]
-        self._load_next_page()
+        if self.has_more and (self.after is None or self.after[0] <= self.focused):
+            self.pending_record_id = self.focused_record_id
+            if load and self.notebook is not None and self.notebook.get_current_page() == 1:
+                self._load_next_page()
+
+    def _tab_changed(self, notebook: Any, page: Any, position: int) -> None:
+        if position == 1:
+            self._sync_table_range()
+            self._sync_table_cursor()
+            # switch-page can run before get_current_page() changes.
+            if self.pending_record_id:
+                self._load_next_page()
+
+    def _sync_table_range(self) -> None:
+        bounds = self.selected_range if self.selected_range is not None else self.range_limits
+        if bounds != self.table_bounds:
+            self.table_bounds = bounds
+            self._reset_table()
+            self._sync_table_cursor(load=False)
+            self._load_next_page()
+            self._update_status()
+
+    def _set_selected_range(self, bounds: Optional[tuple[float, float]], *, sync_table: bool = True) -> None:
+        if bounds is not None:
+            low, high = sorted(map(float, bounds))
+            if self.range_limits is not None:
+                low = max(self.range_limits[0], min(low, self.range_limits[1]))
+                high = max(self.range_limits[0], min(high, self.range_limits[1]))
+            bounds = (low, high)
+        self.selected_range = bounds
+        if self.fit_button is not None:
+            self.fit_button.set_sensitive(bounds is not None)
+        if sync_table:
+            self._sync_table_range()
+        if self.graph_area is not None:
+            self.graph_area.queue_draw()
+
+    def _fit_selection(self, *_args: Any) -> None:
+        if self.selected_range is None:
+            return
+        low, high = self.selected_range
+        if low == high:
+            low, high = low - .5, high + .5
+        self._set_view_range(low, high)
+        self._sync_table_range()
 
     def _select_table_position(self, position: int) -> None:
         if self.selection is None or self.column_view is None:
@@ -841,27 +908,43 @@ class Viewer:
         return False
 
     def _drag_begin(self, gesture: Any, x: float, y: float) -> None:
+        layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height())
+        self.drag_origin = None
+        self.drag_moved = False
+        if layout['plot'] is None:
+            return
+        left, top, width, height = layout['plot']
+        if not (left <= x <= left + width and top <= y <= top + height):
+            return
         low, high = self._range()
         self.drag_origin = (x, low, high)
-        panels = self._graph_panels(self.graph_area.get_width(), self.graph_area.get_height())
-        self.drag_width = max(1, (panels[0][3] if panels else self.graph_area.get_width()) - 96)
+        self.drag_width = width
+        self.drag_left = left
 
     def _drag_update(self, gesture: Any, dx: float, dy: float) -> None:
         if self.drag_origin is None or self.graph_area is None:
             return
-        _origin, low, high = self.drag_origin
+        origin, low, high = self.drag_origin
+        if not self.drag_moved and abs(dx) < 4:
+            return
+        self.drag_moved = True
         width = self.drag_width
-        shift = -dx / width * (high - low)
-        self._set_view_range(low + shift, high + shift)
+        first = low + (origin - self.drag_left) / width * (high - low)
+        last = low + max(0, min(width, origin + dx - self.drag_left)) / width * (high - low)
+        self._set_selected_range((first, last), sync_table=False)
 
     def _drag_end(self, gesture: Any, dx: float, dy: float) -> None:
+        self._drag_update(gesture, dx, dy)
         self.drag_origin = None
+        if self.drag_moved:
+            self._sync_table_range()
 
     def _zoom(self, factor: float) -> None:
         low, high = self._range()
         center = (low + high) / 2
         half = max(.5, (high - low) * factor / 2)
         self._set_view_range(center - half, center + half)
+        self._set_selected_range(self.view_range)
 
     def _pan(self, fraction: float) -> None:
         low, high = self._range()
@@ -882,11 +965,16 @@ class Viewer:
 
     def _reset_view(self) -> None:
         self.focused = None
+        self.focused_record_id = None
+        self._set_selected_range(None)
+        self._sync_table_cursor()
         self.view_range = self.initial_range
         self._queue_graph_read()
 
     def _all_history(self, *_args: Any) -> None:
         self.focused = None
+        self.focused_record_id = None
+        self._set_selected_range(None, sync_table=False)
         self.view_range = self.range_limits
         self.table_bounds = self.range_limits
         self.search_text = ""
@@ -940,6 +1028,10 @@ class Viewer:
 
     def automation_state(self) -> dict[str, Any]:
         series = (self.graph_data or {}).get("series", {})
+        layout = self._graph_layout(self.graph_area.get_width(), self.graph_area.get_height()) if self.graph_area else None
+        if layout is not None:
+            layout['traces'] = [{key: value for key, value in trace.items() if key != 'points'}
+                                for trace in layout['traces']]
         return {
             "title": "Burnbag Power History",
             "fullscreen": self.fullscreen,
@@ -963,7 +1055,15 @@ class Viewer:
             "range": list(self._range()),
             "initial_range": self.initial_range,
             "range_limits": self.range_limits,
+            "selected_range": self.selected_range,
+            "cursor": ({"captured_at": self.focused, "id": self.focused_record_id}
+                       if self.focused_record_id is not None else None),
+            "fit_enabled": bool(self.fit_button and self.fit_button.get_sensitive()),
             "table_bounds": self.table_bounds,
+            "table_loading": self.loading,
+            "table_has_more": self.has_more,
+            "cursor_row_selected": any(row.get("id") == self.focused_record_id and self.selection.is_selected(i)
+                                       for i, row in enumerate(self.loaded)) if self.selection else False,
             "table_range": [self.loaded[0]["captured_at"], self.loaded[-1]["captured_at"]] if self.loaded else None,
             "table_sources": sorted({row["source"] for row in self.loaded}),
             "search": self.search_text,
@@ -974,6 +1074,7 @@ class Viewer:
             "graph_details": {field: {"samples": data["sample_count"], "points": len(data["points"])}
                               for field, data in series.items()},
             "graph_range": (self.graph_data or {}).get("range"),
+            "graph_layout": layout,
             "program": str(Path(__file__).resolve()),
             "source_details": self.sources.source_info,
             "merged_source_counts": (self.overview or {}).get("source_counts", {}),
@@ -1032,6 +1133,9 @@ class Viewer:
             return self.automation_state()
         if operation == "view":
             self._view_selection()
+            return self.automation_state()
+        if operation == "fit":
+            self._fit_selection()
             return self.automation_state()
         if operation == "series":
             field = request.get("name")
@@ -1105,7 +1209,7 @@ class Viewer:
             clicks = request.get("clicks", 1)
             action = request.get("action", "click")
             x, y = request.get("x", 0), request.get("y", 0)
-            if (target not in ("graph", "table", "tab-graph", "tab-table", "view-selection", "fields") or
+            if (target not in ("graph", "table", "tab-graph", "tab-table", "view-selection", "fields", "fit") or
                     button not in (1, 2, 3) or clicks not in (1, 2) or
                     not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or
                     not 0 <= x <= 1 or not 0 <= y <= 1 or
@@ -1124,9 +1228,9 @@ class Viewer:
                 if action == "press" and button == 1:
                     self._drag_begin(None, pixels_x, pixels_y)
                 elif action in ("move", "release") and self.drag_origin is not None:
-                    dragging = True
                     dx = pixels_x - self.drag_origin[0]
                     self._drag_update(None, dx, 0)
+                    dragging = self.drag_moved
                     if action == "release":
                         self._drag_end(None, dx, 0)
             if action in ("click", "release") and target == "fields":
@@ -1137,10 +1241,14 @@ class Viewer:
                 self.notebook.set_current_page(1)
             elif action in ("click", "release") and target == "view-selection":
                 self._view_selection()
+            elif action in ("click", "release") and target == "fit":
+                self._fit_selection()
             elif action in ("click", "release") and not dragging and target == "graph" and self.graph_area is not None:
                 if button == 3:
                     self._reset_view()
-                else:
+                elif button == 1:
+                    if action == "click":
+                        self.drag_moved = False
                     self._graph_clicked(None, clicks, x * self.graph_area.get_width(),
                                          y * self.graph_area.get_height())
             elif action == "wheel":

@@ -18,12 +18,17 @@
     regression fails before the fix and passes afterward for ordinary and
     special-character checkout paths. Tests ran unprivileged, outside the
     sandbox for the parser, without sudo or host-service mutations.
+    Integration with the already delivered phases 5000–7000 also passes all
+    65 installer tests, preserving the standard installer and viewer features.
+    All 17 tracking tests pass on the reconciled records; final shell syntax
+    and whitespace checks pass.
   - Acceptance: correct parsed source/destination for ordinary and special
     checkout paths; affected tests pass; operator reinstallation/start yields
-    a ready collector and advancing history observations (BB-MANUAL-05).
+    a ready collector and advancing history observations (BB-MANUAL-06).
   - The operator retains installation and service control. Agents must not
     execute sudo commands; no successful host repair is claimed yet. Automated
-    work is complete; installed acceptance awaits BB-MANUAL-05. Earlier
+    repair and installer integration checks are complete; installed acceptance
+    awaits BB-MANUAL-06. Earlier
     phase 3000/9000 manual checks remain deferred.
 
 - `BB-2026-09-14-V` — Manual validation and final closure; started 2026-09-14.
@@ -80,6 +85,12 @@
   - Slice 6000 awaits GNOME title-bar
     minimize/maximize/restore/close checks in BB-MANUAL-04. Phase 9000's
     earlier manual checks remain independently deferred.
+  - Phase 6000 is now complete: all traces share one rectangle, unit-grouped
+    scales and alternating label strips, with a lower-center 50%-alpha color
+    key. Actual GTK frames and interactions pass; the same GNOME check can
+    include the updated graph after refreshing the intended installation.
+    Native PyGObject 3.46 capture has a separately recorded pre-existing binding
+    limitation; see [completed phase evidence](completed-tasks.md).
   - Follow-up phase 3100's initial delivery is complete; its investigation, fixes and
     426-test verification are in [completed tasks](completed-tasks.md).
     The earlier isolated assistant environment is not the operator's data
@@ -89,8 +100,15 @@
     all three bare commands from the checkout. The operator retains deployment.
     Follow-up slice 5000 also makes the selected system/user service follow
     checkout code and makes standard installation select installed copies.
-    On 2026-09-16, slice 5000 was reactivated for BB-2026-09-16-01 above after
-    the operator reported the system dev collector startup failure.
+    Phase 5000 subsequently repairs standard installation under sudo's restricted
+    PATH and resolves the caller home for managed dev-launcher retirement;
+    automated verification is complete. Operator standard installation and
+    all three normal-shell command paths passed on 2026-09-15; BB-MANUAL-05
+    is closed. Installed standard commands were selected during that check.
+    On 2026-09-16, the operator returned to development installation after
+    relocating the checkout. Slice 5000 was reactivated for BB-2026-09-16-01
+    above after the system dev collector startup failure; BB-MANUAL-06 now
+    tracks its separate reinstall and restart acceptance.
 
 - `BB-MANUAL-04` — GTK 4 history viewer GNOME window controls.
   - Created and activated: 2026-09-15. Owner: operator. Requestor: Codex.

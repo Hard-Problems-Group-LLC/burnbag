@@ -64,7 +64,8 @@ class InstallTests(unittest.TestCase):
 
     def environment(self, *, user_bin_first: bool = True) -> dict[str, str]:
         environment = os.environ.copy()
-        for key in ("BURNBAG_DEV_LAUNCHER_MODE", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
+        for key in ("BURNBAG_DEV_LAUNCHER_MODE", "XDG_STATE_HOME", "XDG_CONFIG_HOME",
+                    "SUDO_USER", "SUDO_UID", "SUDO_GID"):
             environment.pop(key, None)
         user_bin = self.user_home / ".local" / "bin"
         ordered_bins = (
@@ -247,6 +248,146 @@ class InstallTests(unittest.TestCase):
         self.assertIn("would override the standard command", result.stderr)
         self.assertIn("operator-owned", shadow.read_text())
         self.assertFalse(prefix.exists())
+
+    def privileged_fixture(self) -> tuple[Path, dict[str, str]]:
+        """Exercise root branches without granting the test process privileges.
+
+        Substitute only Bash's immutable identity, the account lookup, and the
+        helper's deployment root. Real file publication stays in our private
+        stage; the helper's staged mode cannot touch host accounts/services.
+        """
+        installer = self.checkout / "install.sh"
+        installer.write_text(installer.read_text().replace("${EUID}", "0"))
+        for command in ("burnbag", "burnbag-viewer", "burnbag-viewerctl"):
+            (self.system_bin / command).unlink()
+        prefix = self.run_root / "stage/usr/local"
+        (self.checkout / "scripts/install_services.py").write_text(
+            "import runpy, sys\nfrom pathlib import Path\n"
+            "root = Path(__file__).resolve().parents[2]\n"
+            "index = sys.argv.index('--prefix') + 1\n"
+            "assert sys.argv[index] == str(root / 'stage/usr/local')\n"
+            "sys.argv[index] = '/usr/local'\n"
+            "sys.argv.extend(['--destdir', str(root / 'stage')])\n"
+            "runpy.run_path(str(Path(__file__).with_name('install_services_real.py')), run_name='__main__')\n"
+        )
+        self.write_command("getent", "[[ $1 == passwd && $2 == 12345 ]] || exit 2\n"
+                           + "printf '%s\\n' " + shlex.quote(
+                               f"operator:x:12345:12345:Test Operator:{self.user_home}:/bin/bash"))
+        self.write_command("mandb", "exit 0")
+        root_home = self.run_root / "root-home"
+        root_home.mkdir()
+        environment = self.environment()
+        environment.update(HOME=str(root_home), SUDO_UID="12345", SUDO_USER="operator",
+                           PATH=f"{self.system_bin}:/usr/sbin:/usr/bin:/sbin:/bin")
+        return prefix, environment
+
+    def test_sudo_restricted_path_installs_independent_commands_and_retires_callers_launchers(self):
+        launcher, _ = self.existing_managed_launcher()
+        for command, source in (("burnbag", "burnbag.py"),
+                                ("burnbag-viewer", "burnbag_viewer.py"),
+                                ("burnbag-viewerctl", "burnbag_viewerctl.py")):
+            (launcher.parent / command).write_text(launcher.read_text())
+            link = self.checkout / ".local/bin" / command
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(self.checkout / source)
+        prefix, environment = self.privileged_fixture()
+        # Even a competing command on root's PATH says nothing about the
+        # operator's shell; verification must use the installed absolute path.
+        self.write_command("burnbag", "exit 99")
+        root_launcher = Path(environment["HOME"]) / ".local/bin/burnbag"
+        root_launcher.parent.mkdir(parents=True)
+        root_launcher.write_text(launcher.read_text())
+        result = self.run_installer("--prefix", str(prefix), "--skip-prerequisites", environment=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Verified installed command", result.stdout)
+        self.assertIn("caller shell's PATH", result.stdout)
+        self.assertNotIn("Bare burnbag selects", result.stdout)
+        self.assertTrue(root_launcher.exists())
+        moved = self.checkout.with_name("checkout-away")
+        self.checkout.rename(moved)
+        for command in ("burnbag", "burnbag-viewer", "burnbag-viewerctl"):
+            self.assertFalse((launcher.parent / command).exists())
+            self.assertFalse((moved / ".local/bin" / command).is_symlink())
+            result = subprocess.run([str(prefix / "bin" / command), "--help"],
+                                    env=environment, cwd=self.user_home, text=True,
+                                    capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_sudo_check_is_read_only_and_preserves_launchers(self):
+        launcher, contents = self.existing_managed_launcher()
+        prefix, environment = self.privileged_fixture()
+        result = self.run_installer("--check", "--prefix", str(prefix), "--skip-prerequisites",
+                                    environment=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(prefix.parent.exists())
+        self.assertEqual(launcher.read_text(), contents)
+        self.assertNotIn("Verified installed command", result.stdout)
+
+    def test_sudo_invalid_identity_fails_before_writes(self):
+        prefix, environment = self.privileged_fixture()
+        for uid, name in (("not-a-uid", "operator"), ("12345", "someone-else"),
+                          ("12345", ""), ("", "operator"), ("54321", "operator")):
+            with self.subTest(uid=uid, name=name):
+                environment.update(SUDO_UID=uid, SUDO_USER=name)
+                result = self.run_installer("--prefix", str(prefix), "--skip-prerequisites",
+                                            environment=environment)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("sudo caller", result.stderr)
+                self.assertFalse(prefix.parent.exists())
+
+    def test_sudo_explicit_home_overrides_account_lookup_and_preserves_unmanaged_launcher(self):
+        prefix, environment = self.privileged_fixture()
+        environment["SUDO_UID"] = "invalid"
+        self.write_command("getent", "exit 99")
+        shadow = self.user_home / ".local/bin/burnbag-viewer"
+        shadow.parent.mkdir(parents=True)
+        shadow.write_text("operator-owned\n")
+        result = self.run_installer("--prefix", str(prefix), "--skip-prerequisites",
+                                    "--user-home", str(self.user_home), environment=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(shadow.read_text(), "operator-owned\n")
+        self.assertIn("Preserved unmanaged launcher", result.stderr)
+
+    def test_direct_root_uses_home_without_requiring_prefix_on_path(self):
+        prefix, environment = self.privileged_fixture()
+        del environment["SUDO_UID"], environment["SUDO_USER"]
+        self.write_command("getent", "exit 99")
+        result = self.run_installer("--check", "--prefix", str(prefix), "--skip-prerequisites",
+                                    environment=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(prefix.parent.exists())
+
+    def test_root_dev_and_user_service_are_rejected_before_writes(self):
+        prefix, environment = self.privileged_fixture()
+        for arguments in (("--mode", "dev"), ("--install-user-service", "--prefix", str(prefix))):
+            for check in ((), ("--check",)):
+                with self.subTest(arguments=arguments, check=check):
+                    result = self.run_installer(*arguments, *check, "--skip-prerequisites",
+                                                environment=environment)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("non-root", result.stderr)
+                    self.assertFalse(prefix.parent.exists())
+
+    def test_sudo_missing_installed_command_fails_before_retiring_launchers(self):
+        launcher, contents = self.existing_managed_launcher()
+        prefix, environment = self.privileged_fixture()
+        (self.checkout / "scripts/install_services.py").write_text("# Simulate incomplete publication.\n")
+        result = self.run_installer("--prefix", str(prefix), "--skip-prerequisites", environment=environment)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Installed command is not a regular executable", result.stderr)
+        self.assertEqual(launcher.read_text(), contents)
+        self.assertNotIn("[OK] Installed burnbag", result.stdout)
+
+    def test_nonroot_ignores_sudo_metadata_and_keeps_path_guard(self):
+        environment = self.environment()
+        environment.update(SUDO_UID="invalid", SUDO_USER="nobody")
+        result = self.run_installer("--mode", "dev", "--check", "--skip-prerequisites",
+                                    environment=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        environment["PATH"] = "/usr/sbin:/usr/bin:/sbin:/bin"
+        result = self.run_installer("--check", "--skip-prerequisites", environment=environment)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Standard command directory is not on PATH", result.stderr)
 
     def test_dev_install_preserves_private_existing_launcher_directory(self) -> None:
         user_bin = self.user_home / ".local/bin"
