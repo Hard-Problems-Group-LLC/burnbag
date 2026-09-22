@@ -1,5 +1,41 @@
 # Completed Tasks
 
+- `BB-2026-09-21-8000` — Reconcile and retire duplicate checkout.
+  Created and started: 2026-09-21T19:18:55-07:00. Completed:
+  2026-09-21T19:46:56-07:00. Owner: Codex; deletion authorized by operator.
+  - All three [phase 8000](../ROADMAP.md#phase-8000--duplicate-checkout-retirement)
+    slices are complete. The original pathname was absent; its retained copy
+    was located under a renamed parent and identified through Git and local
+    assistant metadata. The authoritative checkout remains the sole work target.
+  - Retired HEAD 008bd73 is an ancestor of authoritative f673aa4, eight commits
+    ahead. All 44 commits reachable through retired refs/reflogs are already
+    integrated. Both worktree and framework submodule are clean; no stash,
+    untracked source changes or unreachable commits exist. The two unreachable
+    blobs already exist here. No source merge or application change was needed.
+  - All 21 retired conversation transcripts are present here byte-for-byte,
+    either identical or as prefixes of newer files; every retired thread ID
+    exists in the current database. Live assistant databases and transcripts
+    were not replaced or edited. Six historical SQLite snapshots passed
+    integrity checks. Recovery scripts/plan and old local evidence were
+    archived privately with SHA-256 verification, excluding credentials and
+    executable package caches. The inert archive is approximately 9.3 MiB.
+  - Host inspection identified this session and an independent admin session;
+    no duplicate burnbag assistant was running. No process signals were sent.
+    Exact-root, inode, mount, Git, full-inventory, archive and process-reference
+    guards preceded deletion of only the retired burnbag directory. The first
+    deletion attempt stopped on Git-directory timestamp changes; inspection
+    confirmed identical file contents, and optional Git locks were disabled
+    before the verified retry. Neighboring projects and existing recovery
+    material were retained. Exact paths and the deletion receipt remain private
+    under `.local/retired-checkout-evidence/2026-09-21/`.
+  - Post-deletion checks confirm both retired paths absent, this checkout and
+    the independent assistant processes intact, and the installed system
+    collector active/enabled/ready. The installation is standard mode and
+    references the authoritative source. Fresh persisted telemetry was 30.5
+    seconds old; no restart or installation was necessary. All 17 tracking
+    tests and whitespace checks pass. ROADMAP, AGENTS and Ubersight are updated;
+    existing GNOME/hardware observations and capture-binding work remain open.
+
 - `BB-2026-09-16-01` — Repair system dev collector startup.
   Created and started: 2026-09-16T00:41:12-07:00. Completed:
   2026-09-16T01:17:50-07:00. Owner: Codex; installed acceptance: operator.

@@ -2,6 +2,34 @@
 
 Owner: burnbag maintainers. Authorized by the operator on 2026-09-14.
 
+## Phase 8000 — Duplicate checkout retirement
+
+Authorized 2026-09-21. Keep this checkout as the sole authoritative burnbag
+project. Identify and stop only a confirmed duplicate burnbag assistant;
+preserve other projects and this session. Reconcile useful work before
+removing the retired checkout, including its renamed retained location.
+
+- **1000 — Identify writers and compare work:** inspect process ownership,
+  Git refs, local changes, submodule state and ignored artifacts.
+- **2000 — Preserve unique evidence:** integrate useful source changes when
+  present; retain unique historical material privately without replacing live
+  assistant databases or transcript indexes.
+- **3000 — Retire and verify:** remove only the identified duplicate after
+  preservation and dependency checks; verify the authoritative checkout,
+  installed service and unrelated sessions; synchronize tracking.
+
+Completed 2026-09-21: all three slices complete. All 44 commits
+reachable through the retired copy's refs and reflogs are already integrated;
+its 21 transcripts are preserved here unchanged or as prefixes of newer
+versions. Six historical database snapshots and unique recovery evidence are
+archived privately and hash-verified. The retired checkout was deleted after
+rechecking its complete inventory and process dependencies. No duplicate
+assistant was running, so no process signals were sent; the separate admin
+session and neighboring retained project remain untouched. Collector readiness
+and fresh persisted samples passed after deletion; all 17 tracking tests pass.
+See [completed evidence](project-management/completed-tasks.md).
+Existing GNOME and hardware checks remain deferred independently.
+
 ## Phase 1000 — Relative history durations
 
 Authorized 2026-09-15. Phase and slice IDs now follow the spaced numbering

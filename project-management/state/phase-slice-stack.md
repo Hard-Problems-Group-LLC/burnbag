@@ -9,7 +9,7 @@ records; this file provides the recovery anchor for the current plan.
 
 Delivery: blocked
 
-Notes: Awaiting existing GNOME and hardware observations. Collector recovery passed operator installation, restart, readiness and fresh-history checks; BB-MANUAL-06 and phase 3100 are complete. Delivered phases 5000, 6000 and 7000 remain complete; capture-binding follow-up is separate.
+Notes: Awaiting existing GNOME and hardware observations. Duplicate retirement is complete: all useful code and conversations were already here, historical evidence is archived, and the retired checkout is deleted. Collector remains ready with fresh persisted data; other projects' assistants are untouched.
 
 ## Phases
 
@@ -26,12 +26,13 @@ Notes: Awaiting existing GNOME and hardware observations. Collector recovery pas
 | P9 | done | Installation and documentation |
 | P10 | done | Integration and handoff |
 | 1000 | done | Relative history durations |
-| 3000 | active | GTK 4 history viewer |
 | 3100 | done | Viewer data and time ranges |
 | 4000 | done | Persistent viewer fields |
 | 5000 | done | Standard installer recovery |
 | 6000 | done | Shared viewer plot and unit axes |
 | 7000 | done | Graph selection and navigation |
+| 8000 | done | Retire duplicate checkout |
+| 3000 | active | GTK 4 history viewer |
 | 9000 | blocked | Manual validation and final closure |
 
 ## Slices
@@ -117,6 +118,9 @@ Notes: Awaiting existing GNOME and hardware observations. Collector recovery pas
 | 4000 | 7000 | done | Add Fit and synchronized 2x zoom |
 | 5000 | 7000 | done | Verify gestures paging and rendering |
 | 6000 | 7000 | done | Document and hand off |
+| 1000 | 8000 | done | Identify writers and compare work |
+| 2000 | 8000 | done | Preserve unique evidence |
+| 3000 | 8000 | done | Retire and verify |
 
 ## Regenerate local tracking
 

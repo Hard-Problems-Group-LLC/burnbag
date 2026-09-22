@@ -48,7 +48,9 @@ FieldManual footer.
   selection. Phase `5000` covers standard installer recovery under sudo.
   Phase `6000` covers shared-rectangle viewer traces and unit-based axes.
   Phase `7000` covers graph range selection, cursor/table synchronization and
-  selection-aware zoom. Allocate the next new phase as `8000`.
+  selection-aware zoom. Phase `8000` covers duplicate-checkout reconciliation
+  and retirement. Allocate the next new phase as `10000`; `9000` remains
+  reserved for the existing manual validation work.
 
 ## Ubersight maintenance
 
